@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "build123d-sandbox"
+version = "0.1.0"
+description = "Ring generator and sandbox apps using build123d and Tkinter"
+readme = "README.md"
+authors = [
+    {name = "Vince", email = "vince@example.com"},
+]
+requires-python = ">=3.10"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+]
+
+dependencies = [
+    "build123d>=0.6.0",
+    "ttkbootstrap>=1.6.0",
+    "pillow>=10.0.0",
+    "vtkmodules>=9.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.1.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[project.scripts]
+ring-app = "ring_app.ring_vincent:main"
+sandbox-app = "sandbox.sandbox_app:main"
