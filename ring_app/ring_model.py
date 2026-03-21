@@ -8,4 +8,7 @@ def build_ring(od: float, inner_d: float, thickness: float) -> Part:
     with BuildPart() as ring:
         Cylinder(radius=od / 2.0, height=thickness)
         Cylinder(radius=inner_d / 2.0, height=thickness, mode=Mode.SUBTRACT)
-    return ring.part
+    part = ring.part
+    if part is None:
+        raise RuntimeError("Ring construction failed: no part was generated")
+    return part

@@ -19,7 +19,6 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 
 from build123d import Part, export_step
 from PIL import Image, ImageDraw, ImageTk
@@ -65,7 +64,7 @@ def _save_params(od: str, id_: str, thickness: str) -> None:
 
 
 class RingApp:
-	def __init__(self, root: tk.Widget) -> None:
+	def __init__(self, root: tk.Tk | tk.Toplevel | ttk.Window) -> None:
 		self.root = root
 		self.root.title("Ring Generator")
 		self.root.geometry("760x500")
@@ -137,7 +136,7 @@ class RingApp:
 		self.reset_view_btn = ttk.Button(buttons, text="Reset View", command=self.on_reset_view, state=tk.DISABLED)
 		self.reset_view_btn.pack(side=tk.LEFT, padx=(8, 0))
 
-		viewer_frame = ttk.LabelFrame(main, text="Viewer")
+		viewer_frame = ttk.Labelframe(main, text="Viewer")
 		viewer_frame.pack(fill=tk.BOTH, expand=True)
 
 		self.viewer_label = ttk.Label(viewer_frame, text="No model generated yet", anchor=tk.CENTER)
@@ -149,12 +148,14 @@ class RingApp:
 		self.viewer_label.bind("<B3-Motion>", self._on_pan_drag)
 		self.viewer_label.bind("<MouseWheel>", self._on_mouse_wheel)
 
-		self.renderer = vtkRenderer()
-		self.renderer.SetBackground(0.95, 0.97, 0.99)
-		self.render_window = vtkRenderWindow()
-		self.render_window.SetOffScreenRendering(1)
-		self.render_window.SetSize(800, 480)
-		self.render_window.AddRenderer(self.renderer)
+		renderer = vtkRenderer()
+		renderer.SetBackground(0.95, 0.97, 0.99)
+		render_window = vtkRenderWindow()
+		render_window.SetOffScreenRendering(1)
+		render_window.SetSize(800, 480)
+		render_window.AddRenderer(renderer)
+		self.renderer = renderer
+		self.render_window = render_window
 
 		ttk.Label(main, textvariable=self.status_var, anchor=tk.W).pack(fill=tk.X, pady=(8, 0))
 
@@ -495,7 +496,7 @@ def main() -> None:
 
 
 def launch_in_toplevel(parent: tk.Misc) -> None:
-	window = ttk.Toplevel(parent)
+	window = tk.Toplevel(parent)
 	RingApp(window)
 	window.minsize(640, 420)
 
