@@ -70,3 +70,6 @@ Thumbs.db
 
 # Local run artifacts
 *.log
+
+# Ignore ring_params.json, which contains user-specific parameters for the ring generator
+ring_params.json
