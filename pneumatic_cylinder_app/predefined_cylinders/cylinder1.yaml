@@ -1,0 +1,5 @@
+# Example cylinder in YAML format.
+---
+od: 30
+id: 28
+thickness: 10

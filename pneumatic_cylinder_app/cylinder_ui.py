@@ -1,18 +1,17 @@
-"""Simple Tkinter GUI for creating and exporting a ring with build123d.
+"""Tkinter GUI for creating and exporting a pneumatic cylinder with build123d.
 
 Inputs:
-- OD (mm)
-- ID (mm)
-- Thickness (mm)
+- TODO TODO
 
 Actions:
-- Generate: validates inputs, builds CAD ring, and shows it in an interactive 3D viewport in this app.
-- Export: saves the latest generated CAD ring as a STEP file.
+- Generate: validates inputs, builds CAD cylinder, and shows it in an interactive 3D viewport in this app.
+- Export: saves the latest generated CAD cylinder as a STEP file.
 """
 
 import json
 import math
 import os
+import sys
 import subprocess
 import tempfile
 import tkinter as tk
@@ -28,25 +27,56 @@ from vtkmodules.vtkFiltersSources import vtkDiskSource
 from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper, vtkRenderWindow, vtkRenderer
 from vtkmodules.vtkRenderingCore import vtkWindowToImageFilter
 
-try:
-	from .ring_model import build_ring
-except ImportError:
-	from ring_model import build_ring
+from pneumatic_cylinder_app.models.cylinder_model import build_cylinder
 
-_ICON_FILE = Path(__file__).parent / "ring_icon.ico"
-_CONFIG_FILE = Path(__file__).parent / "ring_params.json"
+_ICON_FILE = Path(__file__).parent / "cylinder_icon.ico"
+_CONFIG_FILE = Path(__file__).parent / "cylinder_params.json"
 
 
 def _ensure_icon() -> None:
 	if _ICON_FILE.exists():
 		return
-	size = 64
+	size = 1024
 	img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
 	draw = ImageDraw.Draw(img)
-	draw.ellipse([2, 2, size - 2, size - 2], fill=(90, 140, 210, 255))
-	margin = size // 4
-	draw.ellipse([margin, margin, size - margin, size - margin], fill=(0, 0, 0, 0))
-	img.save(_ICON_FILE, format="ICO", sizes=[(64, 64), (32, 32), (16, 16)])
+	# Draw a simple pneumatic cylinder symbol: capsule body + piston rod.
+	body_left = int(size * 0.18)
+	body_right = int(size * 0.70)
+	body_top = int(size * 0.34)
+	body_bottom = int(size * 0.66)
+	cap_h = int(size * 0.18)
+	highlight_inset = max(1, int(size * 0.04))
+	highlight_h = max(1, int(size * 0.06))
+	rod_len = int(size * 0.20)
+	rod_h = int(size * 0.08)
+	rod_top = int((body_top + body_bottom) / 2 - rod_h / 2)
+	rod_bottom = rod_top + rod_h
+	rod_left = body_right
+	rod_right = body_right + rod_len
+	rod_tip_d = max(2, int(size * 0.10))
+
+	# Main body.
+	draw.rectangle([body_left, body_top, body_right, body_bottom], fill=(90, 140, 210, 255))
+	# Rounded end caps.
+	draw.ellipse([body_left, body_top - cap_h // 2, body_right, body_top + cap_h // 2], fill=(90, 140, 210, 255))
+	draw.ellipse([body_left, body_bottom - cap_h // 2, body_right, body_bottom + cap_h // 2], fill=(90, 140, 210, 255))
+	# Inner highlight for visual depth.
+	draw.rectangle(
+		[
+			body_left + highlight_inset,
+			body_top + highlight_inset,
+			body_right - highlight_inset,
+			body_top + highlight_inset + highlight_h,
+		],
+		fill=(150, 190, 235, 255),
+	)
+	# Piston rod.
+	draw.rectangle([rod_left, rod_top, rod_right, rod_bottom], fill=(220, 230, 240, 255))
+	draw.ellipse(
+		[rod_right - rod_tip_d // 2, rod_top - (rod_tip_d - rod_h) // 2, rod_right + rod_tip_d // 2, rod_bottom + (rod_tip_d - rod_h) // 2],
+		fill=(220, 230, 240, 255),
+	)
+	img.save(_ICON_FILE, format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (24, 24), (16, 16)])
 
 
 def _load_params() -> dict:
@@ -63,10 +93,10 @@ def _save_params(od: str, id_: str, thickness: str) -> None:
 		pass
 
 
-class RingApp:
+class CylinderApp:
 	def __init__(self, root: tk.Tk | tk.Toplevel | ttk.Window) -> None:
 		self.root = root
-		self.root.title("Ring Generator")
+		self.root.title("Cylinder Generator")
 		self.root.geometry("760x500")
 		_ensure_icon()
 		self.root.iconbitmap(str(_ICON_FILE))
@@ -81,7 +111,7 @@ class RingApp:
 		self.status_var = tk.StringVar(value="Enter dimensions and click Generate.")
 		self.renderer: vtkRenderer | None = None
 		self.render_window: vtkRenderWindow | None = None
-		self.ring_actor: vtkActor | None = None
+		self.cylinder_actor: vtkActor | None = None
 		self._preview_photo: ImageTk.PhotoImage | None = None
 		self._last_mouse_pos: tuple[int, int] | None = None
 		self._last_pan_pos: tuple[int, int] | None = None
@@ -177,16 +207,16 @@ class RingApp:
 	def on_generate(self) -> None:
 		try:
 			od, inner_d, thickness = self._parse_inputs()
-			self.current_part = build_ring(od, inner_d, thickness)
+			self.current_part = build_cylinder(od, inner_d, thickness)
 			self.current_dims = (od, inner_d, thickness)
 			_save_params(self.od_var.get(), self.id_var.get(), self.thickness_var.get())
 			self.export_btn.configure(state=tk.NORMAL)
 			self.bambu_btn.configure(state=tk.NORMAL)
 			self.prusa_btn.configure(state=tk.NORMAL)
 			self.reset_view_btn.configure(state=tk.NORMAL)
-			self._render_ring(od, inner_d, thickness)
+			self._render_cylinder(od, inner_d, thickness)
 			self.status_var.set(
-				f"Generated ring: OD={od:.3f} mm, ID={inner_d:.3f} mm, thickness={thickness:.3f} mm"
+				f"Generated cylinder: OD={od:.3f} mm, ID={inner_d:.3f} mm, thickness={thickness:.3f} mm"
 			)
 		except Exception as exc:
 			messagebox.showerror("Generate Failed", str(exc))
@@ -194,7 +224,7 @@ class RingApp:
 
 	def on_open_in_bambu_studio(self) -> None:
 		if self.current_part is None:
-			messagebox.showwarning("No Model", "Generate a ring before opening in BambuStudio.")
+			messagebox.showwarning("No Model", "Generate a cylinder before opening in BambuStudio.")
 			return
 
 		try:
@@ -220,7 +250,7 @@ class RingApp:
 
 	def on_open_in_prusa_slicer(self) -> None:
 		if self.current_part is None:
-			messagebox.showwarning("No Model", "Generate a ring before opening in PrusaSlicer.")
+			messagebox.showwarning("No Model", "Generate a cylinder before opening in PrusaSlicer.")
 			return
 
 		try:
@@ -257,14 +287,14 @@ class RingApp:
 
 	def on_export(self) -> None:
 		if self.current_part is None:
-			messagebox.showwarning("No Model", "Generate a ring before exporting.")
+			messagebox.showwarning("No Model", "Generate a cylinder before exporting.")
 			return
 
 		out_file = filedialog.asksaveasfilename(
 			title="Export STEP File",
 			defaultextension=".step",
 			filetypes=[("STEP files", "*.step *.stp"), ("All files", "*.*")],
-			initialfile="ring.step",
+			initialfile="cylinder.step",
 		)
 		if not out_file:
 			return
@@ -280,7 +310,7 @@ class RingApp:
 		self.renderer.ResetCamera()
 		self._render_to_label()
 
-	def _render_ring(self, od: float, inner_d: float, thickness: float) -> None:
+	def _render_cylinder(self, od: float, inner_d: float, thickness: float) -> None:
 		if not self.renderer or not self.render_window:
 			return
 
@@ -308,7 +338,7 @@ class RingApp:
 
 		self.renderer.RemoveAllViewProps()
 		self.renderer.AddActor(actor)
-		self.ring_actor = actor
+		self.cylinder_actor = actor
 		self.renderer.ResetCamera()
 		self._sync_camera_from_renderer()
 		# Use a gentler default perspective instead of a near top-down view.
@@ -487,21 +517,8 @@ class RingApp:
 		self._preview_photo = ImageTk.PhotoImage(pil_img)
 		self.viewer_label.configure(image=self._preview_photo, text="")
 
-
-def main() -> None:
-	root = ttk.Window(themename="darkly")
-	RingApp(root)
-	root.minsize(640, 420)
-	root.mainloop()
-
-
 def launch_in_toplevel(parent: tk.Misc) -> None:
 	window = tk.Toplevel(parent)
-	RingApp(window)
+	CylinderApp(window)
 	window.minsize(640, 420)
-
-
-if __name__ == "__main__":
-	main()
-
 

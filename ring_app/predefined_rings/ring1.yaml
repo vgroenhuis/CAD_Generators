@@ -1,0 +1,5 @@
+# Example ring in YAML format.
+---
+od: 30
+id: 10
+thickness: 2
