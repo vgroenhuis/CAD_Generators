@@ -1,15 +1,15 @@
 """Tkinter GUI for creating and exporting a pneumatic cylinder with build123d.
+Can be run standalone, or launched as a subprocess from main_menu.py.
 
 Inputs:
 - TODO TODO
 
 Actions:
-- Generate: validates inputs, builds CAD cylinder, and shows it in an interactive 3D viewport in this app.
+- Generate: validates inputs, builds CAD cylinder, and shows it in the OCP CAD Viewer (VS Code extension).
 - Export: saves the latest generated CAD cylinder as a STEP file.
 """
 
 import json
-import math
 import os
 import sys
 import subprocess
@@ -19,14 +19,16 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 
-from build123d import Part, export_step
-from PIL import Image, ImageDraw, ImageTk
-from vtkmodules.util.numpy_support import vtk_to_numpy
-from vtkmodules.vtkFiltersModeling import vtkLinearExtrusionFilter
-from vtkmodules.vtkFiltersSources import vtkDiskSource
-from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper, vtkRenderWindow, vtkRenderer
-from vtkmodules.vtkRenderingCore import vtkWindowToImageFilter
 
+# Ensure the repo root is importable so `pneumatic_cylinder_app` resolves as a package,
+# whether this file is run directly, via `-m`, or imported by main_menu.py.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+	sys.path.insert(0, str(_REPO_ROOT))
+
+from build123d import Part, export_step
+from ocp_vscode import show
+from PIL import Image, ImageDraw
 from pneumatic_cylinder_app.models.cylinder_model import build_cylinder
 
 _ICON_FILE = Path(__file__).parent / "cylinder_icon.ico"
@@ -109,23 +111,8 @@ class CylinderApp:
 		self.id_var = tk.StringVar(value=_params["id"])
 		self.thickness_var = tk.StringVar(value=_params["thickness"])
 		self.status_var = tk.StringVar(value="Enter dimensions and click Generate.")
-		self.renderer: vtkRenderer | None = None
-		self.render_window: vtkRenderWindow | None = None
-		self.cylinder_actor: vtkActor | None = None
-		self._preview_photo: ImageTk.PhotoImage | None = None
-		self._last_mouse_pos: tuple[int, int] | None = None
-		self._last_pan_pos: tuple[int, int] | None = None
-		self._cam_focal = [0.0, 0.0, 0.0]
-		self._cam_distance = 100.0
-		self._cam_yaw_deg = 35.0
-		self._cam_pitch_deg = 25.0
-		self._default_cam_focal = [0.0, 0.0, 0.0]
-		self._default_cam_distance = 100.0
-		self._default_cam_yaw_deg = 35.0
-		self._default_cam_pitch_deg = 25.0
 
 		self._build_ui()
-		self._draw_empty_preview()
 		self.root.after(0, self.on_generate)
 
 	def _build_ui(self) -> None:
@@ -163,29 +150,19 @@ class CylinderApp:
 		self.bambu_btn.pack(side=tk.LEFT, padx=(8, 0))
 		self.prusa_btn = ttk.Button(buttons, text="Open in PrusaSlicer", command=self.on_open_in_prusa_slicer, state=tk.DISABLED)
 		self.prusa_btn.pack(side=tk.LEFT, padx=(8, 0))
-		self.reset_view_btn = ttk.Button(buttons, text="Reset View", command=self.on_reset_view, state=tk.DISABLED)
-		self.reset_view_btn.pack(side=tk.LEFT, padx=(8, 0))
+		self.show_viewer_btn = ttk.Button(buttons, text="Show in Viewer", command=self.on_show_in_viewer, state=tk.DISABLED)
+		self.show_viewer_btn.pack(side=tk.LEFT, padx=(8, 0))
 
 		viewer_frame = ttk.Labelframe(main, text="Viewer")
 		viewer_frame.pack(fill=tk.BOTH, expand=True)
 
-		self.viewer_label = ttk.Label(viewer_frame, text="No model generated yet", anchor=tk.CENTER)
+		self.viewer_label = ttk.Label(
+			viewer_frame,
+			text="No model generated yet.\nGenerate a cylinder to view it in the OCP CAD Viewer (VS Code extension).",
+			anchor=tk.CENTER,
+			justify=tk.CENTER,
+		)
 		self.viewer_label.pack(fill=tk.BOTH, expand=True)
-		self.viewer_label.bind("<Configure>", self._on_preview_resize)
-		self.viewer_label.bind("<ButtonPress-1>", self._on_mouse_down)
-		self.viewer_label.bind("<B1-Motion>", self._on_mouse_drag)
-		self.viewer_label.bind("<ButtonPress-3>", self._on_pan_down)
-		self.viewer_label.bind("<B3-Motion>", self._on_pan_drag)
-		self.viewer_label.bind("<MouseWheel>", self._on_mouse_wheel)
-
-		renderer = vtkRenderer()
-		renderer.SetBackground(0.95, 0.97, 0.99)
-		render_window = vtkRenderWindow()
-		render_window.SetOffScreenRendering(1)
-		render_window.SetSize(800, 480)
-		render_window.AddRenderer(renderer)
-		self.renderer = renderer
-		self.render_window = render_window
 
 		ttk.Label(main, textvariable=self.status_var, anchor=tk.W).pack(fill=tk.X, pady=(8, 0))
 
@@ -213,14 +190,26 @@ class CylinderApp:
 			self.export_btn.configure(state=tk.NORMAL)
 			self.bambu_btn.configure(state=tk.NORMAL)
 			self.prusa_btn.configure(state=tk.NORMAL)
-			self.reset_view_btn.configure(state=tk.NORMAL)
-			self._render_cylinder(od, inner_d, thickness)
+			self.show_viewer_btn.configure(state=tk.NORMAL)
+			self.viewer_label.configure(
+				text=(
+					f"Cylinder generated: OD={od:.3f} mm, ID={inner_d:.3f} mm, thickness={thickness:.3f} mm\n"
+					"Shown in the OCP CAD Viewer (VS Code extension)."
+				)
+			)
+			show(self.current_part)
 			self.status_var.set(
 				f"Generated cylinder: OD={od:.3f} mm, ID={inner_d:.3f} mm, thickness={thickness:.3f} mm"
 			)
 		except Exception as exc:
 			messagebox.showerror("Generate Failed", str(exc))
 			self.status_var.set("Generation failed. Check input values.")
+
+	def on_show_in_viewer(self) -> None:
+		if self.current_part is None:
+			messagebox.showwarning("No Model", "Generate a cylinder before showing it in the viewer.")
+			return
+		show(self.current_part)
 
 	def on_open_in_bambu_studio(self) -> None:
 		if self.current_part is None:
@@ -274,17 +263,6 @@ class CylinderApp:
 			messagebox.showerror("Error", f"Failed to open in PrusaSlicer: {exc}")
 			self.status_var.set("Failed to open in PrusaSlicer.")
 
-	def on_reset_view(self) -> None:
-		if not self.renderer:
-			return
-		self._cam_focal = self._default_cam_focal.copy()
-		self._cam_distance = self._default_cam_distance
-		self._cam_yaw_deg = self._default_cam_yaw_deg
-		self._cam_pitch_deg = self._default_cam_pitch_deg
-		self._apply_camera()
-		self.renderer.ResetCameraClippingRange()
-		self._render_to_label()
-
 	def on_export(self) -> None:
 		if self.current_part is None:
 			messagebox.showwarning("No Model", "Generate a cylinder before exporting.")
@@ -303,222 +281,13 @@ class CylinderApp:
 		self.status_var.set(f"Exported STEP file: {out_file}")
 		messagebox.showinfo("Export Complete", f"Saved STEP file to:\n{out_file}")
 
-	def _draw_empty_preview(self) -> None:
-		if not self.renderer or not self.render_window:
-			return
-		self.renderer.RemoveAllViewProps()
-		self.renderer.ResetCamera()
-		self._render_to_label()
+def main() -> None:
+	root = ttk.Window(themename="darkly")
+	CylinderApp(root)
+	root.minsize(640, 420)
+	root.mainloop()
 
-	def _render_cylinder(self, od: float, inner_d: float, thickness: float) -> None:
-		if not self.renderer or not self.render_window:
-			return
 
-		disk = vtkDiskSource()
-		disk.SetInnerRadius(inner_d / 2.0)
-		disk.SetOuterRadius(od / 2.0)
-		disk.SetCircumferentialResolution(140)
-		disk.SetRadialResolution(8)
-
-		extrude = vtkLinearExtrusionFilter()
-		extrude.SetInputConnection(disk.GetOutputPort())
-		extrude.SetExtrusionTypeToVectorExtrusion()
-		extrude.SetVector(0.0, 0.0, 1.0)
-		extrude.SetScaleFactor(thickness)
-		extrude.CappingOn()
-
-		mapper = vtkPolyDataMapper()
-		mapper.SetInputConnection(extrude.GetOutputPort())
-
-		actor = vtkActor()
-		actor.SetMapper(mapper)
-		actor.GetProperty().SetColor(0.35, 0.55, 0.82)
-		actor.GetProperty().SetSpecular(0.2)
-		actor.GetProperty().SetSpecularPower(15)
-
-		self.renderer.RemoveAllViewProps()
-		self.renderer.AddActor(actor)
-		self.cylinder_actor = actor
-		self.renderer.ResetCamera()
-		self._sync_camera_from_renderer()
-		# Use a gentler default perspective instead of a near top-down view.
-		self._cam_pitch_deg = 30.0
-		self._cam_yaw_deg = 35.0
-		self._apply_camera()
-		self.renderer.ResetCameraClippingRange()
-		self._capture_default_camera_state()
-		self._render_to_label()
-
-	def _on_preview_resize(self, event: tk.Event) -> None:
-		if not self.render_window:
-			return
-		width = max(int(event.width), 120)
-		height = max(int(event.height), 120)
-		self.render_window.SetSize(width, height)
-		self._render_to_label()
-
-	def _on_mouse_down(self, event: tk.Event) -> None:
-		self._last_mouse_pos = (int(event.x), int(event.y))
-		self._last_pan_pos = None
-
-	def _on_mouse_drag(self, event: tk.Event) -> None:
-		if not self.renderer or self._last_mouse_pos is None:
-			return
-		last_x, last_y = self._last_mouse_pos
-		dx = int(event.x) - last_x
-		dy = int(event.y) - last_y
-		self._last_mouse_pos = (int(event.x), int(event.y))
-
-		self._cam_yaw_deg = (self._cam_yaw_deg - dx * 0.45) % 360.0
-		self._cam_pitch_deg = max(-90.0, min(90.0, self._cam_pitch_deg + dy * 0.45))
-		self._apply_camera()
-		self.renderer.ResetCameraClippingRange()
-		self._render_to_label()
-
-	def _on_pan_down(self, event: tk.Event) -> None:
-		self._last_pan_pos = (int(event.x), int(event.y))
-		self._last_mouse_pos = None
-
-	def _on_pan_drag(self, event: tk.Event) -> None:
-		if not self.renderer or self._last_pan_pos is None:
-			return
-		last_x, last_y = self._last_pan_pos
-		dx = int(event.x) - last_x
-		dy = int(event.y) - last_y
-		self._last_pan_pos = (int(event.x), int(event.y))
-
-		camera = self.renderer.GetActiveCamera()
-		pos = camera.GetPosition()
-		focal = camera.GetFocalPoint()
-		up = camera.GetViewUp()
-
-		forward = [focal[0] - pos[0], focal[1] - pos[1], focal[2] - pos[2]]
-		fwd_len = math.sqrt(forward[0] ** 2 + forward[1] ** 2 + forward[2] ** 2) or 1.0
-		forward = [forward[0] / fwd_len, forward[1] / fwd_len, forward[2] / fwd_len]
-
-		right = [
-			forward[1] * up[2] - forward[2] * up[1],
-			forward[2] * up[0] - forward[0] * up[2],
-			forward[0] * up[1] - forward[1] * up[0],
-		]
-		right_len = math.sqrt(right[0] ** 2 + right[1] ** 2 + right[2] ** 2) or 1.0
-		right = [right[0] / right_len, right[1] / right_len, right[2] / right_len]
-
-		cam_up = [
-			right[1] * forward[2] - right[2] * forward[1],
-			right[2] * forward[0] - right[0] * forward[2],
-			right[0] * forward[1] - right[1] * forward[0],
-		]
-
-		pan_scale = self._cam_distance * 0.0018
-		tx = (-dx * right[0] + dy * cam_up[0]) * pan_scale
-		ty = (-dx * right[1] + dy * cam_up[1]) * pan_scale
-		tz = (-dx * right[2] + dy * cam_up[2]) * pan_scale
-
-		self._cam_focal[0] += tx
-		self._cam_focal[1] += ty
-		self._cam_focal[2] += tz
-		self._apply_camera()
-		self.renderer.ResetCameraClippingRange()
-		self._render_to_label()
-
-	def _on_mouse_wheel(self, event: tk.Event) -> None:
-		if not self.renderer:
-			return
-		if event.delta > 0:
-			self._cam_distance *= 0.92
-		else:
-			self._cam_distance *= 1.08
-		self._cam_distance = max(self._cam_distance, 0.001)
-		self._apply_camera()
-		self.renderer.ResetCameraClippingRange()
-		self._render_to_label()
-
-	def _sync_camera_from_renderer(self) -> None:
-		if not self.renderer:
-			return
-		camera = self.renderer.GetActiveCamera()
-		pos = camera.GetPosition()
-		focal = camera.GetFocalPoint()
-
-		vx = pos[0] - focal[0]
-		vy = pos[1] - focal[1]
-		vz = pos[2] - focal[2]
-		dist = math.sqrt(vx * vx + vy * vy + vz * vz) or 1.0
-
-		self._cam_focal = [float(focal[0]), float(focal[1]), float(focal[2])]
-		self._cam_distance = float(dist)
-
-		yaw = math.degrees(math.atan2(vy, vx))
-		hyp = math.sqrt(vx * vx + vy * vy)
-		pitch = math.degrees(math.atan2(vz, hyp))
-
-		self._cam_yaw_deg = float(yaw % 360.0)
-		self._cam_pitch_deg = float(max(-90.0, min(90.0, pitch)))
-
-	def _capture_default_camera_state(self) -> None:
-		self._default_cam_focal = self._cam_focal.copy()
-		self._default_cam_distance = self._cam_distance
-		self._default_cam_yaw_deg = self._cam_yaw_deg
-		self._default_cam_pitch_deg = self._cam_pitch_deg
-
-	def _apply_camera(self) -> None:
-		if not self.renderer:
-			return
-		camera = self.renderer.GetActiveCamera()
-
-		yaw = math.radians(self._cam_yaw_deg)
-		pitch = math.radians(self._cam_pitch_deg)
-
-		cp = math.cos(pitch)
-		sp = math.sin(pitch)
-		cy = math.cos(yaw)
-		sy = math.sin(yaw)
-
-		px = self._cam_focal[0] + self._cam_distance * cp * cy
-		py = self._cam_focal[1] + self._cam_distance * cp * sy
-		pz = self._cam_focal[2] + self._cam_distance * sp
-
-		camera.SetFocalPoint(self._cam_focal[0], self._cam_focal[1], self._cam_focal[2])
-		camera.SetPosition(px, py, pz)
-
-		# Keep a stable reference up-vector with pitch constrained to [-90, 90].
-		camera.SetViewUp(0.0, 0.0, 1.0)
-
-	def _render_to_label(self) -> None:
-		if not self.render_window:
-			return
-
-		self.render_window.Render()
-		w2if = vtkWindowToImageFilter()
-		w2if.SetInput(self.render_window)
-		w2if.ReadFrontBufferOff()
-		w2if.Update()
-
-		img = w2if.GetOutput()
-		width, height, _ = img.GetDimensions()
-		if width <= 0 or height <= 0:
-			return
-
-		scalars = img.GetPointData().GetScalars()
-		if scalars is None:
-			return
-
-		arr = vtk_to_numpy(scalars)
-		components = scalars.GetNumberOfComponents()
-		arr = arr.reshape(height, width, components)
-		arr = arr[::-1, :, :]
-
-		if components == 4:
-			pil_img = Image.fromarray(arr, mode="RGBA")
-		else:
-			pil_img = Image.fromarray(arr[:, :, :3], mode="RGB")
-
-		self._preview_photo = ImageTk.PhotoImage(pil_img)
-		self.viewer_label.configure(image=self._preview_photo, text="")
-
-def launch_in_toplevel(parent: tk.Misc) -> None:
-	window = tk.Toplevel(parent)
-	CylinderApp(window)
-	window.minsize(640, 420)
+if __name__ == "__main__":
+	main()
 

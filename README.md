@@ -147,6 +147,10 @@ mypy ring_app/ring_vincent.py
 
 MIT
 
+## Disclaimer
+
+AI tools were used to generate Python scripts and this documentation.
+
 ## Author
 
 Vincent Groenhuis

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Ring generator and sandbox apps using build123d and Tkinter"
 readme = "README.md"
 authors = [
-    {name = "Vince", email = "vince@example.com"},
+    {name = "Vince", email = "groenhuis@gmail.com"},
 ]
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -25,7 +25,9 @@ dependencies = [
     "build123d>=0.6.0",
     "ttkbootstrap>=1.6.0",
     "pillow>=10.0.0",
-    "vtkmodules>=9.2.0",
+    "vtk>=9.2.0",
+    "ocp-vscode>=2.5.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

@@ -1,19 +1,24 @@
 """
-Main menu for launching the Ring App and Sandbox App.
+Main menu for launching different CAD generator apps.
 """
 
+import subprocess
+import sys
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox
 import ttkbootstrap as ttk
 
-from ring_app.ring_ui import launch_in_toplevel as launch_ring_window
-from pneumatic_cylinder_app.cylinder_ui import launch_in_toplevel as launch_pneumatic_cylinder_window
-from sandbox.sandbox_app import launch_in_toplevel as launch_sandbox_window
+_APP_DIR = Path(__file__).parent
+_RING_UI_SCRIPT = _APP_DIR / "ring_app" / "ring_ui.py"
+_CYLINDER_UI_SCRIPT = _APP_DIR / "pneumatic_cylinder_app" / "cylinder_ui.py"
+_SANDBOX_APP_SCRIPT = _APP_DIR / "sandbox" / "sandbox_app.py"
 
-# Launches any of the child apps. launcher is a function that takes a tk.Misc parent and launches the app in a new window.
-def launch_app(root: tk.Misc, launcher, name: str) -> None:
+# Each child app runs standalone in its own process, so launching from the
+# main menu just starts that app's script the same way a user would directly.
+def launch_app_process(script_path: Path, name: str) -> None:
 	try:
-		launcher(root)
+		subprocess.Popen([sys.executable, str(script_path)])
 	except Exception as exc:
 		messagebox.showerror("Launch Error", f"Failed to launch {name}:\n{exc}")
 
@@ -34,7 +39,7 @@ def main() -> None:
 		frame,
 		text="Ring App",
 		width=24,
-		command=lambda: launch_app(root, launch_ring_window, "Ring App"),
+		command=lambda: launch_app_process(_RING_UI_SCRIPT, "Ring App"),
 	)
 	ring_btn.pack(pady=6)
 
@@ -42,7 +47,7 @@ def main() -> None:
 		frame,
 		text="Pneumatic Cylinder App",
 		width=24,
-		command=lambda: launch_app(root, launch_pneumatic_cylinder_window, "Pneumatic Cylinder App"),
+		command=lambda: launch_app_process(_CYLINDER_UI_SCRIPT, "Pneumatic Cylinder App"),
 	)
 	cylinder_btn.pack(pady=6)
 
@@ -50,7 +55,7 @@ def main() -> None:
 		frame,
 		text="Sandbox App",
 		width=24,
-		command=lambda: launch_app(root, launch_sandbox_window, "Sandbox App"),
+		command=lambda: launch_app_process(_SANDBOX_APP_SCRIPT, "Sandbox App"),
 	)
 	sandbox_btn.pack(pady=6)
 	root.mainloop()
