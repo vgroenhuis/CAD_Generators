@@ -95,19 +95,19 @@ class RingApp:
 		od_entry = ttk.Entry(controls, textvariable=self.od_var, width=12)
 		od_entry.grid(row=0, column=1, sticky=tk.W, pady=4)
 		od_entry.bind("<Return>", lambda e: self.on_generate())
-		od_entry.bind("<FocusOut>", lambda e: self.on_generate())
+		od_entry.bind("<FocusOut>", lambda e: self._on_generate_silent())
 
 		ttk.Label(controls, text="ID (mm)").grid(row=0, column=2, sticky=tk.W, padx=(20, 8), pady=4)
 		id_entry = ttk.Entry(controls, textvariable=self.id_var, width=12)
 		id_entry.grid(row=0, column=3, sticky=tk.W, pady=4)
 		id_entry.bind("<Return>", lambda e: self.on_generate())
-		id_entry.bind("<FocusOut>", lambda e: self.on_generate())
+		id_entry.bind("<FocusOut>", lambda e: self._on_generate_silent())
 
 		ttk.Label(controls, text="Thickness (mm)").grid(row=0, column=4, sticky=tk.W, padx=(20, 8), pady=4)
 		thickness_entry = ttk.Entry(controls, textvariable=self.thickness_var, width=12)
 		thickness_entry.grid(row=0, column=5, sticky=tk.W, pady=4)
 		thickness_entry.bind("<Return>", lambda e: self.on_generate())
-		thickness_entry.bind("<FocusOut>", lambda e: self.on_generate())
+		thickness_entry.bind("<FocusOut>", lambda e: self._on_generate_silent())
 
 		buttons = ttk.Frame(main)
 		buttons.pack(fill=tk.X, pady=(8, 8))
@@ -151,6 +151,18 @@ class RingApp:
 		return od, inner_d, thickness
 
 	def on_generate(self) -> None:
+		self._generate(show_errors=True)
+
+	def _on_generate_silent(self) -> None:
+		# Bound to <FocusOut>, which also fires when switching to another
+		# window/app. Regenerating is a convenience here, not an explicit
+		# user action, so failures update the status bar instead of popping
+		# up an error dialog -- otherwise merely tabbing away (or clicking
+		# Generate itself, which also triggers a FocusOut just before its
+		# own click handler runs) shows duplicate popups for one problem.
+		self._generate(show_errors=False)
+
+	def _generate(self, show_errors: bool) -> None:
 		try:
 			od, inner_d, thickness = self._parse_inputs()
 			self.current_part = build_ring(od, inner_d, thickness)
@@ -171,7 +183,8 @@ class RingApp:
 				f"Generated ring: OD={od:.3f} mm, ID={inner_d:.3f} mm, thickness={thickness:.3f} mm"
 			)
 		except Exception as exc:
-			messagebox.showerror("Generate Failed", str(exc))
+			if show_errors:
+				messagebox.showerror("Generate Failed", str(exc))
 			self.status_var.set("Generation failed. Check input values.")
 
 	def on_show_in_viewer(self) -> None:

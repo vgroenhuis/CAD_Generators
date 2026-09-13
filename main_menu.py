@@ -13,6 +13,7 @@ _APP_DIR = Path(__file__).parent
 _RING_UI_SCRIPT = _APP_DIR / "ring_app" / "ring_ui.py"
 _CYLINDER_UI_SCRIPT = _APP_DIR / "pneumatic_cylinder_app" / "cylinder_ui.py"
 _SANDBOX_APP_SCRIPT = _APP_DIR / "sandbox" / "sandbox_app.py"
+_POWERBANK_HOLDER_UI_SCRIPT = _APP_DIR / "powerbank_holder_app" / "powerbank_holder_ui.py"
 
 # Each child app runs standalone in its own process, so launching from the
 # main menu just starts that app's script the same way a user would directly.
@@ -26,7 +27,7 @@ def launch_app_process(script_path: Path, name: str) -> None:
 def main() -> None:
 	root = ttk.Window(themename="darkly")
 	root.title("Main Menu")
-	root.geometry("360x260")
+	root.geometry("360x300")
 	root.resizable(True, True)
 
 	frame = ttk.Frame(root, padding=20)
@@ -50,6 +51,14 @@ def main() -> None:
 		command=lambda: launch_app_process(_CYLINDER_UI_SCRIPT, "Pneumatic Cylinder App"),
 	)
 	cylinder_btn.pack(pady=6)
+
+	powerbank_holder_btn = ttk.Button(
+		frame,
+		text="Powerbank Holder App",
+		width=24,
+		command=lambda: launch_app_process(_POWERBANK_HOLDER_UI_SCRIPT, "Powerbank Holder App"),
+	)
+	powerbank_holder_btn.pack(pady=6)
 
 	sandbox_btn = ttk.Button(
 		frame,
