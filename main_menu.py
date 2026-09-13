@@ -27,7 +27,6 @@ def launch_app_process(script_path: Path, name: str) -> None:
 def main() -> None:
 	root = ttk.Window(themename="darkly")
 	root.title("Main Menu")
-	root.geometry("360x300")
 	root.resizable(True, True)
 
 	frame = ttk.Frame(root, padding=20)
@@ -67,6 +66,15 @@ def main() -> None:
 		command=lambda: launch_app_process(_SANDBOX_APP_SCRIPT, "Sandbox App"),
 	)
 	sandbox_btn.pack(pady=6)
+
+	# Size the window to fit its actual content instead of a hard-coded
+	# guess, so adding/removing a button can't leave one cut off again.
+	root.update_idletasks()
+	width = max(root.winfo_reqwidth(), 360)
+	height = root.winfo_reqheight()
+	root.geometry(f"{width}x{height}")
+	root.minsize(width, height)
+
 	root.mainloop()
 
 main()

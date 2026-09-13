@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "build123d-sandbox"
 version = "0.1.0"
-description = "Ring generator and sandbox apps using build123d and Tkinter"
+description = "Ring, pneumatic cylinder, and powerbank holder CAD generator apps using build123d and Tkinter"
 readme = "README.md"
 authors = [
     {name = "Vince", email = "groenhuis@gmail.com"},
@@ -25,7 +25,6 @@ dependencies = [
     "build123d>=0.6.0",
     "ttkbootstrap>=1.6.0",
     "pillow>=10.0.0",
-    "vtk>=9.2.0",
     "ocp-vscode>=2.5.0",
     "pyyaml>=6.0",
 ]
@@ -55,5 +54,10 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [project.scripts]
-ring-app = "ring_app.ring_vincent:main"
+ring-app = "ring_app.ring_ui:main"
+cylinder-app = "pneumatic_cylinder_app.cylinder_ui:main"
+powerbank-holder-app = "powerbank_holder_app.powerbank_holder_ui:main"
 sandbox-app = "sandbox.sandbox_app:main"
+
+[tool.setuptools.packages.find]
+include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "sandbox*"]
