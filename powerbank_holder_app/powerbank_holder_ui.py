@@ -15,7 +15,13 @@ of holes that fit is derived from length, and may be even or odd.
 Actions:
 - Generate: validates inputs, builds the CAD holder, and shows it in the OCP CAD Viewer (VS Code extension).
 - Export: saves the latest generated CAD holder as a STEP file.
+
+build123d takes several seconds to import (it pulls in the full OCC CAD
+kernel), so the window appears immediately with a loading indicator while
+that import runs on a background thread -- see main().
 """
+
+from __future__ import annotations
 
 import os
 
@@ -23,6 +29,7 @@ import json
 import sys
 import subprocess
 import tempfile
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -35,19 +42,57 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
 	sys.path.insert(0, str(_REPO_ROOT))
 
-from build123d import Part, export_step
-from ocp_vscode import show
 from PIL import Image, ImageDraw
-from powerbank_holder_app.powerbank_holder_model import (
-	HOLE_DIAMETER,
-	HOLE_OUTER_MARGIN,
-	HOLE_PITCH,
-	WALL_LENGTH,
-	build_powerbank_holder,
-	derive_hole_count,
-	derive_hole_spacing,
-	derive_wall_thickness,
-)
+
+# Populated by _import_heavy_modules() on a background thread (see main()),
+# since importing build123d/ocp_vscode/the model module takes several
+# seconds. Nothing references these until after that thread completes.
+Part = None
+export_step = None
+show = None
+HOLE_DIAMETER = None
+HOLE_OUTER_MARGIN = None
+HOLE_PITCH = None
+WALL_LENGTH = None
+build_powerbank_holder = None
+derive_hole_count = None
+derive_hole_spacing = None
+derive_wall_thickness = None
+_load_error: BaseException | None = None
+
+
+def _import_heavy_modules() -> None:
+	global Part, export_step, show, _load_error
+	global HOLE_DIAMETER, HOLE_OUTER_MARGIN, HOLE_PITCH, WALL_LENGTH
+	global build_powerbank_holder, derive_hole_count, derive_hole_spacing, derive_wall_thickness
+	try:
+		from build123d import Part as _Part, export_step as _export_step
+		from ocp_vscode import show as _show
+		from powerbank_holder_app.powerbank_holder_model import (
+			HOLE_DIAMETER as _HOLE_DIAMETER,
+			HOLE_OUTER_MARGIN as _HOLE_OUTER_MARGIN,
+			HOLE_PITCH as _HOLE_PITCH,
+			WALL_LENGTH as _WALL_LENGTH,
+			build_powerbank_holder as _build_powerbank_holder,
+			derive_hole_count as _derive_hole_count,
+			derive_hole_spacing as _derive_hole_spacing,
+			derive_wall_thickness as _derive_wall_thickness,
+		)
+	except BaseException as exc:  # surfaced to the UI thread by main()
+		_load_error = exc
+		return
+	Part, export_step, show = _Part, _export_step, _show
+	HOLE_DIAMETER, HOLE_OUTER_MARGIN, HOLE_PITCH, WALL_LENGTH = (
+		_HOLE_DIAMETER,
+		_HOLE_OUTER_MARGIN,
+		_HOLE_PITCH,
+		_WALL_LENGTH,
+	)
+	build_powerbank_holder = _build_powerbank_holder
+	derive_hole_count = _derive_hole_count
+	derive_hole_spacing = _derive_hole_spacing
+	derive_wall_thickness = _derive_wall_thickness
+
 
 _ICON_FILE = Path(__file__).parent / "powerbank_holder_icon.ico"
 _CONFIG_FILE = Path(__file__).parent / "powerbank_holder_params.json"
@@ -110,10 +155,6 @@ def _save_params(width: str, height: str, length: str, hole_diameter: str, outer
 class PowerbankHolderApp:
 	def __init__(self, root: tk.Tk | tk.Toplevel | ttk.Window) -> None:
 		self.root = root
-		self.root.title("Powerbank Holder Generator")
-		self.root.geometry("1020x520")
-		_ensure_icon()
-		self.root.iconbitmap(str(_ICON_FILE))
 
 		self.current_part: Part | None = None
 		self.current_dims: tuple[float, float, float] | None = None  # (width, height, derived thickness)
@@ -355,8 +396,34 @@ class PowerbankHolderApp:
 
 def main() -> None:
 	root = ttk.Window(themename="darkly")
-	PowerbankHolderApp(root)
+	root.title("Powerbank Holder Generator")
+	root.geometry("1020x520")
 	root.minsize(640, 420)
+	_ensure_icon()
+	root.iconbitmap(str(_ICON_FILE))
+
+	loading = ttk.Frame(root, padding=40)
+	loading.pack(fill=tk.BOTH, expand=True)
+	ttk.Label(loading, text="Loading build123d...", font=("Segoe UI", 12)).pack(pady=(60, 12))
+	progress = ttk.Progressbar(loading, mode="indeterminate", length=280)
+	progress.pack()
+	progress.start(10)
+
+	threading.Thread(target=_import_heavy_modules, daemon=True).start()
+
+	def check_loaded() -> None:
+		if build_powerbank_holder is None and _load_error is None:
+			root.after(100, check_loaded)
+			return
+		progress.stop()
+		loading.destroy()
+		if _load_error is not None:
+			messagebox.showerror("Startup Failed", f"Failed to load build123d:\n{_load_error}")
+			root.destroy()
+			return
+		PowerbankHolderApp(root)
+
+	root.after(100, check_loaded)
 	root.mainloop()
 
 

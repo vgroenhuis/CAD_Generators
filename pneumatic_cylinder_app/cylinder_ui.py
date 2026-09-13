@@ -7,13 +7,20 @@ Inputs:
 Actions:
 - Generate: validates inputs, builds CAD cylinder, and shows it in the OCP CAD Viewer (VS Code extension).
 - Export: saves the latest generated CAD cylinder as a STEP file.
+
+build123d takes several seconds to import (it pulls in the full OCC CAD
+kernel), so the window appears immediately with a loading indicator while
+that import runs on a background thread -- see main().
 """
+
+from __future__ import annotations
 
 import json
 import os
 import sys
 import subprocess
 import tempfile
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -26,10 +33,29 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
 	sys.path.insert(0, str(_REPO_ROOT))
 
-from build123d import Part, export_step
-from ocp_vscode import show
 from PIL import Image, ImageDraw
-from pneumatic_cylinder_app.models.cylinder_model import build_cylinder
+
+# Populated by _import_heavy_modules() on a background thread (see main()),
+# since importing build123d/ocp_vscode/the model module takes several
+# seconds. Nothing references these until after that thread completes.
+Part = None
+export_step = None
+show = None
+build_cylinder = None
+_load_error: BaseException | None = None
+
+
+def _import_heavy_modules() -> None:
+	global Part, export_step, show, build_cylinder, _load_error
+	try:
+		from build123d import Part as _Part, export_step as _export_step
+		from ocp_vscode import show as _show
+		from pneumatic_cylinder_app.models.cylinder_model import build_cylinder as _build_cylinder
+	except BaseException as exc:  # surfaced to the UI thread by main()
+		_load_error = exc
+		return
+	Part, export_step, show, build_cylinder = _Part, _export_step, _show, _build_cylinder
+
 
 _ICON_FILE = Path(__file__).parent / "cylinder_icon.ico"
 _CONFIG_FILE = Path(__file__).parent / "cylinder_params.json"
@@ -98,10 +124,6 @@ def _save_params(od: str, id_: str, thickness: str) -> None:
 class CylinderApp:
 	def __init__(self, root: tk.Tk | tk.Toplevel | ttk.Window) -> None:
 		self.root = root
-		self.root.title("Cylinder Generator")
-		self.root.geometry("760x500")
-		_ensure_icon()
-		self.root.iconbitmap(str(_ICON_FILE))
 
 		self.current_part: Part | None = None
 		self.current_dims: tuple[float, float, float] | None = None  # (od, id, thickness)
@@ -296,8 +318,34 @@ class CylinderApp:
 
 def main() -> None:
 	root = ttk.Window(themename="darkly")
-	CylinderApp(root)
+	root.title("Cylinder Generator")
+	root.geometry("760x500")
 	root.minsize(640, 420)
+	_ensure_icon()
+	root.iconbitmap(str(_ICON_FILE))
+
+	loading = ttk.Frame(root, padding=40)
+	loading.pack(fill=tk.BOTH, expand=True)
+	ttk.Label(loading, text="Loading build123d...", font=("Segoe UI", 12)).pack(pady=(60, 12))
+	progress = ttk.Progressbar(loading, mode="indeterminate", length=280)
+	progress.pack()
+	progress.start(10)
+
+	threading.Thread(target=_import_heavy_modules, daemon=True).start()
+
+	def check_loaded() -> None:
+		if build_cylinder is None and _load_error is None:
+			root.after(100, check_loaded)
+			return
+		progress.stop()
+		loading.destroy()
+		if _load_error is not None:
+			messagebox.showerror("Startup Failed", f"Failed to load build123d:\n{_load_error}")
+			root.destroy()
+			return
+		CylinderApp(root)
+
+	root.after(100, check_loaded)
 	root.mainloop()
 
 
