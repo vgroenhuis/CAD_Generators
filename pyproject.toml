@@ -35,6 +35,10 @@ dev = [
     "black>=23.0.0",
     "mypy>=1.0.0",
 ]
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
 
 [tool.black]
 line-length = 100
@@ -58,6 +62,7 @@ ring-app = "ring_app.ring_ui:main"
 cylinder-app = "pneumatic_cylinder_app.cylinder_ui:main"
 powerbank-holder-app = "powerbank_holder_app.powerbank_holder_ui:main"
 sandbox-app = "sandbox.sandbox_app:main"
+ring-web = "web_app.server:main"
 
 [tool.setuptools.packages.find]
-include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "sandbox*"]
+include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "sandbox*", "web_app*"]
