@@ -27,23 +27,30 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Populated on a background thread (see main()); build123d takes seconds to import.
 build_apriltag_cube = None
+parse_tag_ids = None
 export_apriltag_cube = None
 show = None
 _load_error: BaseException | None = None
 
 _CONFIG_FILE = Path(__file__).parent / "apriltag_cube_params.json"
-_DEFAULTS = {"tag_id": "0", "size": "30", "depth": "1"}
+# The tag is 6 cells wide inside a 1-cell white margin on an 8-cell face.
+_TAG_FRACTION = 6 / 8
+_DEFAULTS = {"tag_id": "0", "size": "40", "depth": "1"}
 
 
 def _import_heavy_modules() -> None:
-	global build_apriltag_cube, export_apriltag_cube, show, _load_error
+	global build_apriltag_cube, parse_tag_ids, export_apriltag_cube, show, _load_error
 	try:
 		from ocp_vscode import show as _show
-		from apriltag_cube_app.apriltag_cube_model import build_apriltag_cube as _b, export_apriltag_cube as _e
+		from apriltag_cube_app.apriltag_cube_model import (
+			build_apriltag_cube as _b,
+			export_apriltag_cube as _e,
+			parse_tag_ids as _p,
+		)
 	except BaseException as exc:
 		_load_error = exc
 		return
-	build_apriltag_cube, export_apriltag_cube, show = _b, _e, _show
+	build_apriltag_cube, export_apriltag_cube, parse_tag_ids, show = _b, _e, _p, _show
 
 
 def _load_params() -> dict:
@@ -68,6 +75,11 @@ class AprilTagCubeApp:
 		self.id_var = tk.StringVar(value=p["tag_id"])
 		self.size_var = tk.StringVar(value=p["size"])
 		self.depth_var = tk.StringVar(value=p["depth"])
+		self.tag_size_var = tk.StringVar()
+		self._syncing = False
+		self._sync_tag_from_cube()
+		self.size_var.trace_add("write", lambda *_: self._sync_tag_from_cube())
+		self.tag_size_var.trace_add("write", lambda *_: self._sync_cube_from_tag())
 		self.status_var = tk.StringVar(value="Enter parameters and click Generate.")
 		self._build_ui()
 		self.root.after(0, self.on_generate)
@@ -78,7 +90,12 @@ class AprilTagCubeApp:
 		controls = ttk.Frame(main)
 		controls.pack(fill=tk.X)
 		for col, (label, var) in enumerate(
-			[("Tag ID (0-29)", self.id_var), ("Cube size (mm)", self.size_var), ("Black depth (mm)", self.depth_var)]
+			[
+				("Tag ID(s) (0-29)", self.id_var),
+				("Cube size (mm)", self.size_var),
+				("Tag size (mm)", self.tag_size_var),
+				("Black depth (mm)", self.depth_var),
+			]
 		):
 			ttk.Label(controls, text=label).grid(row=0, column=col * 2, sticky=tk.W, padx=(0 if col == 0 else 20, 8), pady=4)
 			entry = ttk.Entry(controls, textvariable=var, width=10)
@@ -104,24 +121,46 @@ class AprilTagCubeApp:
 		).pack(fill=tk.BOTH, expand=True)
 		ttk.Label(main, textvariable=self.status_var, anchor=tk.W).pack(fill=tk.X, pady=(8, 0))
 
-	def _parse_inputs(self) -> tuple[int, float, float]:
+	def _sync_tag_from_cube(self) -> None:
+		if self._syncing:
+			return
 		try:
-			tag_id = int(self.id_var.get())
+			value = float(self.size_var.get()) * _TAG_FRACTION
+		except ValueError:
+			return
+		self._syncing = True
+		self.tag_size_var.set(f"{value:.4g}")
+		self._syncing = False
+
+	def _sync_cube_from_tag(self) -> None:
+		if self._syncing:
+			return
+		try:
+			value = float(self.tag_size_var.get()) / _TAG_FRACTION
+		except ValueError:
+			return
+		self._syncing = True
+		self.size_var.set(f"{value:.4g}")
+		self._syncing = False
+
+	def _parse_inputs(self) -> tuple[list[int], float, float]:
+		tag_ids = parse_tag_ids(self.id_var.get())
+		try:
 			size = float(self.size_var.get())
 			depth = float(self.depth_var.get())
 		except ValueError as exc:
-			raise ValueError("Tag ID must be an integer; size and depth must be numeric.") from exc
-		return tag_id, size, depth
+			raise ValueError("Size and depth must be numeric.") from exc
+		return tag_ids, size, depth
 
 	def on_generate(self) -> None:
 		try:
-			tag_id, size, depth = self._parse_inputs()
-			self.current_cube = build_apriltag_cube(tag_id, size, depth)
+			tag_ids, size, depth = self._parse_inputs()
+			self.current_cube = build_apriltag_cube(tag_ids, size, depth)
 			_save_params({"tag_id": self.id_var.get(), "size": self.size_var.get(), "depth": self.depth_var.get()})
 			self.export_btn.configure(state=tk.NORMAL)
 			self.show_btn.configure(state=tk.NORMAL)
 			self._show()
-			self.status_var.set(f"Generated cube: tag16h5 id {tag_id}, {size:g} mm, black depth {depth:g} mm")
+			self.status_var.set(f"Generated cube: tag16h5 {'id ' + str(tag_ids[0]) if len(tag_ids) == 1 else 'ids ' + ', '.join(map(str, tag_ids))}, {size:g} mm, black depth {depth:g} mm")
 		except Exception as exc:
 			messagebox.showerror("Generate Failed", str(exc))
 			self.status_var.set("Generation failed. Check input values.")
@@ -144,7 +183,7 @@ class AprilTagCubeApp:
 			title="Export STEP File",
 			defaultextension=".step",
 			filetypes=[("STEP files", "*.step *.stp"), ("All files", "*.*")],
-			initialfile=f"apriltag_cube_{int(self.id_var.get()):02d}.step",
+			initialfile="apriltag_cube_" + "-".join(f"{i:02d}" for i in parse_tag_ids(self.id_var.get())) + ".step",
 		)
 		if not out_file:
 			return
@@ -156,8 +195,8 @@ class AprilTagCubeApp:
 def main() -> None:
 	root = ttk.Window(themename="darkly")
 	root.title("AprilTag Cube Generator")
-	root.geometry("760x360")
-	root.minsize(640, 300)
+	root.geometry("960x360")
+	root.minsize(860, 300)
 
 	loading = ttk.Frame(root, padding=40)
 	loading.pack(fill=tk.BOTH, expand=True)

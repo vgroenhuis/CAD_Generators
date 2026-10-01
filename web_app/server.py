@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from web_app.generators import powerbank_holder, ring
+from web_app.generators import apriltag_cube, powerbank_holder, ring
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -21,6 +21,7 @@ app = FastAPI(title="CAD Generators")
 # to resolve them as files.
 app.include_router(ring.router, prefix="/api/ring")
 app.include_router(powerbank_holder.router, prefix="/api/powerbank-holder")
+app.include_router(apriltag_cube.router, prefix="/api/apriltag-cube")
 
 app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="static")
 
