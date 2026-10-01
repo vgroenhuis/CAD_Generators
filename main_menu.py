@@ -12,6 +12,7 @@ import ttkbootstrap as ttk
 _APP_DIR = Path(__file__).parent
 _RING_UI_SCRIPT = _APP_DIR / "ring_app" / "ring_ui.py"
 _CYLINDER_UI_SCRIPT = _APP_DIR / "pneumatic_cylinder_app" / "cylinder_ui.py"
+_APRILTAG_CUBE_UI_SCRIPT = _APP_DIR / "apriltag_cube_app" / "apriltag_cube_ui.py"
 _SANDBOX_APP_SCRIPT = _APP_DIR / "sandbox" / "sandbox_app.py"
 _POWERBANK_HOLDER_UI_SCRIPT = _APP_DIR / "powerbank_holder_app" / "powerbank_holder_ui.py"
 
@@ -58,6 +59,14 @@ def main() -> None:
 		command=lambda: launch_app_process(_POWERBANK_HOLDER_UI_SCRIPT, "Powerbank Holder App"),
 	)
 	powerbank_holder_btn.pack(pady=6)
+
+	apriltag_cube_btn = ttk.Button(
+		frame,
+		text="AprilTag Cube App",
+		width=24,
+		command=lambda: launch_app_process(_APRILTAG_CUBE_UI_SCRIPT, "AprilTag Cube App"),
+	)
+	apriltag_cube_btn.pack(pady=6)
 
 	sandbox_btn = ttk.Button(
 		frame,

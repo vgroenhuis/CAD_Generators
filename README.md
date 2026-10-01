@@ -7,6 +7,7 @@ A collection of Tkinter GUI applications for generating 3D models using [build12
 - **Ring Generator App** – Parametric ring designer (OD, ID, thickness)
 - **Pneumatic Cylinder App** – Parametric pneumatic cylinder with an X-ring seal
 - **Powerbank Holder App** – Generates the two mounting walls for a LynXP robot powerbank holder, with wall thickness, hole spacing, and hole count all auto-derived to land on a 10 mm baseplate grid
+- **AprilTag Cube App** – Cube with the same AprilTag tag16h5 code (ID 0-29) on all six faces, exported as a STEP file with two bodies ("white" and "black") for two-colour multimaterial printing. Also usable headless: `python apriltag_cube_app/apriltag_cube_model.py --id 3 --size 40 --depth 1 --out cube.step`
 - **Sandbox App** – Minimal demo window used to test standalone/embedded launch behavior
 - **Main Menu** – Launches any app as its own process from a central hub
 - **3D Viewer** – Models are shown in the [OCP CAD Viewer](https://github.com/bernhard-42/vscode-ocp-cad-viewer) VS Code extension
