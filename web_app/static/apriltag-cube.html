@@ -21,6 +21,11 @@
 	#download-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 	.fixed-info { margin-top: 14px; font-size: 11px; color: #6a6f75; line-height: 1.6; }
 	.hint { margin-top: 4px; font-size: 11px; color: #6a6f75; }
+	.controls .radio, .controls .check { display: flex; align-items: center; gap: 8px; }
+	.controls .radio { margin-top: 10px; color: #c0c4c9; }
+	.controls .check { margin-top: 16px; font-size: 13px; color: #e8e8e8; }
+	.controls .radio input, .controls .check input { width: auto; margin: 0; }
+	.controls input:disabled { opacity: 0.45; }
 	#status { margin-top: 14px; font-size: 12px; color: #a0a5ab; white-space: pre-wrap; }
 	#status.error { color: #e08a8a; }
 	.viewer { flex: 1; position: relative; }
@@ -35,9 +40,13 @@
 	</header>
 	<main>
 		<div class="controls">
-			<label for="tag_id">Tag ID(s) (0-29, tag16h5)</label>
-			<input type="text" id="tag_id" value="0" autocomplete="off" placeholder="0  or  0,1,2,3,4,5">
-			<div class="hint">One ID for all faces, or six comma-separated IDs: top, bottom, front, back, right, left.</div>
+			<label>Tags (tag16h5, IDs 0-29)</label>
+			<label class="radio" for="mode_same"><input type="radio" name="tag_mode" id="mode_same" value="same" checked> Same tag on all faces</label>
+			<input type="text" id="tag_id" value="0" autocomplete="off" placeholder="0  or  0,1,2,3">
+			<div class="hint">One ID, or several comma-separated IDs: one cube per ID, in the smallest square grid (2x2, 3x3, ...) with 2 mm spacing.</div>
+			<label class="radio" for="mode_dice"><input type="radio" name="tag_mode" id="mode_dice" value="dice"> Six different tags (die order)</label>
+			<input type="text" id="tag_ids" value="0,1,2,3,4,5" autocomplete="off" placeholder="0,1,2,3,4,5">
+			<div class="hint">Six comma-separated IDs for faces 1-6. Faces 1, 2, 3 point along +X, +Y, +Z (right-hand rule); 4, 5, 6 are opposite to 3, 2, 1.</div>
 
 			<label for="size">Cube size (mm)</label>
 			<input type="text" inputmode="decimal" autocomplete="off" id="size" value="40">
@@ -48,10 +57,12 @@
 			<label for="depth">Black depth (mm)</label>
 			<input type="text" inputmode="decimal" autocomplete="off" id="depth" value="1">
 
+			<label class="check" for="axes"><input type="checkbox" id="axes"> Red/green axes (X/Y) on the floor</label>
+
 			<button id="generate-btn">Generate</button>
 			<button id="download-btn" disabled>Download STEP</button>
 
-			<div class="fixed-info">The tag (6 cells wide) sits inside a 1-cell white margin, so tag size = 0.75 x cube size. With a single ID the same tag is placed on all six faces. The STEP file contains two bodies, "white" (cube with pockets) and "black" (tag cells), for multimaterial printing.</div>
+			<div class="fixed-info">The tag (6 cells wide) sits inside a 1-cell white margin, so tag size = 0.75 x cube size. The STEP file contains two bodies, "white" (cube with pockets) and "black" (tag cells), for multimaterial printing. With axes enabled, "red" (+X) and "green" (+Y) arrows lie flat on the floor beside the cube, on its X and Y axes.</div>
 
 			<div id="status">Enter dimensions and click Generate.</div>
 		</div>

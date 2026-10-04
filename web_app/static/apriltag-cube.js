@@ -3,6 +3,9 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const tagIdInput = document.getElementById("tag_id");
+const tagIdsInput = document.getElementById("tag_ids");
+const modeInputs = document.querySelectorAll('input[name="tag_mode"]');
+const axesInput = document.getElementById("axes");
 const sizeInput = document.getElementById("size");
 const tagSizeInput = document.getElementById("tag_size");
 const depthInput = document.getElementById("depth");
@@ -79,21 +82,37 @@ function parseNumber(text) {
 
 const FACE_COUNT = 6;
 
-function parseTagIds(text) {
+function isDiceMode() {
+	return document.querySelector('input[name="tag_mode"]:checked').value === "dice";
+}
+
+function updateMode() {
+	const dice = isDiceMode();
+	tagIdInput.disabled = dice;
+	tagIdsInput.disabled = !dice;
+}
+
+const MAX_CUBES = 64;
+
+// perFace false: one or more IDs, one cube each (same tag on all faces); true: six IDs for
+// faces 1-6 of a single cube, in die order.
+function parseTagIds(text, perFace) {
 	const parts = text.split(/[,;]/).map((s) => s.trim()).filter((s) => s !== "");
 	if (!parts.every((s) => /^\d+$/.test(s))) {
-		throw new Error("Tag ID must be an integer, or a comma-separated list of integers.");
+		throw new Error("Tag IDs must be integers, separated by commas.");
 	}
 	const ids = parts.map(Number);
-	if (ids.length !== 1 && ids.length !== FACE_COUNT) {
-		throw new Error("Enter one tag ID (used on all faces) or 6 IDs: top, bottom, front, back, right, left.");
+	if (perFace && ids.length !== FACE_COUNT) {
+		throw new Error("Enter 6 comma-separated tag IDs, in die order (faces 1 to 6).");
 	}
+	if (!perFace && ids.length === 0) throw new Error("Enter at least one tag ID.");
+	if (!perFace && ids.length > MAX_CUBES) throw new Error(`At most ${MAX_CUBES} cubes can be generated at once.`);
 	if (ids.some((id) => id > 29)) throw new Error("Tag IDs must be between 0 and 29.");
 	return ids;
 }
 
 function readParams() {
-	const tagIds = parseTagIds(tagIdInput.value);
+	const tagIds = isDiceMode() ? parseTagIds(tagIdsInput.value, true) : parseTagIds(tagIdInput.value, false);
 	const size = parseNumber(sizeInput.value);
 	const depth = parseNumber(depthInput.value);
 	if (!Number.isFinite(size) || !Number.isFinite(depth)) {
@@ -101,7 +120,7 @@ function readParams() {
 	}
 	if (size <= 0 || depth <= 0) throw new Error("Size and depth must be greater than 0.");
 	if (depth >= size / 2) throw new Error("Black depth must be smaller than half the cube size.");
-	return { tagIds, size, depth };
+	return { tagIds, size, depth, axes: axesInput.checked, perFace: isDiceMode() };
 }
 
 function fitCameraToObject(object) {
@@ -138,15 +157,14 @@ syncTagSizeFromCube();
 
 const gltfLoader = new GLTFLoader();
 
-function isBlackNode(mesh) {
-	for (let n = mesh; n; n = n.parent) {
-		if (n.name && n.name.toLowerCase().includes("black")) return true;
-	}
-	return false;
-}
-
 function buildQuery(params) {
-	return new URLSearchParams({ tag_ids: params.tagIds.join(","), size: params.size, depth: params.depth });
+	return new URLSearchParams({
+		tag_ids: params.tagIds.join(","),
+		size: params.size,
+		depth: params.depth,
+		axes: params.axes,
+		per_face: params.perFace,
+	});
 }
 
 async function onGenerate() {
@@ -178,15 +196,24 @@ async function onGenerate() {
 		currentModel = gltf.scene;
 		currentModel.traverse((child) => {
 			if (child.isMesh) {
-				const isBlack = isBlackNode(child);
-				child.material = new THREE.MeshStandardMaterial({ color: isBlack ? 0x111111 : 0xeeeeee, metalness: 0.0, roughness: 0.6 });
+				// Each body (white, black, red, green) carries its colour in the glTF material.
+				const color = child.material && child.material.color ? child.material.color : new THREE.Color(0xeeeeee);
+				child.material = new THREE.MeshStandardMaterial({ color, metalness: 0.0, roughness: 0.6 });
 			}
 		});
 		scene.add(currentModel);
 		fitCameraToObject(currentModel);
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
-		setStatus(`Generated cube: tag16h5 ${params.tagIds.length === 1 ? "id " + params.tagIds[0] : "ids [" + params.tagIds.join(", ") + "]"}, ${params.size} mm, black depth ${params.depth} mm`);
+		const idsText = params.tagIds.join(", ");
+		let what;
+		if (!params.perFace && params.tagIds.length > 1) {
+			const n = Math.ceil(Math.sqrt(params.tagIds.length));
+			what = `${params.tagIds.length} cubes in a ${n}x${n} grid: tag16h5 ids ${idsText}`;
+		} else {
+			what = `cube: tag16h5 ${params.tagIds.length === 1 ? "id" : "ids"} ${idsText}`;
+		}
+		setStatus(`Generated ${what}, ${params.size} mm, black depth ${params.depth} mm`);
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
 	} finally {
@@ -207,7 +234,10 @@ function onDownload() {
 
 generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", onDownload);
-[tagIdInput, sizeInput, tagSizeInput, depthInput].forEach((el) => {
+modeInputs.forEach((el) => el.addEventListener("change", updateMode));
+updateMode();
+axesInput.addEventListener("change", onGenerate);
+[tagIdInput, tagIdsInput, sizeInput, tagSizeInput, depthInput].forEach((el) => {
 	el.addEventListener("keydown", (e) => {
 		if (e.key === "Enter") onGenerate();
 	});
