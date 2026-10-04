@@ -23,9 +23,11 @@ classifiers = [
 
 dependencies = [
     "build123d>=0.6.0",
+    "ocp-vscode>=2.7.0",
+    "numpy>=1.26.0",
     "ttkbootstrap>=1.6.0",
     "pillow>=10.0.0",
-    "vtkmodules>=9.2.0",
+    "vtk>=9.2.0",
 ]
 
 [project.optional-dependencies]
@@ -53,5 +55,4 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [project.scripts]
-ring-app = "ring_app.ring_vincent:main"
-sandbox-app = "sandbox.sandbox_app:main"
+cad-generators = "main_menu:main"

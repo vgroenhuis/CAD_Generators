@@ -5,8 +5,12 @@ Geometry construction helpers for ring creation.
 from build123d import *
 from ocp_vscode import show, show_object
 
-from pneumatic_cylinder_app.models.x_ring_model import create_x_ring
-#from x_ring_model import create_x_ring
+try:
+    # Package import path when used as a library (e.g. from main_menu).
+    from pneumatic_cylinder_app.models.x_ring_model import create_x_ring
+except ModuleNotFoundError:
+    # Sibling import path when this file is executed directly.
+    from x_ring_model import create_x_ring
 
 
 def build_cylinder(od: float, inner_d: float, thickness: float):
@@ -28,7 +32,7 @@ def build_cylinder_struct(params):
 
 def test_manual_params() -> None:
     # Example usage of build_cylinder function
-    params = {"od": 100, "id": 60, "thickness": 20}
+    params = {"od": 120, "id": 60, "thickness": 20}
     cylinder_part = build_cylinder_struct(params)
     show(cylinder_part)
 
@@ -51,8 +55,8 @@ def test_params_from_yaml() -> None:
 
 
 def main() -> None:
-    # test_manual_params()
-    test_params_from_yaml()
+    test_manual_params()
+    # test_params_from_yaml()
     pass
 
 if __name__ == "__main__":
