@@ -16,11 +16,11 @@ def launch_in_toplevel(parent: tk.Misc) -> None:
     _build_ui(window)
 
 # This function is used when launching the sandbox app directly (not from the main menu).
-# def main() -> None:
-#     root = ttk.Window(themename="darkly")
-#     _build_ui(root)
-#     root.mainloop()
+def main() -> None:
+    root = ttk.Window(themename="darkly")
+    _build_ui(root)
+    root.mainloop()
 
 # This allows the sandbox app to be run directly for testing purposes.
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

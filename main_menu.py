@@ -3,8 +3,8 @@ Main menu for launching the different apps.
 """
 
 import json
-import importlib
 import subprocess
+import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -12,9 +12,12 @@ import webbrowser
 from pathlib import Path
 import ttkbootstrap as ttk
 
-import ring_app.ring_ui as ring_ui
-import pneumatic_cylinder_app.cylinder_ui as cylinder_ui
-import sandbox.sandbox_app as sandbox_app
+_APP_DIR = Path(__file__).parent
+_RING_UI_SCRIPT = _APP_DIR / "ring_app" / "ring_ui.py"
+_CYLINDER_UI_SCRIPT = _APP_DIR / "pneumatic_cylinder_app" / "cylinder_ui.py"
+_APRILTAG_CUBE_UI_SCRIPT = _APP_DIR / "apriltag_cube_app" / "apriltag_cube_ui.py"
+_SANDBOX_APP_SCRIPT = _APP_DIR / "sandbox" / "sandbox_app.py"
+_POWERBANK_HOLDER_UI_SCRIPT = _APP_DIR / "powerbank_holder_app" / "powerbank_holder_ui.py"
 
 _ocp_process = None
 _ocp_lock = threading.Lock()
@@ -123,17 +126,13 @@ def _browse_python_interpreter(
 	_persist_settings_from_vars(python_var, port_var, auto_start_var, auto_open_browser_var)
 
 
-# Launches any of the child apps. launcher is a function that takes a tk.Misc parent and launches the app in a new window.
-def launch_app(root: tk.Misc, launcher, name: str) -> None:
+# Each child app runs standalone in its own process, so launching from the
+# main menu just starts that app's script the same way a user would directly.
+def launch_app_process(script_path: Path, name: str) -> None:
 	try:
-		launcher(root)
+		subprocess.Popen([sys.executable, str(script_path)])
 	except Exception as exc:
 		messagebox.showerror("Launch Error", f"Failed to launch {name}:\n{exc}")
-
-
-def _reload_and_launch(parent: tk.Misc, module) -> None:
-	reloaded = importlib.reload(module)
-	reloaded.launch_in_toplevel(parent)
 
 
 def _is_ocp_running() -> bool:
@@ -265,7 +264,7 @@ def main() -> None:
 		frame,
 		text="Ring App",
 		width=24,
-		command=lambda: launch_app(root, lambda parent: _reload_and_launch(parent, ring_ui), "Ring App"),
+		command=lambda: launch_app_process(_RING_UI_SCRIPT, "Ring App"),
 	)
 	ring_btn.pack(pady=6)
 
@@ -273,15 +272,31 @@ def main() -> None:
 		frame,
 		text="Pneumatic Cylinder App",
 		width=24,
-		command=lambda: launch_app(root, lambda parent: _reload_and_launch(parent, cylinder_ui), "Pneumatic Cylinder App"),
+		command=lambda: launch_app_process(_CYLINDER_UI_SCRIPT, "Pneumatic Cylinder App"),
 	)
 	cylinder_btn.pack(pady=6)
+
+	powerbank_holder_btn = ttk.Button(
+		frame,
+		text="Powerbank Holder App",
+		width=24,
+		command=lambda: launch_app_process(_POWERBANK_HOLDER_UI_SCRIPT, "Powerbank Holder App"),
+	)
+	powerbank_holder_btn.pack(pady=6)
+
+	apriltag_cube_btn = ttk.Button(
+		frame,
+		text="AprilTag Cube App",
+		width=24,
+		command=lambda: launch_app_process(_APRILTAG_CUBE_UI_SCRIPT, "AprilTag Cube App"),
+	)
+	apriltag_cube_btn.pack(pady=6)
 
 	sandbox_btn = ttk.Button(
 		frame,
 		text="Sandbox App",
 		width=24,
-		command=lambda: launch_app(root, lambda parent: _reload_and_launch(parent, sandbox_app), "Sandbox App"),
+		command=lambda: launch_app_process(_SANDBOX_APP_SCRIPT, "Sandbox App"),
 	)
 	sandbox_btn.pack(pady=6)
 
@@ -370,13 +385,15 @@ def main() -> None:
 	if auto_start_var.get():
 		root.after(0, lambda: start_ocp_server(root, python_var, port_var, auto_start_var, auto_open_browser_var, ocp_start_btn, ocp_stop_btn))
 
-	# Auto-fit window size to all UI elements
+	# Size the window to fit its actual content instead of a hard-coded
+	# guess, so adding/removing a button can't leave one cut off again.
 	root.update_idletasks()
-	width = root.winfo_reqwidth()
+	width = max(root.winfo_reqwidth(), 360)
 	height = root.winfo_reqheight()
 	root.geometry(f"{width}x{height}")
+	root.minsize(width, height)
 
 	root.mainloop()
 
-main()
-    
+if __name__ == "__main__":
+	main()

@@ -8,21 +8,56 @@ This module provides a lightweight desktop interface to:
 - send the model to the OCP viewer.
 
 The last-used dimension values are persisted in `cylinder_params.json`.
+
+Can be run standalone, or launched as a subprocess from main_menu.py.
+
+build123d takes several seconds to import (it pulls in the full OCC CAD
+kernel), so the window appears immediately with a loading indicator while
+that import runs on a background thread -- see main().
 """
+
+from __future__ import annotations
 
 import json
 import os
+import sys
 import subprocess
 import tempfile
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 
-from build123d import Part, export_step
-from ocp_vscode import show
+# Ensure the repo root is importable so `pneumatic_cylinder_app` resolves as a package,
+# whether this file is run directly, via `-m`, or imported by main_menu.py.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+	sys.path.insert(0, str(_REPO_ROOT))
+
 from pneumatic_cylinder_app.cylinder_create_icon import ensure_icon_file
-from pneumatic_cylinder_app.models.cylinder_model import build_cylinder
+
+# Populated by _import_heavy_modules() on a background thread (see main()),
+# since importing build123d/ocp_vscode/the model module takes several
+# seconds. Nothing references these until after that thread completes.
+Part = None
+export_step = None
+show = None
+build_cylinder = None
+_load_error: BaseException | None = None
+
+
+def _import_heavy_modules() -> None:
+	global Part, export_step, show, build_cylinder, _load_error
+	try:
+		from build123d import Part as _Part, export_step as _export_step
+		from ocp_vscode import show as _show
+		from pneumatic_cylinder_app.models.cylinder_model import build_cylinder as _build_cylinder
+	except BaseException as exc:  # surfaced to the UI thread by main()
+		_load_error = exc
+		return
+	Part, export_step, show, build_cylinder = _Part, _export_step, _show, _build_cylinder
+
 
 _CONFIG_FILE = Path(__file__).parent / "cylinder_params.json"
 _ICON_FILE = Path(__file__).parent / "cylinder_icon.ico"
@@ -102,19 +137,19 @@ class CylinderApp:
 		od_entry = ttk.Entry(controls, textvariable=self.od_var, width=12)
 		od_entry.grid(row=0, column=1, sticky=tk.W, pady=4)
 		od_entry.bind("<Return>", lambda e: self.on_generate())
-		od_entry.bind("<FocusOut>", lambda e: self.on_generate())
+		od_entry.bind("<FocusOut>", lambda e: self._on_generate_silent())
 
 		ttk.Label(controls, text="ID (mm)").grid(row=0, column=2, sticky=tk.W, padx=(20, 8), pady=4)
 		id_entry = ttk.Entry(controls, textvariable=self.id_var, width=12)
 		id_entry.grid(row=0, column=3, sticky=tk.W, pady=4)
 		id_entry.bind("<Return>", lambda e: self.on_generate())
-		id_entry.bind("<FocusOut>", lambda e: self.on_generate())
+		id_entry.bind("<FocusOut>", lambda e: self._on_generate_silent())
 
 		ttk.Label(controls, text="Thickness (mm)").grid(row=0, column=4, sticky=tk.W, padx=(20, 8), pady=4)
 		thickness_entry = ttk.Entry(controls, textvariable=self.thickness_var, width=12)
 		thickness_entry.grid(row=0, column=5, sticky=tk.W, pady=4)
 		thickness_entry.bind("<Return>", lambda e: self.on_generate())
-		thickness_entry.bind("<FocusOut>", lambda e: self.on_generate())
+		thickness_entry.bind("<FocusOut>", lambda e: self._on_generate_silent())
 
 		buttons = ttk.Frame(main)
 		buttons.pack(fill=tk.X, pady=(8, 8))
@@ -168,6 +203,19 @@ class CylinderApp:
 		return od, inner_d, thickness
 
 	def on_generate(self) -> None:
+		"""Generate the cylinder model, reporting failures in a dialog."""
+		self._generate(show_errors=True)
+
+	def _on_generate_silent(self) -> None:
+		"""Regenerate on <FocusOut> without error dialogs.
+
+		FocusOut also fires when switching to another window, and just before the
+		Generate button's own click handler runs, so a dialog here would pop up
+		duplicate errors for one problem. Failures go to the status bar instead.
+		"""
+		self._generate(show_errors=False)
+
+	def _generate(self, show_errors: bool) -> None:
 		"""Generate the cylinder model and enable post-generation actions."""
 		try:
 			od, inner_d, thickness = self._parse_inputs()
@@ -191,7 +239,8 @@ class CylinderApp:
 		except ValueError as exc:
 			self.status_var.set(f"Invalid input: {exc}")
 		except Exception as exc:
-			messagebox.showerror("Generate Failed", str(exc))
+			if show_errors:
+				messagebox.showerror("Generate Failed", str(exc))
 			self.status_var.set("Generation failed. Check input values.")
 
 	def on_open_in_bambu_studio(self) -> None:
@@ -279,9 +328,34 @@ class CylinderApp:
 		self.status_var.set(f"Exported STEP file: {out_file}")
 		messagebox.showinfo("Export Complete", f"Saved STEP file to:\n{out_file}")
 
-def launch_in_toplevel(parent: tk.Misc) -> None:
-	"""Open the cylinder app in a child toplevel window."""
-	window = tk.Toplevel(parent)
-	CylinderApp(window)
-	window.minsize(640, 420)
+def main() -> None:
+	root = ttk.Window(themename="darkly")
+	root.title("Cylinder Generator")
 
+	loading = ttk.Frame(root, padding=40)
+	loading.pack(fill=tk.BOTH, expand=True)
+	ttk.Label(loading, text="Loading build123d...", font=("Segoe UI", 12)).pack(pady=(60, 12))
+	progress = ttk.Progressbar(loading, mode="indeterminate", length=280)
+	progress.pack()
+	progress.start(10)
+
+	threading.Thread(target=_import_heavy_modules, daemon=True).start()
+
+	def check_loaded() -> None:
+		if build_cylinder is None and _load_error is None:
+			root.after(100, check_loaded)
+			return
+		progress.stop()
+		loading.destroy()
+		if _load_error is not None:
+			messagebox.showerror("Startup Failed", f"Failed to load build123d:\n{_load_error}")
+			root.destroy()
+			return
+		CylinderApp(root)
+
+	root.after(100, check_loaded)
+	root.mainloop()
+
+
+if __name__ == "__main__":
+	main()

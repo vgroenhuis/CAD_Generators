@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "build123d-sandbox"
 version = "0.1.0"
-description = "Ring generator and sandbox apps using build123d and Tkinter"
+description = "Ring, pneumatic cylinder, and powerbank holder CAD generator apps using build123d and Tkinter"
 readme = "README.md"
 authors = [
-    {name = "Vince", email = "vince@example.com"},
+    {name = "Vince", email = "groenhuis@gmail.com"},
 ]
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -27,7 +27,7 @@ dependencies = [
     "numpy>=1.26.0",
     "ttkbootstrap>=1.6.0",
     "pillow>=10.0.0",
-    "vtk>=9.2.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +35,10 @@ dev = [
     "ruff>=0.1.0",
     "black>=23.0.0",
     "mypy>=1.0.0",
+]
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
 ]
 
 [tool.black]
@@ -56,3 +60,15 @@ ignore_missing_imports = true
 
 [project.scripts]
 cad-generators = "main_menu:main"
+ring-app = "ring_app.ring_ui:main"
+cylinder-app = "pneumatic_cylinder_app.cylinder_ui:main"
+powerbank-holder-app = "powerbank_holder_app.powerbank_holder_ui:main"
+apriltag-cube-app = "apriltag_cube_app.apriltag_cube_ui:main"
+sandbox-app = "sandbox.sandbox_app:main"
+ring-web = "web_app.server:main"
+
+[tool.setuptools]
+py-modules = ["main_menu"]
+
+[tool.setuptools.packages.find]
+include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "apriltag_cube_app*", "sandbox*", "web_app*"]
