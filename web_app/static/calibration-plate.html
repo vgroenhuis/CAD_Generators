@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Calibration Plate Generator</title>
+<style>
+	html, body { height: 100%; margin: 0; }
+	body { font-family: "Segoe UI", sans-serif; background: #1a1d21; color: #e8e8e8; display: flex; flex-direction: column; }
+	header { padding: 12px 20px; border-bottom: 1px solid #3a3f45; }
+	header a { color: #8fb4e8; text-decoration: none; }
+	h1 { font-size: 18px; margin: 8px 0 0 0; font-weight: 600; }
+	main { flex: 1; display: flex; min-height: 0; }
+	.controls { width: 300px; padding: 16px 20px; border-right: 1px solid #3a3f45; overflow-y: auto; box-sizing: border-box; }
+	.controls label { display: block; margin-top: 12px; font-size: 13px; color: #c0c4c9; }
+	.controls input { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; }
+	.controls button { margin-top: 16px; width: 100%; padding: 8px; border-radius: 4px; border: none; cursor: pointer; font-size: 14px; }
+	#generate-btn { background: #5a8cd2; color: white; }
+	#generate-btn:hover { background: #4a7cc2; }
+	#download-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
+	#download-btn:hover:not(:disabled) { background: #4a4f55; }
+	#download-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.fixed-info { margin-top: 14px; font-size: 11px; color: #6a6f75; line-height: 1.6; }
+	.hint { margin-top: 4px; font-size: 11px; color: #6a6f75; }
+	.controls .radio, .controls .check { display: flex; align-items: center; gap: 8px; }
+	.controls .radio { margin-top: 10px; color: #c0c4c9; }
+	.controls .check { margin-top: 16px; font-size: 13px; color: #e8e8e8; }
+	.controls .radio input, .controls .check input { width: auto; margin: 0; }
+	.controls input:disabled { opacity: 0.45; }
+	#status { margin-top: 14px; font-size: 12px; color: #a0a5ab; white-space: pre-wrap; }
+	#status.error { color: #e08a8a; }
+	.viewer { flex: 1; position: relative; }
+	#viewer-canvas { display: block; width: 100%; height: 100%; }
+	.viewer-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #6a6f75; font-size: 14px; pointer-events: none; }
+	.controls select { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; }
+	.controls h3 { font-size: 13px; margin: 18px 0 0 0; color: #e8e8e8; font-weight: 600; }
+	.yaml-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px !important; }
+	.yaml-btn:hover:not(:disabled) { background: #4a4f55; }
+	.yaml-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	#layout-info { margin-top: 14px; font-size: 12px; color: #c0c4c9; line-height: 1.5; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+	<header>
+		<a href="index.html">&larr; CAD Generators</a>
+		<h1>Calibration Plate Generator</h1>
+	</header>
+	<main>
+		<div class="controls">
+			<h3>Plate</h3>
+			<label for="width">Width (mm)</label>
+			<input type="text" inputmode="decimal" autocomplete="off" id="width" value="300">
+			<label for="length">Length (mm)</label>
+			<input type="text" inputmode="decimal" autocomplete="off" id="length" value="320">
+			<label for="thickness">Thickness (mm)</label>
+			<input type="text" inputmode="decimal" autocomplete="off" id="thickness" value="10">
+			<label for="depth">Black depth (mm)</label>
+			<input type="text" inputmode="decimal" autocomplete="off" id="depth" value="1">
+			<label for="margin">Minimum white margin (mm)</label>
+			<input type="text" inputmode="decimal" autocomplete="off" id="margin" value="10">
+
+			<h3>Top: checkerboard</h3>
+			<label for="square_size">Square size (mm)</label>
+			<input type="text" inputmode="decimal" autocomplete="off" id="square_size" value="20">
+
+			<h3>Bottom: AprilGrid (tag36h11)</h3>
+			<label for="tag_size">Tag size (mm, outer black edge)</label>
+			<input type="text" inputmode="decimal" autocomplete="off" id="tag_size" value="34">
+			<label for="tag_spacing">Tag spacing (gap / tag size)</label>
+			<input type="text" inputmode="decimal" autocomplete="off" id="tag_spacing" value="0.3">
+			<label for="border_bits">Tag border</label>
+			<select id="border_bits">
+				<option value="2" selected>2 bits (Kalibr)</option>
+				<option value="1">1 bit (standard AprilTag / OpenCV)</option>
+			</select>
+			<label for="first_tag_id">First tag ID</label>
+			<input type="text" inputmode="numeric" autocomplete="off" id="first_tag_id" value="0">
+			<label class="check" for="corner_squares"><input type="checkbox" id="corner_squares" checked> Corner squares between tags (Kalibr)</label>
+
+			<button id="generate-btn">Generate</button>
+			<button id="download-btn" disabled>Download STEP</button>
+			<button id="aprilgrid-yaml-btn" class="yaml-btn" disabled>Download Kalibr AprilGrid YAML</button>
+			<button id="checker-yaml-btn" class="yaml-btn" disabled>Download Kalibr checkerboard YAML</button>
+
+			<div id="layout-info"></div>
+
+			<div class="fixed-info">The number of squares and tags is derived from the plate size, the square/tag size and the minimum margin; each pattern is centred on its face. The AprilGrid follows Kalibr: tag 0 at the bottom-left (seen from below), ids increasing to the right, then upwards. The STEP file contains two bodies, "white" (plate with pockets) and "black" (pattern), for multimaterial printing. Print with the AprilGrid side on the bed.</div>
+
+			<div id="status">Enter dimensions and click Generate.</div>
+		</div>
+		<div class="viewer">
+			<div class="viewer-placeholder" id="viewer-placeholder">No model generated yet.</div>
+			<canvas id="viewer-canvas"></canvas>
+		</div>
+	</main>
+
+	<script type="importmap">
+	{
+		"imports": {
+			"three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+		}
+	}
+	</script>
+	<script type="module" src="calibration-plate.js"></script>
+</body>
+</html>

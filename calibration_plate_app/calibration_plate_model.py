@@ -11,6 +11,10 @@
     Both are exported as separate bodies in one STEP file, so a multimaterial
     slicer can assign one filament to each body.
 
+    Black shapes that would touch only at a corner (checkerboard squares, diagonal tag
+    cells, AprilGrid corner squares) are joined by a tiny bridge square, because a
+    zero-width contact is a non-manifold edge that slicers reject.
+
     The number of squares/tags is derived from the plate size, the square/tag size
     and the minimum white margin; the pattern is centred on its face. Both faces
     are drawn as seen from outside the plate (so the bottom one is not mirrored).
@@ -27,12 +31,14 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from build123d import Box, Compound, Part, Pos, Rectangle, Rot, Sketch, export_step, extrude
+from build123d import Box, Color, Compound, Part, Pos, Rectangle, Rot, Sketch, export_step, extrude
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tag36h11_codes import BIT_XY, CODES  # noqa: E402
 
 Rect = tuple[float, float, float, float]  # (x0, y0, x1, y1) in face coordinates, mm
+
+_BRIDGE_SIZE = 0.1  # mm; width of the bridge joining corner-touching black shapes
 
 
 @dataclass
@@ -56,8 +62,8 @@ class PlateLayout:
     checker_rows: int
     tag_cols: int
     tag_rows: int
-    top: list[Rect] = field(default_factory=list)  # checkerboard squares
-    bottom: list[list[Rect]] = field(default_factory=list)  # one rect group per connected shape
+    top: list[Rect] = field(default_factory=list)  # checkerboard squares and bridges
+    bottom: list[Rect] = field(default_factory=list)  # AprilGrid cells, corner squares and bridges
 
     def kalibr_yaml(self, p: PlateParams) -> str:
         return (
@@ -108,6 +114,21 @@ def _row_runs(cells: list[list[bool]], x0: float, y_top: float, cell: float) -> 
     return rects
 
 
+def _bridge(x: float, y: float, size: float) -> Rect:
+    return (x - size / 2, y - size / 2, x + size / 2, y + size / 2)
+
+
+def _diagonal_corners(cells: list[list[bool]]) -> list[tuple[int, int]]:
+    """Grid vertices (row, col) where two black cells touch only at that corner."""
+    out = []
+    for r in range(len(cells) - 1):
+        for c in range(len(cells[r]) - 1):
+            a, b, d, e = cells[r][c], cells[r][c + 1], cells[r + 1][c], cells[r + 1][c + 1]
+            if (a and e and not b and not d) or (b and d and not a and not e):
+                out.append((r + 1, c + 1))
+    return out
+
+
 def compute_layout(p: PlateParams) -> PlateLayout:
     if min(p.width, p.length, p.thickness, p.square_size, p.tag_size) <= 0:
         raise ValueError("Plate dimensions, square size and tag size must be greater than 0.")
@@ -132,6 +153,9 @@ def compute_layout(p: PlateParams) -> PlateLayout:
         for c in range(cols)
         if (r + c) % 2 == 0
     ]
+    # Every interior grid vertex of a checkerboard is a corner-only contact.
+    bridge = min(_BRIDGE_SIZE, s / 10)
+    top += [_bridge(x0 + c * s, y_top - r * s, bridge) for r in range(1, rows) for c in range(1, cols)]
 
     # --- AprilGrid (bottom). n tags span n*t + (n+1)*gap, gap squares included.
     t = p.tag_size
@@ -147,20 +171,24 @@ def compute_layout(p: PlateParams) -> PlateLayout:
     gx0 = -(tag_cols * t + (tag_cols + 1) * gap) / 2
     gy0 = -(tag_rows * t + (tag_rows + 1) * gap) / 2
     cell = t / (6 + 2 * p.border_bits)
-    bottom: list[list[Rect]] = []
+    bridge = min(_BRIDGE_SIZE, cell / 10)
+    bottom: list[Rect] = []
     # Kalibr numbering: id 0 at bottom-left, increasing to the right, then upwards.
     for r in range(tag_rows):
         for c in range(tag_cols):
             tx = gx0 + gap + c * (t + gap)
             ty = gy0 + gap + r * (t + gap)
             cells = tag36h11_cells(p.first_tag_id + r * tag_cols + c, p.border_bits)
-            bottom.append(_row_runs(cells, tx, ty + t, cell))
+            bottom += _row_runs(cells, tx, ty + t, cell)
+            bottom += [_bridge(tx + cc * cell, ty + t - cr * cell, bridge) for cr, cc in _diagonal_corners(cells)]
+            if p.corner_squares:  # each tag corner touches a corner square diagonally
+                bottom += [_bridge(tx + dx, ty + dy, bridge) for dx in (0, t) for dy in (0, t)]
     if p.corner_squares:
         for r in range(tag_rows + 1):
             for c in range(tag_cols + 1):
                 x = gx0 + c * (t + gap)
                 y = gy0 + r * (t + gap)
-                bottom.append([(x, y, x + gap, y + gap)])
+                bottom.append((x, y, x + gap, y + gap))
 
     return PlateLayout(cols, rows, tag_cols, tag_rows, top, bottom)
 
@@ -176,14 +204,13 @@ def build_calibration_plate(p: PlateParams) -> tuple[Compound, PlateLayout]:
     """Build a compound with two bodies (labels 'white' and 'black') plus its layout."""
     layout = compute_layout(p)
     z = p.thickness / 2
-    # Checkerboard squares only touch at corners; keep them as separate solids.
-    black_solids = [_rects_to_solid([r], z, p.depth) for r in layout.top]
-    # Bottom pattern is built on top and flipped about Y, which keeps it readable from below.
-    black_solids += [Rot(0, 180, 0) * _rects_to_solid(g, z, p.depth) for g in layout.bottom]
+    # The bottom pattern is built on top and flipped about Y, which keeps it readable from below.
+    black_solids = [_rects_to_solid(layout.top, z, p.depth), Rot(0, 180, 0) * _rects_to_solid(layout.bottom, z, p.depth)]
 
     black = Part(Compound(black_solids).wrapped)
     white = Part(Box(p.width, p.length, p.thickness).cut(*black_solids).wrapped)
     white.label, black.label = "white", "black"
+    white.color, black.color = Color(0.93, 0.93, 0.93), Color(0.07, 0.07, 0.07)
     return Compound(children=[white, black], label="calibration_plate"), layout
 
 
