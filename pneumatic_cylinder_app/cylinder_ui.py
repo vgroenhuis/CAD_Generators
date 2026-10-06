@@ -1,12 +1,15 @@
-"""Tkinter GUI for creating and exporting a pneumatic cylinder with build123d.
+"""Tkinter UI for generating and exporting pneumatic cylinder CAD geometry.
+
+This module provides a lightweight desktop interface to:
+- enter cylinder dimensions (OD, ID, thickness),
+- generate a `build123d.Part` via `build_cylinder`,
+- export the model as STEP,
+- open the model in BambuStudio or PrusaSlicer,
+- send the model to the OCP viewer.
+
+The last-used dimension values are persisted in `cylinder_params.json`.
+
 Can be run standalone, or launched as a subprocess from main_menu.py.
-
-Inputs:
-- TODO TODO
-
-Actions:
-- Generate: validates inputs, builds CAD cylinder, and shows it in the OCP CAD Viewer (VS Code extension).
-- Export: saves the latest generated CAD cylinder as a STEP file.
 
 build123d takes several seconds to import (it pulls in the full OCC CAD
 kernel), so the window appears immediately with a loading indicator while
@@ -26,14 +29,13 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 
-
 # Ensure the repo root is importable so `pneumatic_cylinder_app` resolves as a package,
 # whether this file is run directly, via `-m`, or imported by main_menu.py.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
 	sys.path.insert(0, str(_REPO_ROOT))
 
-from PIL import Image, ImageDraw
+from pneumatic_cylinder_app.cylinder_create_icon import ensure_icon_file
 
 # Populated by _import_heavy_modules() on a background thread (see main()),
 # since importing build123d/ocp_vscode/the model module takes several
@@ -57,73 +59,45 @@ def _import_heavy_modules() -> None:
 	Part, export_step, show, build_cylinder = _Part, _export_step, _show, _build_cylinder
 
 
-_ICON_FILE = Path(__file__).parent / "cylinder_icon.ico"
 _CONFIG_FILE = Path(__file__).parent / "cylinder_params.json"
-
-
-def _ensure_icon() -> None:
-	if _ICON_FILE.exists():
-		return
-	size = 1024
-	img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-	draw = ImageDraw.Draw(img)
-	# Draw a simple pneumatic cylinder symbol: capsule body + piston rod.
-	body_left = int(size * 0.18)
-	body_right = int(size * 0.70)
-	body_top = int(size * 0.34)
-	body_bottom = int(size * 0.66)
-	cap_h = int(size * 0.18)
-	highlight_inset = max(1, int(size * 0.04))
-	highlight_h = max(1, int(size * 0.06))
-	rod_len = int(size * 0.20)
-	rod_h = int(size * 0.08)
-	rod_top = int((body_top + body_bottom) / 2 - rod_h / 2)
-	rod_bottom = rod_top + rod_h
-	rod_left = body_right
-	rod_right = body_right + rod_len
-	rod_tip_d = max(2, int(size * 0.10))
-
-	# Main body.
-	draw.rectangle([body_left, body_top, body_right, body_bottom], fill=(90, 140, 210, 255))
-	# Rounded end caps.
-	draw.ellipse([body_left, body_top - cap_h // 2, body_right, body_top + cap_h // 2], fill=(90, 140, 210, 255))
-	draw.ellipse([body_left, body_bottom - cap_h // 2, body_right, body_bottom + cap_h // 2], fill=(90, 140, 210, 255))
-	# Inner highlight for visual depth.
-	draw.rectangle(
-		[
-			body_left + highlight_inset,
-			body_top + highlight_inset,
-			body_right - highlight_inset,
-			body_top + highlight_inset + highlight_h,
-		],
-		fill=(150, 190, 235, 255),
-	)
-	# Piston rod.
-	draw.rectangle([rod_left, rod_top, rod_right, rod_bottom], fill=(220, 230, 240, 255))
-	draw.ellipse(
-		[rod_right - rod_tip_d // 2, rod_top - (rod_tip_d - rod_h) // 2, rod_right + rod_tip_d // 2, rod_bottom + (rod_tip_d - rod_h) // 2],
-		fill=(220, 230, 240, 255),
-	)
-	img.save(_ICON_FILE, format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (24, 24), (16, 16)])
-
+_ICON_FILE = Path(__file__).parent / "cylinder_icon.ico"
 
 def _load_params() -> dict:
+	"""Load persisted UI dimension values, falling back to defaults on failure."""
+	defaults = {"od": "20", "id": "10", "thickness": "5", "auto_show": True}
 	try:
-		return json.loads(_CONFIG_FILE.read_text())
+		loaded = json.loads(_CONFIG_FILE.read_text())
+		if not isinstance(loaded, dict):
+			return defaults
+		auto_show_raw = loaded.get("auto_show", defaults["auto_show"])
+		auto_show = auto_show_raw if isinstance(auto_show_raw, bool) else str(auto_show_raw).lower() in ("1", "true", "yes", "on")
+		return {
+			"od": str(loaded.get("od", defaults["od"])),
+			"id": str(loaded.get("id", defaults["id"])),
+			"thickness": str(loaded.get("thickness", defaults["thickness"])),
+			"auto_show": auto_show,
+		}
 	except Exception:
-		return {"od": "20", "id": "10", "thickness": "5"}
+		return defaults
 
 
-def _save_params(od: str, id_: str, thickness: str) -> None:
+def _save_params(od: str, id_: str, thickness: str, auto_show: bool) -> None:
+	"""Persist current UI dimension values; ignore write errors silently."""
 	try:
-		_CONFIG_FILE.write_text(json.dumps({"od": od, "id": id_, "thickness": thickness}))
+		_CONFIG_FILE.write_text(json.dumps({"od": od, "id": id_, "thickness": thickness, "auto_show": bool(auto_show)}))
 	except Exception:
 		pass
 
 
 class CylinderApp:
+	"""Main cylinder generator window controller and event handlers."""
+
 	def __init__(self, root: tk.Tk | tk.Toplevel | ttk.Window) -> None:
+		"""Initialize state, ensure icon exists, build widgets, and auto-generate once."""
 		self.root = root
+		self.root.title("Cylinder Generator")
+		ensure_icon_file(_ICON_FILE)
+		self.root.iconbitmap(str(_ICON_FILE))
 
 		self.current_part: Part | None = None
 		self.current_dims: tuple[float, float, float] | None = None  # (od, id, thickness)
@@ -132,12 +106,27 @@ class CylinderApp:
 		self.od_var = tk.StringVar(value=_params["od"])
 		self.id_var = tk.StringVar(value=_params["id"])
 		self.thickness_var = tk.StringVar(value=_params["thickness"])
+		self.auto_show_var = tk.BooleanVar(value=bool(_params["auto_show"]))
 		self.status_var = tk.StringVar(value="Enter dimensions and click Generate.")
 
 		self._build_ui()
+		self._fit_window_to_content()
 		self.root.after(0, self.on_generate)
 
+	def _fit_window_to_content(self) -> None:
+		"""Size the initial window to fit all controls, including the full button row."""
+		self.root.update_idletasks()
+		req_width = self.root.winfo_reqwidth()
+		req_height = self.root.winfo_reqheight()
+		self.root.geometry(f"{req_width}x{req_height}")
+		self.root.minsize(req_width, req_height)
+
+	def _update_status_wraplength(self, event: tk.Event) -> None:
+		"""Keep status label wrapping aligned with current content width."""
+		self.status_label.configure(wraplength=max(120, event.width - 24))
+
 	def _build_ui(self) -> None:
+		"""Construct all form inputs, action buttons, and status label widgets."""
 		main = ttk.Frame(self.root, padding=12)
 		main.pack(fill=tk.BOTH, expand=True)
 
@@ -165,30 +154,40 @@ class CylinderApp:
 		buttons = ttk.Frame(main)
 		buttons.pack(fill=tk.X, pady=(8, 8))
 
-		ttk.Button(buttons, text="Generate", command=self.on_generate).pack(side=tk.LEFT)
-		self.export_btn = ttk.Button(buttons, text="Export", command=self.on_export, state=tk.DISABLED)
-		self.export_btn.pack(side=tk.LEFT, padx=(8, 0))
-		self.bambu_btn = ttk.Button(buttons, text="Open in BambuStudio", command=self.on_open_in_bambu_studio, state=tk.DISABLED)
+		primary_buttons = ttk.Frame(buttons)
+		primary_buttons.pack(fill=tk.X)
+		secondary_buttons = ttk.Frame(buttons)
+		secondary_buttons.pack(fill=tk.X, pady=(6, 0))
+
+		ttk.Button(primary_buttons, text="Generate", command=self.on_generate).pack(side=tk.LEFT)
+		self.ocp_btn = ttk.Button(primary_buttons, text="Show in CAD Viewer", command=self.on_show_in_ocp, state=tk.DISABLED, bootstyle="info")
+		self.ocp_btn.pack(side=tk.LEFT, padx=(8, 0))
+		ttk.Checkbutton(
+			primary_buttons,
+			text="Auto-show when generating",
+			variable=self.auto_show_var,
+			command=lambda: _save_params(self.od_var.get(), self.id_var.get(), self.thickness_var.get(), self.auto_show_var.get()),
+		).pack(side=tk.LEFT, padx=(16, 0))
+		self.export_btn = ttk.Button(secondary_buttons, text="Export STEP", command=self.on_export, state=tk.DISABLED)
+		self.export_btn.pack(side=tk.LEFT)
+		self.bambu_btn = ttk.Button(secondary_buttons, text="Open in BambuStudio", command=self.on_open_in_bambu_studio, state=tk.DISABLED)
 		self.bambu_btn.pack(side=tk.LEFT, padx=(8, 0))
-		self.prusa_btn = ttk.Button(buttons, text="Open in PrusaSlicer", command=self.on_open_in_prusa_slicer, state=tk.DISABLED)
+		self.prusa_btn = ttk.Button(secondary_buttons, text="Open in PrusaSlicer", command=self.on_open_in_prusa_slicer, state=tk.DISABLED)
 		self.prusa_btn.pack(side=tk.LEFT, padx=(8, 0))
-		self.show_viewer_btn = ttk.Button(buttons, text="Show in Viewer", command=self.on_show_in_viewer, state=tk.DISABLED)
-		self.show_viewer_btn.pack(side=tk.LEFT, padx=(8, 0))
 
-		viewer_frame = ttk.Labelframe(main, text="Viewer")
-		viewer_frame.pack(fill=tk.BOTH, expand=True)
-
-		self.viewer_label = ttk.Label(
-			viewer_frame,
-			text="No model generated yet.\nGenerate a cylinder to view it in the OCP CAD Viewer (VS Code extension).",
-			anchor=tk.CENTER,
-			justify=tk.CENTER,
-		)
-		self.viewer_label.pack(fill=tk.BOTH, expand=True)
-
-		ttk.Label(main, textvariable=self.status_var, anchor=tk.W).pack(fill=tk.X, pady=(8, 0))
+		self.status_label = ttk.Label(main, textvariable=self.status_var, anchor=tk.W, justify=tk.LEFT, wraplength=120)
+		self.status_label.pack(fill=tk.X, pady=(8, 0))
+		main.bind("<Configure>", self._update_status_wraplength)
 
 	def _parse_inputs(self) -> tuple[float, float, float]:
+		"""Parse and validate OD/ID/thickness from text inputs.
+
+		Returns:
+			A tuple `(od, inner_d, thickness)` as floats in millimeters.
+
+		Raises:
+			ValueError: If any field is non-numeric or outside valid constraints.
+		"""
 		try:
 			od = float(self.od_var.get())
 			inner_d = float(self.id_var.get())
@@ -204,49 +203,48 @@ class CylinderApp:
 		return od, inner_d, thickness
 
 	def on_generate(self) -> None:
+		"""Generate the cylinder model, reporting failures in a dialog."""
 		self._generate(show_errors=True)
 
 	def _on_generate_silent(self) -> None:
-		# Bound to <FocusOut>, which also fires when switching to another
-		# window/app. Regenerating is a convenience here, not an explicit
-		# user action, so failures update the status bar instead of popping
-		# up an error dialog -- otherwise merely tabbing away (or clicking
-		# Generate itself, which also triggers a FocusOut just before its
-		# own click handler runs) shows duplicate popups for one problem.
+		"""Regenerate on <FocusOut> without error dialogs.
+
+		FocusOut also fires when switching to another window, and just before the
+		Generate button's own click handler runs, so a dialog here would pop up
+		duplicate errors for one problem. Failures go to the status bar instead.
+		"""
 		self._generate(show_errors=False)
 
 	def _generate(self, show_errors: bool) -> None:
+		"""Generate the cylinder model and enable post-generation actions."""
 		try:
 			od, inner_d, thickness = self._parse_inputs()
 			self.current_part = build_cylinder(od, inner_d, thickness)
 			self.current_dims = (od, inner_d, thickness)
-			_save_params(self.od_var.get(), self.id_var.get(), self.thickness_var.get())
+			_save_params(self.od_var.get(), self.id_var.get(), self.thickness_var.get(), self.auto_show_var.get())
 			self.export_btn.configure(state=tk.NORMAL)
 			self.bambu_btn.configure(state=tk.NORMAL)
 			self.prusa_btn.configure(state=tk.NORMAL)
-			self.show_viewer_btn.configure(state=tk.NORMAL)
-			self.viewer_label.configure(
-				text=(
-					f"Cylinder generated: OD={od:.3f} mm, ID={inner_d:.3f} mm, thickness={thickness:.3f} mm\n"
-					"Shown in the OCP CAD Viewer (VS Code extension)."
-				)
-			)
-			show(self.current_part)
-			self.status_var.set(
-				f"Generated cylinder: OD={od:.3f} mm, ID={inner_d:.3f} mm, thickness={thickness:.3f} mm"
-			)
+			self.ocp_btn.configure(state=tk.NORMAL)
+			status = f"Generated cylinder: OD={od:.3f} mm, ID={inner_d:.3f} mm, thickness={thickness:.3f} mm"
+
+			if self.auto_show_var.get():
+				try:
+					show(self.current_part)
+					status += " and sent to OCP Viewer."
+				except Exception as exc:
+					messagebox.showerror("OCP Viewer Error", f"Failed to show in OCP Viewer:\n{exc}")
+
+			self.status_var.set(status)
+		except ValueError as exc:
+			self.status_var.set(f"Invalid input: {exc}")
 		except Exception as exc:
 			if show_errors:
 				messagebox.showerror("Generate Failed", str(exc))
 			self.status_var.set("Generation failed. Check input values.")
 
-	def on_show_in_viewer(self) -> None:
-		if self.current_part is None:
-			messagebox.showwarning("No Model", "Generate a cylinder before showing it in the viewer.")
-			return
-		show(self.current_part)
-
 	def on_open_in_bambu_studio(self) -> None:
+		"""Export a temporary STEP and launch it in BambuStudio."""
 		if self.current_part is None:
 			messagebox.showwarning("No Model", "Generate a cylinder before opening in BambuStudio.")
 			return
@@ -273,6 +271,7 @@ class CylinderApp:
 			self.status_var.set("Failed to open in BambuStudio.")
 
 	def on_open_in_prusa_slicer(self) -> None:
+		"""Export a temporary STEP and launch it in PrusaSlicer."""
 		if self.current_part is None:
 			messagebox.showwarning("No Model", "Generate a cylinder before opening in PrusaSlicer.")
 			return
@@ -298,7 +297,20 @@ class CylinderApp:
 			messagebox.showerror("Error", f"Failed to open in PrusaSlicer: {exc}")
 			self.status_var.set("Failed to open in PrusaSlicer.")
 
+	def on_show_in_ocp(self) -> None:
+		"""Send the current model to the OCP viewer session."""
+		if self.current_part is None:
+			messagebox.showwarning("No Model", "Generate a cylinder before showing in OCP Viewer.")
+			return
+		try:
+			show(self.current_part)
+			self.status_var.set("Sent to OCP Viewer.")
+		except Exception as exc:
+			messagebox.showerror("OCP Viewer Error", f"Failed to show in OCP Viewer:\n{exc}")
+			self.status_var.set("Failed to send to OCP Viewer.")
+
 	def on_export(self) -> None:
+		"""Export the current model to a user-selected STEP file path."""
 		if self.current_part is None:
 			messagebox.showwarning("No Model", "Generate a cylinder before exporting.")
 			return
@@ -319,10 +331,6 @@ class CylinderApp:
 def main() -> None:
 	root = ttk.Window(themename="darkly")
 	root.title("Cylinder Generator")
-	root.geometry("760x500")
-	root.minsize(640, 420)
-	_ensure_icon()
-	root.iconbitmap(str(_ICON_FILE))
 
 	loading = ttk.Frame(root, padding=40)
 	loading.pack(fill=tk.BOTH, expand=True)
@@ -351,4 +359,3 @@ def main() -> None:
 
 if __name__ == "__main__":
 	main()
-
