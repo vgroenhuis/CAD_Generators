@@ -13,6 +13,7 @@ _APP_DIR = Path(__file__).parent
 _RING_UI_SCRIPT = _APP_DIR / "ring_app" / "ring_ui.py"
 _CYLINDER_UI_SCRIPT = _APP_DIR / "pneumatic_cylinder_app" / "cylinder_ui.py"
 _APRILTAG_CUBE_UI_SCRIPT = _APP_DIR / "apriltag_cube_app" / "apriltag_cube_ui.py"
+_CALIBRATION_PLATE_UI_SCRIPT = _APP_DIR / "calibration_plate_app" / "calibration_plate_ui.py"
 _SANDBOX_APP_SCRIPT = _APP_DIR / "sandbox" / "sandbox_app.py"
 _POWERBANK_HOLDER_UI_SCRIPT = _APP_DIR / "powerbank_holder_app" / "powerbank_holder_ui.py"
 
@@ -67,6 +68,14 @@ def main() -> None:
 		command=lambda: launch_app_process(_APRILTAG_CUBE_UI_SCRIPT, "AprilTag Cube App"),
 	)
 	apriltag_cube_btn.pack(pady=6)
+
+	calibration_plate_btn = ttk.Button(
+		frame,
+		text="Calibration Plate App",
+		width=24,
+		command=lambda: launch_app_process(_CALIBRATION_PLATE_UI_SCRIPT, "Calibration Plate App"),
+	)
+	calibration_plate_btn.pack(pady=6)
 
 	sandbox_btn = ttk.Button(
 		frame,
