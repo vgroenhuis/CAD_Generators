@@ -129,6 +129,28 @@ def _diagonal_corners(cells: list[list[bool]]) -> list[tuple[int, int]]:
     return out
 
 
+def pattern_warning(p: PlateParams) -> str | None:
+    """Warn about a tag border / corner square mix that matches neither AprilGrid convention.
+
+    Kalibr's AprilGrid uses a 2-bit border together with corner squares; a standard
+    AprilTag grid uses a 1-bit border without them. A mix still builds, so this is a
+    warning rather than an error.
+    """
+    if p.border_bits == 1 and p.corner_squares:
+        return (
+            "Corner squares are a Kalibr AprilGrid feature, but Kalibr's detector expects a 2-bit tag "
+            "border and will not find 1-bit tags. Use a 2-bit border for Kalibr, or turn the corner "
+            "squares off for a standard AprilTag grid."
+        )
+    if p.border_bits == 2 and not p.corner_squares:
+        return (
+            "A 2-bit tag border is the Kalibr AprilGrid format, but Kalibr's AprilGrid also has corner "
+            "squares (they make the tag corners symmetric for accurate sub-pixel refinement). Turn the "
+            "corner squares on for Kalibr, or use a 1-bit border for a standard AprilTag grid."
+        )
+    return None
+
+
 def compute_layout(p: PlateParams) -> PlateLayout:
     if min(p.width, p.length, p.thickness, p.square_size, p.tag_size) <= 0:
         raise ValueError("Plate dimensions, square size and tag size must be greater than 0.")
@@ -238,6 +260,9 @@ def main() -> None:
         a.width, a.length, a.thickness, a.depth, a.margin, a.square, a.tag_size,
         a.tag_spacing, a.border_bits, not a.no_corner_squares, a.first_id,
     )
+    warning = pattern_warning(p)
+    if warning:
+        print(f"Warning: {warning}", file=sys.stderr)
     plate, layout = build_calibration_plate(p)
     export_calibration_plate(plate, a.out)
     print(f"Wrote {a.out}")

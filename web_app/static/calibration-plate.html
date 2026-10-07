@@ -36,6 +36,7 @@
 	.yaml-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px !important; }
 	.yaml-btn:hover:not(:disabled) { background: #4a4f55; }
 	.yaml-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	#pattern-warning { margin-top: 10px; padding: 8px 10px; font-size: 12px; line-height: 1.5; color: #f0d58a; background: #3a3220; border: 1px solid #8a7330; border-radius: 4px; }
 	#layout-info { margin-top: 14px; font-size: 12px; color: #c0c4c9; line-height: 1.5; white-space: pre-wrap; }
 </style>
 </head>
@@ -75,6 +76,7 @@
 			<label for="first_tag_id">First tag ID</label>
 			<input type="text" inputmode="numeric" autocomplete="off" id="first_tag_id" value="0">
 			<label class="check" for="corner_squares"><input type="checkbox" id="corner_squares" checked> Corner squares between tags (Kalibr)</label>
+			<div id="pattern-warning" role="alert" hidden></div>
 
 			<button id="generate-btn">Generate</button>
 			<button id="download-btn" disabled>Download STEP</button>

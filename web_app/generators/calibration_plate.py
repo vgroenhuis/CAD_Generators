@@ -19,7 +19,7 @@ from build123d import export_gltf, export_step
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
-from calibration_plate_app.calibration_plate_model import PlateParams, build_calibration_plate, compute_layout
+from calibration_plate_app.calibration_plate_model import PlateParams, build_calibration_plate, compute_layout, pattern_warning
 
 router = APIRouter()
 
@@ -90,6 +90,7 @@ def layout_route(p: PlateParams = Depends(_params)) -> dict:
 		"last_tag_id": p.first_tag_id + layout.tag_cols * layout.tag_rows - 1,
 		"aprilgrid_yaml": layout.kalibr_yaml(p),
 		"checkerboard_yaml": layout.checkerboard_yaml(p),
+		"warning": pattern_warning(p),
 	}
 
 

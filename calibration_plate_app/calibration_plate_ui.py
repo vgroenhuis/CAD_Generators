@@ -85,6 +85,7 @@ class CalibrationPlateApp:
 		self.corner_var = tk.BooleanVar(value=saved.get("corner_squares", defaults.corner_squares))
 		self.status_var = tk.StringVar(value="Enter parameters and click Generate.")
 		self.info_var = tk.StringVar(value="")
+		self.warning_var = tk.StringVar(value="")
 		self._build_ui()
 		self.root.after(0, self.on_generate)
 
@@ -101,6 +102,12 @@ class CalibrationPlateApp:
 			entry.bind("<Return>", lambda e: self.on_generate())
 		ttk.Checkbutton(controls, text="Corner squares (Kalibr)", variable=self.corner_var).grid(
 			row=(len(_FIELDS) - 1) // 3, column=4, columnspan=2, sticky=tk.W, padx=(20, 0)
+		)
+		# Border bits and corner squares belong together; warn as soon as either changes.
+		self.corner_var.trace_add("write", lambda *_: self._update_warning())
+		self.vars["border_bits"].trace_add("write", lambda *_: self._update_warning())
+		ttk.Label(main, textvariable=self.warning_var, bootstyle="warning", wraplength=800, justify=tk.LEFT).pack(
+			fill=tk.X, pady=(6, 0)
 		)
 
 		buttons = ttk.Frame(main)
@@ -128,9 +135,18 @@ class CalibrationPlateApp:
 		kwargs["corner_squares"] = bool(self.corner_var.get())
 		return model.PlateParams(**kwargs)
 
+	def _update_warning(self) -> None:
+		try:
+			bits = int(self.vars["border_bits"].get())
+		except ValueError:
+			return  # reported by Generate
+		warning = model.pattern_warning(model.PlateParams(border_bits=bits, corner_squares=bool(self.corner_var.get())))
+		self.warning_var.set(f"Warning: {warning}" if warning else "")
+
 	def on_generate(self) -> None:
 		try:
 			params = self._parse_inputs()
+			self._update_warning()
 			self.status_var.set("Generating... (this can take up to a minute)")
 			self.root.update_idletasks()
 			self.current_plate, self.current_layout = model.build_calibration_plate(params)

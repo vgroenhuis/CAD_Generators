@@ -12,6 +12,7 @@ const downloadBtn = document.getElementById("download-btn");
 const aprilgridYamlBtn = document.getElementById("aprilgrid-yaml-btn");
 const checkerYamlBtn = document.getElementById("checker-yaml-btn");
 const layoutInfoEl = document.getElementById("layout-info");
+const patternWarningEl = document.getElementById("pattern-warning");
 const statusEl = document.getElementById("status");
 const placeholderEl = document.getElementById("viewer-placeholder");
 const canvas = document.getElementById("viewer-canvas");
@@ -117,6 +118,28 @@ function fitCameraToObject(object) {
 	camera.far = maxDim * 100;
 	camera.updateProjectionMatrix();
 	controls.update();
+}
+
+// Same rule and wording as pattern_warning() in calibration_plate_model.py. Checked here so the
+// warning appears the moment a control changes, without waiting behind a running build.
+function patternWarning(borderBits, cornerSquares) {
+	if (borderBits === 1 && cornerSquares) {
+		return "Corner squares are a Kalibr AprilGrid feature, but Kalibr's detector expects a 2-bit tag " +
+			"border and will not find 1-bit tags. Use a 2-bit border for Kalibr, or turn the corner " +
+			"squares off for a standard AprilTag grid.";
+	}
+	if (borderBits === 2 && !cornerSquares) {
+		return "A 2-bit tag border is the Kalibr AprilGrid format, but Kalibr's AprilGrid also has corner " +
+			"squares (they make the tag corners symmetric for accurate sub-pixel refinement). Turn the " +
+			"corner squares on for Kalibr, or use a 1-bit border for a standard AprilTag grid.";
+	}
+	return null;
+}
+
+function updatePatternWarning() {
+	const text = patternWarning(Number(borderBitsInput.value), cornerSquaresInput.checked);
+	patternWarningEl.textContent = text ? `Warning: ${text}` : "";
+	patternWarningEl.hidden = !text;
 }
 
 function showLayout(layout) {
@@ -231,6 +254,12 @@ checkerYamlBtn.addEventListener("click", () => currentLayout && downloadText("ch
 		if (e.key === "Enter") onGenerate();
 	});
 });
-[borderBitsInput, cornerSquaresInput].forEach((el) => el.addEventListener("change", onGenerate));
+[borderBitsInput, cornerSquaresInput].forEach((el) =>
+	el.addEventListener("change", () => {
+		updatePatternWarning();
+		onGenerate();
+	}),
+);
+updatePatternWarning();
 
 onGenerate();
