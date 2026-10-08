@@ -152,12 +152,14 @@ def cradle_top(p: RackParams) -> float:
     return p.floor + p.lip_height - 5.0
 
 
-def _below_cradle(p: RackParams, offset: float, x0: float, x1: float, y0: float, y1: float) -> Part:
-    """Everything up to the cradle surface moved up by `offset` (negative = down), within
-    x0..x1 and y0..y1: the arc, capped by the flat ledges at cradle_top + offset."""
+def _below_cradle(p: RackParams, offset: float, x0: float, x1: float, y0: float, y1: float,
+                  z_min: float = -1.0) -> Part:
+    """Everything from z_min up to the cradle surface moved up by `offset` (negative =
+    down), within x0..x1 and y0..y1: the arc, capped by the flat ledges at cradle_top +
+    offset. Cutting tools start below the part (z_min < 0); tray material starts at z = 0."""
     yc, zc = cradle_centre(p)
     z_top = cradle_top(p) + offset
-    block = Pos((x0 + x1) / 2, (y0 + y1) / 2, (z_top - 1) / 2) * Box(x1 - x0, y1 - y0, z_top + 1)
+    block = Pos((x0 + x1) / 2, (y0 + y1) / 2, (z_top + z_min) / 2) * Box(x1 - x0, y1 - y0, z_top - z_min)
     hollow = Pos((x0 + x1) / 2, yc, zc) * (Rot(0, 90, 0) * Cylinder(cradle_radius(p) - offset, x1 - x0 + 2))
     return block - hollow
 
@@ -288,7 +290,7 @@ def build_tray(p: RackParams) -> Part:
     tray = Pos(w / 2, tb / 2, p.back_height / 2) * Box(w, tb, p.back_height)
     tray += Pos(w / 2, d / 2, p.floor / 2) * Box(w, d, p.floor)
     tray += Pos(w / 2, lip_y + p.wall / 2, (p.floor + p.lip_height) / 2) * Box(w, p.wall, p.floor + p.lip_height)
-    tray += _below_cradle(p, 0.0, 0, w, tb - 0.01, lip_y + 0.01)  # the cradle floor
+    tray += _below_cradle(p, 0.0, 0, w, tb - 0.01, lip_y + 0.01, z_min=0.0)  # the cradle floor
     tray += _yz_profile(_side_profile(p), 0, p.wall)
     tray += _yz_profile(_side_profile(p), w - p.wall, p.wall)
 

@@ -8,8 +8,9 @@
         to 20.3 mm, 4.15 mm deep, open at the bottom and rounded at the top
       * top of each slot (centre of the rounded end) 13 mm below the top of the back
       * v2 snap: a small 0.4 mm bump on both sides just below the rounded end
-      * optional on-ramps: round entries every 25 mm below the top, so the part can be
-        put on connectors at any height instead of only from the bottom of the slot
+      * optional on-ramps (off by default): round openings every 25 mm below the top,
+        meant for entering connectors part-way up; parts here are slid on from the
+        bottom of the slots, so they are not used
 
     Coordinates: the back face lies in the plane y = 0 and the part extends towards +y;
     x runs along the wall, z points up.
@@ -71,7 +72,7 @@ def _round_top(scale: float) -> Part:
     return parts[0] + parts[1] + parts[2]
 
 
-def slot_tool(height: float, snap: bool = True, on_ramps: bool = True, scale: float = 1.0) -> Part:
+def slot_tool(height: float, snap: bool = True, on_ramps: bool = False, scale: float = 1.0) -> Part:
     """Cutting tool for one slot, centred on x = 0, with its rounded end centred at z = 0.
 
     The straight part runs down to z = -height - 1 so it opens through the bottom of a back
@@ -102,7 +103,7 @@ def slot_positions(width: float, pitch: float = SLOT_PITCH) -> list[float]:
     return [first + i * pitch for i in range(count)]
 
 
-def cut_slots(part: Part, width: float, back_height: float, snap: bool = True, on_ramps: bool = True,
+def cut_slots(part: Part, width: float, back_height: float, snap: bool = True, on_ramps: bool = False,
               scale: float = 1.0) -> Part:
     """Cut Multiconnect slots into the back face (y = 0) of a part spanning x in [0, width]."""
     z_top = back_height - SLOT_TOP_OFFSET
