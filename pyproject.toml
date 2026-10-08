@@ -65,6 +65,7 @@ cylinder-app = "pneumatic_cylinder_app.cylinder_ui:main"
 powerbank-holder-app = "powerbank_holder_app.powerbank_holder_ui:main"
 apriltag-cube-app = "apriltag_cube_app.apriltag_cube_ui:main"
 calibration-plate-app = "calibration_plate_app.calibration_plate_ui:main"
+sanding-rack-app = "sanding_rack_app.sanding_rack_ui:main"
 sandbox-app = "sandbox.sandbox_app:main"
 ring-web = "web_app.server:main"
 
@@ -72,4 +73,4 @@ ring-web = "web_app.server:main"
 py-modules = ["main_menu"]
 
 [tool.setuptools.packages.find]
-include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "apriltag_cube_app*", "calibration_plate_app*", "sandbox*", "web_app*"]
+include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "apriltag_cube_app*", "calibration_plate_app*", "sanding_rack_app*", "sandbox*", "web_app*"]
