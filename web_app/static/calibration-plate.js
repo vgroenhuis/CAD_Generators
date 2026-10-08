@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { downloadWithProgress, fetchWithProgress } from "./progress.js";
 
 const NUMBER_FIELDS = ["width", "length", "thickness", "depth", "margin", "square_size", "tag_size", "tag_spacing"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
@@ -186,8 +187,9 @@ async function onGenerate() {
 		}
 		showLayout(await layoutResponse.json());
 
-		setStatus("Generating... (a full-size plate takes about 20-30 seconds)");
-		const response = await fetch(`api/calibration-plate/preview.glb?${query}`);
+		const response = await fetchWithProgress(`api/calibration-plate/preview.glb?${query}`, (text) =>
+			setStatus(`${text} (a full-size plate takes about 20-30 seconds)`),
+		);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -222,7 +224,7 @@ async function onGenerate() {
 }
 
 // format: "3mf" (for slicing) or "step" (for CAD)
-function onDownload(format) {
+async function onDownload(format) {
 	let params;
 	try {
 		params = readParams();
@@ -230,7 +232,12 @@ function onDownload(format) {
 		setStatus(exc.message, true);
 		return;
 	}
-	window.location.href = `api/calibration-plate/export.${format}?${buildQuery(params)}`;
+	try {
+		const response = await downloadWithProgress(`api/calibration-plate/export.${format}?${buildQuery(params)}`, setStatus);
+		setStatus(response.ok ? `Downloaded ${response.filename}.` : await friendlyErrorMessage(response), !response.ok);
+	} catch (exc) {
+		setStatus(`Download failed: ${exc.message || exc}`, true);
+	}
 }
 
 function downloadText(filename, text) {

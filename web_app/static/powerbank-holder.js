@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { downloadWithProgress, fetchWithProgress } from "./progress.js";
 
 const widthInput = document.getElementById("width");
 const heightInput = document.getElementById("height");
@@ -130,11 +131,10 @@ async function onGenerate() {
 	}
 
 	generateBtn.disabled = true;
-	setStatus("Generating...");
 
 	const query = buildQuery(params);
 	try {
-		const response = await fetch(`api/powerbank-holder/preview.glb?${query}`);
+		const response = await fetchWithProgress(`api/powerbank-holder/preview.glb?${query}`, setStatus);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -183,7 +183,7 @@ async function onGenerate() {
 }
 
 // format: "3mf" (for slicing) or "step" (for CAD)
-function onDownload(format) {
+async function onDownload(format) {
 	let params;
 	try {
 		params = readParams();
@@ -192,7 +192,12 @@ function onDownload(format) {
 		return;
 	}
 	const query = buildQuery(params);
-	window.location.href = `api/powerbank-holder/export.${format}?${query}`;
+	try {
+		const response = await downloadWithProgress(`api/powerbank-holder/export.${format}?${query}`, setStatus);
+		setStatus(response.ok ? `Downloaded ${response.filename}.` : await friendlyErrorMessage(response), !response.ok);
+	} catch (exc) {
+		setStatus(`Download failed: ${exc.message || exc}`, true);
+	}
 }
 
 generateBtn.addEventListener("click", onGenerate);

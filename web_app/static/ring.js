@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { downloadWithProgress, fetchWithProgress } from "./progress.js";
 
 const odInput = document.getElementById("od");
 const idInput = document.getElementById("id");
@@ -113,11 +114,10 @@ async function onGenerate() {
 	}
 
 	generateBtn.disabled = true;
-	setStatus("Generating...");
 
 	const query = new URLSearchParams({ od: params.od, id: params.id, thickness: params.thickness });
 	try {
-		const response = await fetch(`api/ring/preview.glb?${query}`);
+		const response = await fetchWithProgress(`api/ring/preview.glb?${query}`, setStatus);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -152,7 +152,7 @@ async function onGenerate() {
 }
 
 // format: "3mf" (for slicing) or "step" (for CAD)
-function onDownload(format) {
+async function onDownload(format) {
 	let params;
 	try {
 		params = readParams();
@@ -161,7 +161,12 @@ function onDownload(format) {
 		return;
 	}
 	const query = new URLSearchParams({ od: params.od, id: params.id, thickness: params.thickness });
-	window.location.href = `api/ring/export.${format}?${query}`;
+	try {
+		const response = await downloadWithProgress(`api/ring/export.${format}?${query}`, setStatus);
+		setStatus(response.ok ? `Downloaded ${response.filename}.` : await friendlyErrorMessage(response), !response.ok);
+	} catch (exc) {
+		setStatus(`Download failed: ${exc.message || exc}`, true);
+	}
 }
 
 generateBtn.addEventListener("click", onGenerate);

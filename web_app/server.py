@@ -15,9 +15,10 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
+from web_app import progress
 from web_app.generators import apriltag_cube, calibration_plate, powerbank_holder, ring, sanding_rack
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -48,6 +49,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="CAD Generators", lifespan=lifespan)
+app.add_middleware(progress.ProgressMiddleware)
 
 # Registered before the static mount below, so these specific API paths are
 # matched first -- a StaticFiles mount at "/" would otherwise try (and fail)
@@ -57,6 +59,14 @@ app.include_router(powerbank_holder.router, prefix="/api/powerbank-holder")
 app.include_router(apriltag_cube.router, prefix="/api/apriltag-cube")
 app.include_router(calibration_plate.router, prefix="/api/calibration-plate")
 app.include_router(sanding_rack.router, prefix="/api/sanding-rack")
+
+
+@app.get("/api/progress/{job}")
+def progress_route(job: str) -> dict:
+	"""What the request tagged with `job` is doing; pages poll this while they wait."""
+	if not progress.valid_job(job):
+		raise HTTPException(status_code=400, detail="Invalid job id.")
+	return progress.read(job)
 
 app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="static")
 

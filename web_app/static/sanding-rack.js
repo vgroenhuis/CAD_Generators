@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { downloadWithProgress, fetchWithProgress } from "./progress.js";
 
 const NUMBER_FIELDS = ["disc_diameter", "disc_thickness", "tray_units", "back_height", "lip_height", "groove_pitch", "slot_scale"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
@@ -166,8 +167,7 @@ async function onGenerate() {
 		}
 		showLayout(await layoutResponse.json());
 
-		setStatus("Generating... (about 10-20 seconds)");
-		const response = await fetch(`api/sanding-rack/preview.glb?${query}`);
+		const response = await fetchWithProgress(`api/sanding-rack/preview.glb?${query}`, (text) => setStatus(`${text} (about 10-20 seconds)`));
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -207,7 +207,7 @@ async function onGenerate() {
 }
 
 // format: "3mf" (for slicing) or "step" (for CAD)
-function onDownload(format) {
+async function onDownload(format) {
 	let params;
 	try {
 		params = readParams();
@@ -215,18 +215,27 @@ function onDownload(format) {
 		setStatus(exc.message, true);
 		return;
 	}
-	setStatus("Preparing the zip... (the download starts when it is ready)");
 	const file = format === "3mf" ? "export-3mf.zip" : "export.zip";
-	window.location.href = `api/sanding-rack/${file}?${buildQuery(params)}`;
+	try {
+		const response = await downloadWithProgress(`api/sanding-rack/${file}?${buildQuery(params)}`, setStatus);
+		setStatus(response.ok ? `Downloaded ${response.filename}.` : await friendlyErrorMessage(response), !response.ok);
+	} catch (exc) {
+		setStatus(`Download failed: ${exc.message || exc}`, true);
+	}
 }
 
-function onSlotTest(format) {
+async function onSlotTest(format) {
 	const scale = parseNumber(inputs.slot_scale.value);
 	if (!Number.isFinite(scale)) {
 		setStatus("Multiconnect slot scale must be a number.", true);
 		return;
 	}
-	window.location.href = `api/sanding-rack/slot-test.${format}?slot_scale=${scale}`;
+	try {
+		const response = await downloadWithProgress(`api/sanding-rack/slot-test.${format}?slot_scale=${scale}`, setStatus);
+		setStatus(response.ok ? `Downloaded ${response.filename}.` : await friendlyErrorMessage(response), !response.ok);
+	} catch (exc) {
+		setStatus(`Download failed: ${exc.message || exc}`, true);
+	}
 }
 
 generateBtn.addEventListener("click", onGenerate);

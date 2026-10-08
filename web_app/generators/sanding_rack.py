@@ -21,6 +21,7 @@ from sanding_rack_app.sanding_rack_model import (
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
+from web_app.progress import report
 
 router = APIRouter()
 
@@ -95,9 +96,13 @@ def _zip_3mf(args, model) -> bytes:
 	parts = print_parts(model)
 	buf = io.BytesIO()
 	with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+		report("Writing the 3MF files (1 of 4: tray)")
 		zf.writestr("sanding_rack_tray.3mf", to_3mf([MeshObject("tray", [MeshPart("tray", parts["tray"])])], _TOLERANCE))
+		report("Writing the 3MF files (2 of 4: divider)")
 		zf.writestr("sanding_rack_divider.3mf", to_3mf([MeshObject("divider", [MeshPart("divider", parts["divider"])])], _TOLERANCE))
+		report("Writing the 3MF files (3 of 4: labels)")
 		zf.writestr("sanding_rack_labels.3mf", to_3mf(_label_sheet(parts), _TOLERANCE))
+		report("Writing the 3MF files (4 of 4: slot test)")
 		test = multiconnect.slot_test_piece(scale=args[1].slot_scale)
 		zf.writestr("sanding_rack_slot_test.3mf", to_3mf([MeshObject("slot test", [MeshPart("slot test", test)])], _TOLERANCE))
 		zf.writestr("README.txt", _readme(model))
@@ -107,8 +112,11 @@ def _zip_3mf(args, model) -> bytes:
 def _zip_step(args, model) -> bytes:
 	buf = io.BytesIO()
 	with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-		for name, part in {"assembly": model.assembly, **print_parts(model)}.items():
+		parts = {"assembly": model.assembly, **print_parts(model)}
+		for i, (name, part) in enumerate(parts.items(), 1):
+			report(f"Writing the STEP files ({i} of {len(parts) + 1}: {name})")
 			zf.writestr(f"sanding_rack_{name}.step", step_bytes(part))
+		report(f"Writing the STEP files ({len(parts) + 1} of {len(parts) + 1}: slot test)")
 		zf.writestr("sanding_rack_slot_test.step", step_bytes(multiconnect.slot_test_piece(scale=args[1].slot_scale)))
 		zf.writestr("README.txt", _readme(model))
 	return buf.getvalue()
