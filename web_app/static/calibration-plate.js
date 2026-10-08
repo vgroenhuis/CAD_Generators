@@ -176,7 +176,7 @@ async function onGenerate() {
 
 	try {
 		// The layout is cheap and validates the parameters before the slow build.
-		const layoutResponse = await fetch(`/api/calibration-plate/layout?${query}`);
+		const layoutResponse = await fetch(`api/calibration-plate/layout?${query}`);
 		if (!layoutResponse.ok) {
 			clearLayout();
 			setStatus(await friendlyErrorMessage(layoutResponse), true);
@@ -185,7 +185,7 @@ async function onGenerate() {
 		showLayout(await layoutResponse.json());
 
 		setStatus("Generating... (a full-size plate takes about 20-30 seconds)");
-		const response = await fetch(`/api/calibration-plate/preview.glb?${query}`);
+		const response = await fetch(`api/calibration-plate/preview.glb?${query}`);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -226,7 +226,7 @@ function onDownload() {
 		setStatus(exc.message, true);
 		return;
 	}
-	window.location.href = `/api/calibration-plate/export.step?${buildQuery(params)}`;
+	window.location.href = `api/calibration-plate/export.step?${buildQuery(params)}`;
 }
 
 function downloadText(filename, text) {

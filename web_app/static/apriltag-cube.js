@@ -180,7 +180,7 @@ async function onGenerate() {
 	setStatus("Generating...");
 
 	try {
-		const response = await fetch(`/api/apriltag-cube/preview.glb?${buildQuery(params)}`);
+		const response = await fetch(`api/apriltag-cube/preview.glb?${buildQuery(params)}`);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -229,7 +229,7 @@ function onDownload() {
 		setStatus(exc.message, true);
 		return;
 	}
-	window.location.href = `/api/apriltag-cube/export.step?${buildQuery(params)}`;
+	window.location.href = `api/apriltag-cube/export.step?${buildQuery(params)}`;
 }
 
 generateBtn.addEventListener("click", onGenerate);

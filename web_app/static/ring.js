@@ -116,7 +116,7 @@ async function onGenerate() {
 
 	const query = new URLSearchParams({ od: params.od, id: params.id, thickness: params.thickness });
 	try {
-		const response = await fetch(`/api/ring/preview.glb?${query}`);
+		const response = await fetch(`api/ring/preview.glb?${query}`);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -157,7 +157,7 @@ function onDownload() {
 		return;
 	}
 	const query = new URLSearchParams({ od: params.od, id: params.id, thickness: params.thickness });
-	window.location.href = `/api/ring/export.step?${query}`;
+	window.location.href = `api/ring/export.step?${query}`;
 }
 
 generateBtn.addEventListener("click", onGenerate);

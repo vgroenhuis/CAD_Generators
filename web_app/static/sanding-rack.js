@@ -155,7 +155,7 @@ async function onGenerate() {
 
 	try {
 		// The layout is cheap and validates the input before the slow build.
-		const layoutResponse = await fetch(`/api/sanding-rack/layout?${query}`);
+		const layoutResponse = await fetch(`api/sanding-rack/layout?${query}`);
 		if (!layoutResponse.ok) {
 			layoutEl.innerHTML = "";
 			setStatus(await friendlyErrorMessage(layoutResponse), true);
@@ -164,7 +164,7 @@ async function onGenerate() {
 		showLayout(await layoutResponse.json());
 
 		setStatus("Generating... (about 10-20 seconds)");
-		const response = await fetch(`/api/sanding-rack/preview.glb?${query}`);
+		const response = await fetch(`api/sanding-rack/preview.glb?${query}`);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -211,7 +211,7 @@ function onDownload() {
 		return;
 	}
 	setStatus("Preparing the zip... (the download starts when it is ready)");
-	window.location.href = `/api/sanding-rack/export.zip?${buildQuery(params)}`;
+	window.location.href = `api/sanding-rack/export.zip?${buildQuery(params)}`;
 }
 
 function onSlotTest() {
@@ -220,7 +220,7 @@ function onSlotTest() {
 		setStatus("Multiconnect slot scale must be a number.", true);
 		return;
 	}
-	window.location.href = `/api/sanding-rack/slot-test.step?slot_scale=${scale}`;
+	window.location.href = `api/sanding-rack/slot-test.step?slot_scale=${scale}`;
 }
 
 generateBtn.addEventListener("click", onGenerate);
