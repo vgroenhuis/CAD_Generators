@@ -353,9 +353,16 @@ def label_font_size(name: str, p: RackParams) -> float:
     return font
 
 
-def build_label(name: str, p: RackParams) -> Part:
+LABEL_CLIP_COLOR = Color(0.95, 0.75, 0.2)
+LABEL_TEXT_COLOR = Color(0.07, 0.07, 0.07)
+
+
+def build_label(name: str, p: RackParams) -> Compound:
     """Label clip that hooks over the front lip, centred on x = 0, with the grit text
-    standing out 0.6 mm from its front face, reading upwards."""
+    standing out 0.6 mm from its front face, reading upwards.
+
+    The clip and the text are separate bodies ("clip" and "text"), so the text can be
+    printed in a second colour."""
     wl = p.label_width
     clip = _yz_profile(_label_profile(p), -wl / 2, wl)
     d = tray_depth(p)
@@ -365,7 +372,9 @@ def build_label(name: str, p: RackParams) -> Part:
     # On the front face (normal +y), reading upwards: text x -> +z, text up -> +x.
     face_plane = Plane(origin=(0, y_face, z_mid), x_dir=(0, 0, 1), z_dir=(0, 1, 0))
     raised = extrude(face_plane * printable_text(name, font), amount=0.6)
-    return clip + raised
+    clip.label, clip.color = "clip", LABEL_CLIP_COLOR
+    raised.label, raised.color = "text", LABEL_TEXT_COLOR
+    return Compound(children=[clip, raised], label=f"label {name}")
 
 
 # ---------------------------------------------------------------- assembly / export
@@ -375,7 +384,7 @@ class RackModel:
     trays: list[TrayLayout]
     tray: Part
     divider: Part
-    labels: dict[str, Part]
+    labels: dict[str, Compound]  # per grit: the clip and the text as two bodies
     assembly: Compound
 
 
@@ -401,7 +410,7 @@ def build_rack(grits: list[Grit], p: RackParams, discs: bool = True) -> RackMode
             children.append(dv)
         for j, c in enumerate(t.compartments):
             lb = Pos(model_x(label_centre(t, j, p)), 0, 0) * labels[c.grit.name]
-            lb.label, lb.color = f"label {c.grit.name}", Color(0.95, 0.75, 0.2)
+            lb.label = f"label {c.grit.name}"  # keeps its two coloured bodies
             children.append(lb)
             if discs and c.grit.count:
                 stack = c.grit.count * p.disc_thickness

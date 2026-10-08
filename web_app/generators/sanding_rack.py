@@ -14,7 +14,7 @@ import zipfile
 from build123d import Pos
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from cad_common.mesh_export import MeshObject, MeshPart, to_3mf
+from cad_common.mesh_export import MeshObject, MeshPart, parts_of, to_3mf
 from sanding_rack_app import multiconnect
 from sanding_rack_app.sanding_rack_model import (
 	DEFAULT_GRITS, RackParams, build_rack, compartment_width, parse_grits, plan_layout, print_parts,
@@ -77,7 +77,8 @@ def _readme(model) -> str:
 
 
 def _label_sheet(parts: dict) -> list[MeshObject]:
-	"""All label clips (already in print orientation) side by side, as separate objects."""
+	"""All labels (already in print orientation) side by side, as separate objects, each
+	made of two parts: the clip and the text (for a second colour)."""
 	objects, x, y, row_h = [], 0.0, 0.0, 0.0
 	for name, part in parts.items():
 		if not name.startswith("label_"):
@@ -86,7 +87,7 @@ def _label_sheet(parts: dict) -> list[MeshObject]:
 		if x and x + bb.size.X > 200:
 			x, y, row_h = 0.0, y + row_h + 4, 0.0
 		placed = Pos(x - bb.min.X, y - bb.min.Y, 0) * part
-		objects.append(MeshObject(name, [MeshPart(name[len("label_"):], placed, (0.95, 0.75, 0.2))]))
+		objects.append(MeshObject(name[len("label_"):], parts_of(placed)))
 		x += bb.size.X + 4
 		row_h = max(row_h, bb.size.Y)
 	return objects
