@@ -28,11 +28,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from build123d import (
-    Box, Color, Compound, Cylinder, Part, Plane, Polygon, Pos, Rot, Text, export_step, extrude,
+    Box, Color, Compound, Cylinder, Part, Plane, Polygon, Pos, Rot, export_step, extrude,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import multiconnect  # noqa: E402
+from cad_common.text import MIN_STROKE, min_font_size, printable_text  # noqa: E402
 
 GRID = 25.0  # Multiboard grid
 
@@ -194,6 +196,8 @@ def validate(p: RackParams) -> None:
         raise ValueError("All dimensions must be greater than 0.")
     if p.back_height < 40:
         raise ValueError("The back must be at least 40 mm tall for the Multiconnect slots.")
+    if p.label_width - 2.5 < min_font_size():
+        raise ValueError(f"Labels must be at least {min_font_size() + 2.5:.1f} mm wide for printable text.")
     if p.groove_pitch < p.divider_thickness + p.groove_clearance + 1.0:
         raise ValueError("Groove pitch too small for the divider thickness.")
     if p.floor <= p.groove_depth + 1.0:
@@ -218,6 +222,8 @@ def plan_layout(grits: list[Grit], p: RackParams) -> list[TrayLayout]:
     that does not fit in the rest of a tray starts the next tray.
     """
     validate(p)
+    for g in grits:
+        label_font_size(g.name, p)  # rejects names that do not fit on a label
     w = tray_width(p)
     grooves = groove_positions(p)
     half = p.divider_thickness / 2
@@ -329,6 +335,24 @@ def _label_profile(p: RackParams) -> list[tuple[float, float]]:
     ]
 
 
+_LABEL_TEXT_LENGTH = 19.0  # mm available along the label's 22 mm tall front face
+
+
+def label_font_size(name: str, p: RackParams) -> float:
+    """Font size for a grit label: as large as the label allows, shrunk for long names,
+    but never so small that the strokes get thinner than MIN_STROKE (then it is an error)."""
+    font = min(p.label_width - 2.5, 6.0)
+    length = printable_text(name, font).bounding_box().size.X
+    if length > _LABEL_TEXT_LENGTH:
+        font *= _LABEL_TEXT_LENGTH / length
+    if font < min_font_size():
+        raise ValueError(
+            f"Label '{name}' is too long to print with lines of at least {MIN_STROKE:g} mm; "
+            "use a shorter name or wider labels."
+        )
+    return font
+
+
 def build_label(name: str, p: RackParams) -> Part:
     """Label clip that hooks over the front lip, centred on x = 0, with the grit text
     standing out 0.6 mm from its front face, reading upwards."""
@@ -337,13 +361,10 @@ def build_label(name: str, p: RackParams) -> Part:
     d = tray_depth(p)
     y_face = d + 0.25 + 1.6
     z_mid = p.floor + p.lip_height - 22.0 / 2 + 1.0
-    font = min(wl - 2.5, 6.0)
-    length = Text(name, font).bounding_box().size.X
-    if length > 19.0:  # keep it on the 22 mm tall face
-        font *= 19.0 / length
+    font = label_font_size(name, p)
     # On the front face (normal +y), reading upwards: text x -> +z, text up -> +x.
     face_plane = Plane(origin=(0, y_face, z_mid), x_dir=(0, 0, 1), z_dir=(0, 1, 0))
-    raised = extrude(face_plane * Text(name, font), amount=0.6)
+    raised = extrude(face_plane * printable_text(name, font), amount=0.6)
     return clip + raised
 
 
