@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sanding Disc Rack Generator</title>
+<style>
+	html, body { height: 100%; margin: 0; }
+	body { font-family: "Segoe UI", sans-serif; background: #1a1d21; color: #e8e8e8; display: flex; flex-direction: column; }
+	header { padding: 12px 20px; border-bottom: 1px solid #3a3f45; }
+	header a { color: #8fb4e8; text-decoration: none; }
+	h1 { font-size: 18px; margin: 8px 0 0 0; font-weight: 600; }
+	main { flex: 1; display: flex; min-height: 0; }
+	.controls { width: 340px; padding: 16px 20px; border-right: 1px solid #3a3f45; overflow-y: auto; box-sizing: border-box; }
+	.controls label { display: block; margin-top: 12px; font-size: 13px; color: #c0c4c9; }
+	.controls input { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; }
+	.controls button { margin-top: 16px; width: 100%; padding: 8px; border-radius: 4px; border: none; cursor: pointer; font-size: 14px; }
+	#generate-btn { background: #5a8cd2; color: white; }
+	#generate-btn:hover { background: #4a7cc2; }
+	#download-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
+	#download-btn:hover:not(:disabled) { background: #4a4f55; }
+	#download-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.fixed-info { margin-top: 14px; font-size: 11px; color: #6a6f75; line-height: 1.6; }
+	.hint { margin-top: 4px; font-size: 11px; color: #6a6f75; }
+	.controls .radio, .controls .check { display: flex; align-items: center; gap: 8px; }
+	.controls .radio { margin-top: 10px; color: #c0c4c9; }
+	.controls .check { margin-top: 16px; font-size: 13px; color: #e8e8e8; }
+	.controls .radio input, .controls .check input { width: auto; margin: 0; }
+	.controls input:disabled { opacity: 0.45; }
+	#status { margin-top: 14px; font-size: 12px; color: #a0a5ab; white-space: pre-wrap; }
+	#status.error { color: #e08a8a; }
+	.viewer { flex: 1; position: relative; }
+	#viewer-canvas { display: block; width: 100%; height: 100%; }
+	.viewer-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #6a6f75; font-size: 14px; pointer-events: none; }
+	.controls select { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; }
+	.controls h3 { font-size: 13px; margin: 18px 0 0 0; color: #e8e8e8; font-weight: 600; }
+	.controls textarea { width: 100%; box-sizing: border-box; height: 190px; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; font-family: Consolas, monospace; font-size: 13px; resize: vertical; }
+	.row { display: flex; gap: 10px; }
+	.row > div { flex: 1; }
+	.secondary-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px !important; }
+	.secondary-btn:hover:not(:disabled) { background: #4a4f55; }
+	.secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	#layout { margin-top: 14px; font-size: 12px; color: #c0c4c9; line-height: 1.5; }
+	#layout .tray { margin-top: 8px; padding: 6px 8px; background: #23272c; border: 1px solid #3a3f45; border-radius: 4px; }
+	#layout .tray b { color: #e8e8e8; }
+	#layout .muted { color: #8a8f95; }
+	.viewer-options { position: absolute; top: 10px; right: 14px; font-size: 13px; color: #c0c4c9; display: flex; gap: 6px; align-items: center; }
+</style>
+</head>
+<body>
+	<header>
+		<a href="index.html">&larr; CAD Generators</a>
+		<h1>Sanding Disc Rack Generator</h1>
+	</header>
+	<main>
+		<div class="controls">
+			<label for="grits">Grits: grit:count, one per line</label>
+			<textarea id="grits" spellcheck="false">P40:50
+P60:50
+P80:50
+P100:30
+P120:50
+P150:20
+P180:50
+P220:20
+P240:30
+P280:10
+P320:20
+P400:10
+P500:5
+P600:10
+P800:5
+P1000:5
+P1200:3
+P1500:3
+P2000:3
+P3000:3</textarea>
+			<div class="hint">The count is the number of discs; compartments are sized for the stack plus some room to grab a disc. Grits are placed left to right in this order.</div>
+
+			<div class="row">
+				<div><label for="disc_diameter">Disc diameter (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="disc_diameter" value="150"></div>
+				<div><label for="disc_thickness">Disc thickness (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="disc_thickness" value="1"></div>
+			</div>
+			<div class="row">
+				<div><label for="tray_units">Tray width (25 mm units)</label>
+				<input type="text" inputmode="numeric" autocomplete="off" id="tray_units" value="9"></div>
+				<div><label for="back_height">Back height (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="back_height" value="100"></div>
+			</div>
+			<div class="row">
+				<div><label for="groove_pitch">Divider step (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="groove_pitch" value="5"></div>
+				<div><label for="slot_scale">Multiconnect slot scale</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="slot_scale" value="1"></div>
+			</div>
+
+			<button id="generate-btn">Generate</button>
+			<button id="download-btn" disabled>Download all parts (STEP, zip)</button>
+			<button id="slot-test-btn" class="secondary-btn">Download slot test piece (STEP)</button>
+
+			<div id="status">Enter grits and click Generate.</div>
+			<div id="layout"></div>
+
+			<div class="fixed-info">The rack hangs on Multiboard with Multiconnect connectors (25 mm grid). Discs stand on edge; dividers drop into floor and back grooves and can be moved whenever a stack shrinks or grows. Grit labels clip onto the front lip and slide along it. The zip holds the tray, the divider, one label per grit, the assembly and a slot test piece: print the test piece first to check the fit, and adjust the slot scale if needed. Print the tray upright, the divider flat and the labels on their side.</div>
+		</div>
+		<div class="viewer">
+			<div class="viewer-placeholder" id="viewer-placeholder">No model generated yet.</div>
+			<label class="viewer-options" for="show_discs"><input type="checkbox" id="show_discs" checked> Show discs</label>
+			<canvas id="viewer-canvas"></canvas>
+		</div>
+	</main>
+
+	<script type="importmap">
+	{
+		"imports": {
+			"three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+		}
+	}
+	</script>
+	<script type="module" src="sanding-rack.js"></script>
+</body>
+</html>

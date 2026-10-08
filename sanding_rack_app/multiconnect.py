@@ -112,8 +112,8 @@ def cut_slots(part: Part, width: float, back_height: float, snap: bool = True, o
     return part
 
 
-def slot_test_piece(slots: int = 2, height: float = 40.0) -> Part:
+def slot_test_piece(slots: int = 2, height: float = 40.0, scale: float = 1.0) -> Part:
     """A small back plate with slots, for checking the fit before printing a large part."""
     width = slots * SLOT_PITCH
     plate = Pos(width / 2, BACK_THICKNESS / 2, height / 2) * Box(width, BACK_THICKNESS, height)
-    return cut_slots(plate, width, height)
+    return cut_slots(plate, width, height, scale=scale)

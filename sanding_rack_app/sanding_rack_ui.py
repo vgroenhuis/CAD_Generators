@@ -198,7 +198,12 @@ class SandingRackApp:
 			initialfile="multiconnect_slot_test.step",
 		)
 		if out_file:
-			export_step(multiconnect.slot_test_piece(), out_file)
+			try:
+				scale = float(self.vars["slot_scale"].get())
+			except ValueError:
+				messagebox.showerror("Export Failed", "Multiconnect slot scale must be numeric.")
+				return
+			export_step(multiconnect.slot_test_piece(scale=scale), out_file)
 			self.status_var.set(f"Exported slot test piece: {out_file}")
 
 

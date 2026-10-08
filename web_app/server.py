@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from web_app.generators import apriltag_cube, calibration_plate, powerbank_holder, ring
+from web_app.generators import apriltag_cube, calibration_plate, powerbank_holder, ring, sanding_rack
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -23,6 +23,7 @@ app.include_router(ring.router, prefix="/api/ring")
 app.include_router(powerbank_holder.router, prefix="/api/powerbank-holder")
 app.include_router(apriltag_cube.router, prefix="/api/apriltag-cube")
 app.include_router(calibration_plate.router, prefix="/api/calibration-plate")
+app.include_router(sanding_rack.router, prefix="/api/sanding-rack")
 
 app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="static")
 

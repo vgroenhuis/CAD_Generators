@@ -103,6 +103,8 @@ def parse_grits(text: str) -> list[Grit]:
             raise ValueError(f"'{item}': the count must be a whole number.") from None
         if n < 0:
             raise ValueError(f"'{item}': the count cannot be negative.")
+        if any(g.name == name.strip() for g in grits):
+            raise ValueError(f"{name.strip()} is listed twice; each grit can only be listed once.")
         grits.append(Grit(name.strip(), n))
     if not grits:
         raise ValueError("Enter at least one grit.")
@@ -378,7 +380,7 @@ def main() -> None:
     for name, part in print_parts(model).items():
         export_step(part, str(out / f"{name}.step"))
     if a.slot_test:
-        export_step(multiconnect.slot_test_piece(), str(out / "slot_test.step"))
+        export_step(multiconnect.slot_test_piece(scale=p.slot_scale), str(out / "slot_test.step"))
     print(describe_layout(model.trays, p))
     print(f"Wrote parts to {out}/ (print the tray {len(model.trays)}x, "
           f"the divider {sum(len(t.divider_grooves) for t in model.trays)}x)")
