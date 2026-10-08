@@ -133,7 +133,7 @@ async function onGenerate() {
 
 	const query = buildQuery(params);
 	try {
-		const response = await fetch(`/api/powerbank-holder/preview.glb?${query}`);
+		const response = await fetch(`api/powerbank-holder/preview.glb?${query}`);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -188,7 +188,7 @@ function onDownload() {
 		return;
 	}
 	const query = buildQuery(params);
-	window.location.href = `/api/powerbank-holder/export.step?${query}`;
+	window.location.href = `api/powerbank-holder/export.step?${query}`;
 }
 
 generateBtn.addEventListener("click", onGenerate);
