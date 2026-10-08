@@ -1,37 +1,33 @@
 """API routes for the Sanding Disc Rack generator: layout plan, glTF preview of the
-assembly, a zip with all parts as STEP files, and the Multiconnect slot test piece.
+assembly, all printable parts as a zip of 3MF or STEP files, and the Multiconnect slot
+test piece.
 
 All endpoints take the grit list (`grits`, e.g. "P80:50, P120:12") and the rack
-parameters as query parameters and are stateless. Built racks are cached so the
-download right after a preview reuses the preview's model. Limits keep a public
-server from being asked for arbitrarily large builds.
+parameters as query parameters. Built racks and their files are cached (see
+web_app/model_cache.py) and the default rack is made when the server starts. Limits
+keep a public server from being asked for arbitrarily large builds.
 """
 
 import io
-import tempfile
-import threading
 import zipfile
-from collections import OrderedDict
-from pathlib import Path
 
-from build123d import export_gltf, export_step
+from build123d import Pos
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
 
+from cad_common.mesh_export import MeshObject, MeshPart, to_3mf
 from sanding_rack_app import multiconnect
 from sanding_rack_app.sanding_rack_model import (
-	RackParams, build_rack, compartment_width, parse_grits, plan_layout, print_parts,
+	DEFAULT_GRITS, RackParams, build_rack, compartment_width, parse_grits, plan_layout, print_parts,
 )
+from web_app.exports import download_response, glb_bytes, glb_response, step_bytes
+from web_app.model_cache import ModelCache, warm as warm_entry
 
 router = APIRouter()
 
 _MAX_GRITS = 40
 _MAX_COUNT = 500
 _MAX_TRAYS = 10
-_CACHE_SIZE = 4
-
-_cache: "OrderedDict[tuple, object]" = OrderedDict()
-_cache_lock = threading.Lock()
+_TOLERANCE = 0.02  # mm, for the 3MF meshes (only the curved cradle and the slots are affected)
 
 
 def _params(
@@ -70,20 +66,78 @@ def _plan(args):
 	return trays
 
 
-def _build(args):
-	_plan(args)  # cheap checks before the expensive build
+def _readme(model) -> str:
+	n_div = sum(len(t.divider_grooves) for t in model.trays)
+	return (
+		f"Print the tray {len(model.trays)}x, the divider {n_div}x and the labels once.\n"
+		"Tray: upright (floor on the bed). Divider: flat. Labels: on their side.\n"
+		"Print the slot test piece first if you have not checked the Multiconnect fit yet.\n"
+	)
+
+
+def _label_sheet(parts: dict) -> list[MeshObject]:
+	"""All label clips (already in print orientation) side by side, as separate objects."""
+	objects, x, y, row_h = [], 0.0, 0.0, 0.0
+	for name, part in parts.items():
+		if not name.startswith("label_"):
+			continue
+		bb = part.bounding_box()
+		if x and x + bb.size.X > 200:
+			x, y, row_h = 0.0, y + row_h + 4, 0.0
+		placed = Pos(x - bb.min.X, y - bb.min.Y, 0) * part
+		objects.append(MeshObject(name, [MeshPart(name[len("label_"):], placed, (0.95, 0.75, 0.2))]))
+		x += bb.size.X + 4
+		row_h = max(row_h, bb.size.Y)
+	return objects
+
+
+def _zip_3mf(args, model) -> bytes:
+	parts = print_parts(model)
+	buf = io.BytesIO()
+	with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+		zf.writestr("sanding_rack_tray.3mf", to_3mf([MeshObject("tray", [MeshPart("tray", parts["tray"])])], _TOLERANCE))
+		zf.writestr("sanding_rack_divider.3mf", to_3mf([MeshObject("divider", [MeshPart("divider", parts["divider"])])], _TOLERANCE))
+		zf.writestr("sanding_rack_labels.3mf", to_3mf(_label_sheet(parts), _TOLERANCE))
+		test = multiconnect.slot_test_piece(scale=args[1].slot_scale)
+		zf.writestr("sanding_rack_slot_test.3mf", to_3mf([MeshObject("slot test", [MeshPart("slot test", test)])], _TOLERANCE))
+		zf.writestr("README.txt", _readme(model))
+	return buf.getvalue()
+
+
+def _zip_step(args, model) -> bytes:
+	buf = io.BytesIO()
+	with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+		for name, part in {"assembly": model.assembly, **print_parts(model)}.items():
+			zf.writestr(f"sanding_rack_{name}.step", step_bytes(part))
+		zf.writestr("sanding_rack_slot_test.step", step_bytes(multiconnect.slot_test_piece(scale=args[1].slot_scale)))
+		zf.writestr("README.txt", _readme(model))
+	return buf.getvalue()
+
+
+def _key(args) -> tuple:
 	grits, p = args
-	key = (tuple((g.name, g.count) for g in grits), tuple(vars(p).values()))
-	with _cache_lock:
-		if key in _cache:
-			_cache.move_to_end(key)
-			return _cache[key]
-	model = build_rack(grits, p)
-	with _cache_lock:
-		_cache[key] = model
-		while len(_cache) > _CACHE_SIZE:
-			_cache.popitem(last=False)
-	return model
+	return (tuple((g.name, g.count) for g in grits), tuple(vars(p).values()))
+
+
+def _makers(args) -> dict:
+	return {
+		"glb": lambda m: glb_bytes(m.assembly, linear_deflection=0.2, angular_deflection=0.3),
+		"3mf_zip": lambda m: _zip_3mf(args, m),
+		"step_zip": lambda m: _zip_step(args, m),
+	}
+
+
+cache = ModelCache("sanding_rack", lambda args: build_rack(*args), size=4)
+
+
+def _file(args, kind: str) -> bytes:
+	_plan(args)  # cheap checks before the expensive build
+	return cache.file(_key(args), args, kind, _makers(args)[kind])
+
+
+def warm() -> None:
+	args = (parse_grits(DEFAULT_GRITS), RackParams())  # matches the defaults in sanding-rack.html
+	warm_entry(cache, _key(args), args, _makers(args))
 
 
 @router.get("/layout")
@@ -110,51 +164,26 @@ def layout_route(args=Depends(_params)) -> dict:
 
 
 @router.get("/preview.glb")
-def preview_glb(args=Depends(_params)) -> Response:
-	model = _build(args)
-	with tempfile.TemporaryDirectory() as tmp_dir:
-		tmp_path = Path(tmp_dir) / "sanding_rack.glb"
-		export_gltf(model.assembly, str(tmp_path), binary=True, linear_deflection=0.2, angular_deflection=0.3)
-		data = tmp_path.read_bytes()
-	return Response(content=data, media_type="model/gltf-binary")
+def preview_glb(args=Depends(_params)):
+	return glb_response(_file(args, "glb"))
+
+
+@router.get("/export-3mf.zip")
+def export_3mf_zip(args=Depends(_params)):
+	return download_response(_file(args, "3mf_zip"), "sanding_rack_3mf.zip")
 
 
 @router.get("/export.zip")
-def export_zip(args=Depends(_params)) -> Response:
-	model = _build(args)
-	buf = io.BytesIO()
-	with tempfile.TemporaryDirectory() as tmp_dir, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-		files = {"assembly": model.assembly, **print_parts(model)}
-		for name, part in files.items():
-			path = Path(tmp_dir) / f"sanding_rack_{name}.step"
-			export_step(part, str(path))
-			zf.write(path, path.name)
-		n_div = sum(len(t.divider_grooves) for t in model.trays)
-		zf.writestr(
-			"README.txt",
-			f"Print the tray {len(model.trays)}x, the divider {n_div}x and each label once.\n"
-			"Tray: upright (floor on the bed). Divider: flat. Labels: on their side.\n"
-			"Print sanding_rack_slot_test first if you have not checked the Multiconnect fit yet.\n",
-		)
-		test_path = Path(tmp_dir) / "sanding_rack_slot_test.step"
-		export_step(multiconnect.slot_test_piece(scale=args[1].slot_scale), str(test_path))
-		zf.write(test_path, test_path.name)
-	return Response(
-		content=buf.getvalue(),
-		media_type="application/zip",
-		headers={"Content-Disposition": 'attachment; filename="sanding_rack.zip"'},
-	)
+def export_step_zip(args=Depends(_params)):
+	return download_response(_file(args, "step_zip"), "sanding_rack_step.zip")
+
+
+@router.get("/slot-test.3mf")
+def slot_test_3mf(slot_scale: float = Query(1.0, ge=0.9, le=1.1)):
+	test = multiconnect.slot_test_piece(scale=slot_scale)
+	return download_response(to_3mf([MeshObject("slot test", [MeshPart("slot test", test)])], _TOLERANCE), "multiconnect_slot_test.3mf")
 
 
 @router.get("/slot-test.step")
-def slot_test(slot_scale: float = Query(1.0, ge=0.9, le=1.1)) -> Response:
-	with tempfile.TemporaryDirectory() as tmp_dir:
-		path = Path(tmp_dir) / "multiconnect_slot_test.step"
-		export_step(multiconnect.slot_test_piece(scale=slot_scale), str(path))
-		data = path.read_bytes()
-	return Response(
-		content=data,
-		media_type="application/step",
-		headers={"Content-Disposition": 'attachment; filename="multiconnect_slot_test.step"'},
-	)
-
+def slot_test_step(slot_scale: float = Query(1.0, ge=0.9, le=1.1)):
+	return download_response(step_bytes(multiconnect.slot_test_piece(scale=slot_scale)), "multiconnect_slot_test.step")

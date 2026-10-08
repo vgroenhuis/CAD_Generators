@@ -7,7 +7,9 @@ const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getEle
 const gritsInput = document.getElementById("grits");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
+const downloadStepBtn = document.getElementById("download-step-btn");
 const slotTestBtn = document.getElementById("slot-test-btn");
+const slotTestStepBtn = document.getElementById("slot-test-step-btn");
 const showDiscsInput = document.getElementById("show_discs");
 const layoutEl = document.getElementById("layout");
 const statusEl = document.getElementById("status");
@@ -151,6 +153,7 @@ async function onGenerate() {
 
 	generateBtn.disabled = true;
 	downloadBtn.disabled = true;
+	downloadStepBtn.disabled = true;
 	const query = buildQuery(params);
 
 	try {
@@ -194,6 +197,7 @@ async function onGenerate() {
 		fitCameraToObject(currentModel);
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
+		downloadStepBtn.disabled = false;
 		setStatus("Generated. Drag to rotate; the discs are shown see-through.");
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
@@ -202,7 +206,8 @@ async function onGenerate() {
 	}
 }
 
-function onDownload() {
+// format: "3mf" (for slicing) or "step" (for CAD)
+function onDownload(format) {
 	let params;
 	try {
 		params = readParams();
@@ -211,26 +216,30 @@ function onDownload() {
 		return;
 	}
 	setStatus("Preparing the zip... (the download starts when it is ready)");
-	window.location.href = `api/sanding-rack/export.zip?${buildQuery(params)}`;
+	const file = format === "3mf" ? "export-3mf.zip" : "export.zip";
+	window.location.href = `api/sanding-rack/${file}?${buildQuery(params)}`;
 }
 
-function onSlotTest() {
+function onSlotTest(format) {
 	const scale = parseNumber(inputs.slot_scale.value);
 	if (!Number.isFinite(scale)) {
 		setStatus("Multiconnect slot scale must be a number.", true);
 		return;
 	}
-	window.location.href = `api/sanding-rack/slot-test.step?slot_scale=${scale}`;
+	window.location.href = `api/sanding-rack/slot-test.${format}?slot_scale=${scale}`;
 }
 
 generateBtn.addEventListener("click", onGenerate);
-downloadBtn.addEventListener("click", onDownload);
-slotTestBtn.addEventListener("click", onSlotTest);
+downloadBtn.addEventListener("click", () => onDownload("3mf"));
+downloadStepBtn.addEventListener("click", () => onDownload("step"));
+slotTestBtn.addEventListener("click", () => onSlotTest("3mf"));
+slotTestStepBtn.addEventListener("click", () => onSlotTest("step"));
 showDiscsInput.addEventListener("change", applyDiscVisibility);
 // Any change invalidates the download until the next Generate.
 [gritsInput, ...Object.values(inputs)].forEach((el) => {
 	el.addEventListener("input", () => {
 		downloadBtn.disabled = true;
+		downloadStepBtn.disabled = true;
 	});
 });
 Object.values(inputs).forEach((el) => {

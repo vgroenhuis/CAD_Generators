@@ -9,6 +9,7 @@ const holeDiameterInput = document.getElementById("hole_diameter");
 const outerMarginInput = document.getElementById("outer_margin");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
+const downloadStepBtn = document.getElementById("download-step-btn");
 const statusEl = document.getElementById("status");
 const derivedEl = document.getElementById("derived");
 const derivedThicknessEl = document.getElementById("derived-thickness");
@@ -162,6 +163,8 @@ async function onGenerate() {
 
 		downloadBtn.disabled = false;
 
+		downloadStepBtn.disabled = false;
+
 		if (thickness !== null) {
 			derivedThicknessEl.textContent = `${thickness} mm`;
 			derivedSpacingEl.textContent = `${spacing} mm`;
@@ -179,7 +182,8 @@ async function onGenerate() {
 	}
 }
 
-function onDownload() {
+// format: "3mf" (for slicing) or "step" (for CAD)
+function onDownload(format) {
 	let params;
 	try {
 		params = readParams();
@@ -188,11 +192,12 @@ function onDownload() {
 		return;
 	}
 	const query = buildQuery(params);
-	window.location.href = `api/powerbank-holder/export.step?${query}`;
+	window.location.href = `api/powerbank-holder/export.${format}?${query}`;
 }
 
 generateBtn.addEventListener("click", onGenerate);
-downloadBtn.addEventListener("click", onDownload);
+downloadBtn.addEventListener("click", () => onDownload("3mf"));
+downloadStepBtn.addEventListener("click", () => onDownload("step"));
 [widthInput, heightInput, lengthInput, holeDiameterInput, outerMarginInput].forEach((el) => {
 	el.addEventListener("keydown", (e) => {
 		if (e.key === "Enter") onGenerate();

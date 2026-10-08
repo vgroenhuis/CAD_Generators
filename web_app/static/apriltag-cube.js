@@ -11,6 +11,7 @@ const tagSizeInput = document.getElementById("tag_size");
 const depthInput = document.getElementById("depth");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
+const downloadStepBtn = document.getElementById("download-step-btn");
 const statusEl = document.getElementById("status");
 const placeholderEl = document.getElementById("viewer-placeholder");
 const canvas = document.getElementById("viewer-canvas");
@@ -205,6 +206,7 @@ async function onGenerate() {
 		fitCameraToObject(currentModel);
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
+		downloadStepBtn.disabled = false;
 		const idsText = params.tagIds.join(", ");
 		let what;
 		if (!params.perFace && params.tagIds.length > 1) {
@@ -221,7 +223,8 @@ async function onGenerate() {
 	}
 }
 
-function onDownload() {
+// format: "3mf" (for slicing) or "step" (for CAD)
+function onDownload(format) {
 	let params;
 	try {
 		params = readParams();
@@ -229,11 +232,12 @@ function onDownload() {
 		setStatus(exc.message, true);
 		return;
 	}
-	window.location.href = `api/apriltag-cube/export.step?${buildQuery(params)}`;
+	window.location.href = `api/apriltag-cube/export.${format}?${buildQuery(params)}`;
 }
 
 generateBtn.addEventListener("click", onGenerate);
-downloadBtn.addEventListener("click", onDownload);
+downloadBtn.addEventListener("click", () => onDownload("3mf"));
+downloadStepBtn.addEventListener("click", () => onDownload("step"));
 modeInputs.forEach((el) => el.addEventListener("change", updateMode));
 updateMode();
 axesInput.addEventListener("change", onGenerate);

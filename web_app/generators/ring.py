@@ -1,58 +1,53 @@
-"""API routes for the Ring generator: build123d model -> glTF preview / STEP export.
+"""API routes for the Ring generator: build123d model -> glTF preview, 3MF and STEP.
 
-Both endpoints take the same query parameters (od, id, thickness) and are
-stateless -- each request rebuilds the model from scratch. build123d is
-already fully imported by the time a request server, so a single build is
-fast; there's no need to cache the resulting Part across requests.
+All endpoints take the same query parameters (od, id, thickness). Built models and
+their files are cached (see web_app/model_cache.py); the default ring is made when
+the server starts.
 """
 
-import tempfile
-from pathlib import Path
-
-from build123d import export_gltf, export_step
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
 
 from ring_app.ring_model import build_ring
+from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
+from web_app.model_cache import ModelCache, warm as warm_entry
 
 router = APIRouter()
+cache = ModelCache("ring", lambda key: build_ring(*key))
+DEFAULT = (20.0, 10.0, 5.0)  # matches the defaults in ring.html
+FILES = {
+	"glb": glb_bytes,
+	"3mf": lambda part: threemf_bytes(part, "ring"),
+	"step": step_bytes,
+}
 
 
-def _build_validated_ring(od: float, inner_d: float, thickness: float):
-	if od <= 0 or inner_d <= 0 or thickness <= 0:
-		raise HTTPException(status_code=400, detail="OD, ID, and thickness must be greater than 0.")
-	if od <= inner_d:
+def _key(
+	od: float = Query(..., gt=0),
+	id: float = Query(..., gt=0),
+	thickness: float = Query(..., gt=0),
+) -> tuple:
+	if od <= id:
 		raise HTTPException(status_code=400, detail="OD must be greater than ID.")
-	return build_ring(od, inner_d, thickness)
+	return (od, id, thickness)
+
+
+def warm() -> None:
+	warm_entry(cache, DEFAULT, DEFAULT, FILES)
 
 
 @router.get("/preview.glb")
-def preview_glb(
-	od: float = Query(..., gt=0),
-	id: float = Query(..., gt=0),
-	thickness: float = Query(..., gt=0),
-) -> Response:
-	part = _build_validated_ring(od, id, thickness)
-	with tempfile.TemporaryDirectory() as tmp_dir:
-		tmp_path = Path(tmp_dir) / "ring.glb"
-		export_gltf(part, str(tmp_path), binary=True, linear_deflection=0.1, angular_deflection=0.2)
-		data = tmp_path.read_bytes()
-	return Response(content=data, media_type="model/gltf-binary")
+def preview_glb(od: float = Query(..., gt=0), id: float = Query(..., gt=0), thickness: float = Query(..., gt=0)):
+	key = _key(od, id, thickness)
+	return glb_response(cache.file(key, key, "glb", FILES["glb"]))
+
+
+@router.get("/export.3mf")
+def export_3mf(od: float = Query(..., gt=0), id: float = Query(..., gt=0), thickness: float = Query(..., gt=0)):
+	key = _key(od, id, thickness)
+	return download_response(cache.file(key, key, "3mf", FILES["3mf"]), "ring.3mf")
 
 
 @router.get("/export.step")
-def export_step_route(
-	od: float = Query(..., gt=0),
-	id: float = Query(..., gt=0),
-	thickness: float = Query(..., gt=0),
-) -> Response:
-	part = _build_validated_ring(od, id, thickness)
-	with tempfile.TemporaryDirectory() as tmp_dir:
-		tmp_path = Path(tmp_dir) / "ring.step"
-		export_step(part, str(tmp_path))
-		data = tmp_path.read_bytes()
-	return Response(
-		content=data,
-		media_type="application/step",
-		headers={"Content-Disposition": 'attachment; filename="ring.step"'},
-	)
+def export_step_route(od: float = Query(..., gt=0), id: float = Query(..., gt=0), thickness: float = Query(..., gt=0)):
+	key = _key(od, id, thickness)
+	return download_response(cache.file(key, key, "step", FILES["step"]), "ring.step")

@@ -17,8 +17,11 @@
 	#generate-btn { background: #5a8cd2; color: white; }
 	#generate-btn:hover { background: #4a7cc2; }
 	#download-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
+	#download-step-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
 	#download-btn:hover:not(:disabled) { background: #4a4f55; }
+	#download-step-btn:hover:not(:disabled) { background: #4a4f55; }
 	#download-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	#download-step-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 	#status { margin-top: 14px; font-size: 12px; color: #a0a5ab; white-space: pre-wrap; }
 	#status.error { color: #e08a8a; }
 	.viewer { flex: 1; position: relative; }
@@ -43,7 +46,8 @@
 			<input type="number" id="thickness" value="5" step="any">
 
 			<button id="generate-btn">Generate</button>
-			<button id="download-btn" disabled>Download STEP</button>
+			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
+			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
 
 			<div id="status">Enter dimensions and click Generate.</div>
 		</div>

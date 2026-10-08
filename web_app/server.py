@@ -3,8 +3,16 @@
 Run directly with `ring-web` (after `pip install -e ".[web]"`), the
 run_web.bat shortcut at the repo root, or manually with:
 	uvicorn web_app.server:app --host 0.0.0.0 --port 8000
+
+At startup the default model of every generator is built in the background (with its
+preview, 3MF and STEP file) and kept in the cache, so a visitor who opens a page with
+its default settings gets them immediately. Set CAD_WARM_CACHE=0 to skip that.
 """
 
+import logging
+import os
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -14,7 +22,32 @@ from web_app.generators import apriltag_cube, calibration_plate, powerbank_holde
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="CAD Generators")
+log = logging.getLogger("cad_generators")
+if not log.handlers:
+	_handler = logging.StreamHandler()
+	_handler.setFormatter(logging.Formatter("%(asctime)s %(name)s: %(message)s"))
+	log.addHandler(_handler)
+	log.setLevel(logging.INFO)
+
+
+def warm_defaults() -> None:
+	"""Build the default model of every generator, one after another."""
+	for module in (ring, powerbank_holder, apriltag_cube, calibration_plate, sanding_rack):
+		try:
+			module.warm()
+		except Exception:
+			log.exception("warming the default %s failed", module.__name__)
+	log.info("default models are ready")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+	if os.environ.get("CAD_WARM_CACHE", "1") != "0":
+		threading.Thread(target=warm_defaults, name="warm-defaults", daemon=True).start()
+	yield
+
+
+app = FastAPI(title="CAD Generators", lifespan=lifespan)
 
 # Registered before the static mount below, so these specific API paths are
 # matched first -- a StaticFiles mount at "/" would otherwise try (and fail)

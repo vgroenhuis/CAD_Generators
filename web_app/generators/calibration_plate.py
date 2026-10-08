@@ -1,25 +1,21 @@
 """API routes for the Calibration Plate generator: build123d model -> glTF
-preview / STEP export, plus the pattern layout (counts and Kalibr target YAML).
+preview, 3MF and STEP, plus the pattern layout (counts and Kalibr target YAML).
 
-All endpoints take the plate parameters as query parameters and are stateless.
-The STEP file holds two bodies ("white" and "black"); the glTF preview keeps
-them as separate nodes so the frontend can colour them.
+All endpoints take the plate parameters as query parameters. The 3MF and STEP files
+hold two bodies ("white" and "black") as separate parts; the glTF preview keeps them
+as separate nodes so the frontend can colour them.
 
-Building a plate takes several seconds, so the last few built plates are cached:
-the STEP download right after a preview reuses the preview's model. Size limits
-keep a public server from being asked for arbitrarily large builds.
+Building a plate takes several seconds and writing its STEP file even longer, so
+built plates and their files are cached (see web_app/model_cache.py) and the default
+plate is made when the server starts. Size limits keep a public server from being
+asked for arbitrarily large builds.
 """
 
-import tempfile
-import threading
-from collections import OrderedDict
-from pathlib import Path
-
-from build123d import export_gltf, export_step
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
 
 from calibration_plate_app.calibration_plate_model import PlateParams, build_calibration_plate, compute_layout, pattern_warning
+from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
+from web_app.model_cache import ModelCache, warm as warm_entry
 
 router = APIRouter()
 
@@ -27,10 +23,14 @@ _MAX_SIDE = 600.0  # mm
 _MAX_THICKNESS = 50.0  # mm
 _MAX_SQUARES = 1000
 _MAX_TAGS = 200
-_CACHE_SIZE = 4
 
-_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
-_cache_lock = threading.Lock()
+cache = ModelCache("calibration_plate", build_calibration_plate, size=4)
+DEFAULT = PlateParams()  # matches the defaults in calibration-plate.html
+FILES = {
+	"glb": lambda m: glb_bytes(m[0]),
+	"3mf": lambda m: threemf_bytes(m[0], "calibration_plate"),
+	"step": lambda m: step_bytes(m[0]),
+}
 
 
 def _params(
@@ -63,19 +63,21 @@ def _validated_layout(p: PlateParams):
 	return layout
 
 
-def _build(p: PlateParams):
+def _key(p: PlateParams) -> tuple:
+	return tuple(vars(p).values())
+
+
+def _file(p: PlateParams, kind: str) -> bytes:
 	_validated_layout(p)  # cheap checks before the expensive build
-	key = tuple(vars(p).values())
-	with _cache_lock:
-		if key in _cache:
-			_cache.move_to_end(key)
-			return _cache[key]
-	result = build_calibration_plate(p)
-	with _cache_lock:
-		_cache[key] = result
-		while len(_cache) > _CACHE_SIZE:
-			_cache.popitem(last=False)
-	return result
+	return cache.file(_key(p), p, kind, FILES[kind])
+
+
+def _filename(p: PlateParams, ext: str) -> str:
+	return f"calibration_plate_{p.width:g}x{p.length:g}x{p.thickness:g}.{ext}"
+
+
+def warm() -> None:
+	warm_entry(cache, _key(DEFAULT), DEFAULT, FILES)
 
 
 @router.get("/layout")
@@ -95,25 +97,15 @@ def layout_route(p: PlateParams = Depends(_params)) -> dict:
 
 
 @router.get("/preview.glb")
-def preview_glb(p: PlateParams = Depends(_params)) -> Response:
-	plate, _ = _build(p)
-	with tempfile.TemporaryDirectory() as tmp_dir:
-		tmp_path = Path(tmp_dir) / "calibration_plate.glb"
-		export_gltf(plate, str(tmp_path), binary=True, linear_deflection=0.1, angular_deflection=0.2)
-		data = tmp_path.read_bytes()
-	return Response(content=data, media_type="model/gltf-binary")
+def preview_glb(p: PlateParams = Depends(_params)):
+	return glb_response(_file(p, "glb"))
+
+
+@router.get("/export.3mf")
+def export_3mf(p: PlateParams = Depends(_params)):
+	return download_response(_file(p, "3mf"), _filename(p, "3mf"))
 
 
 @router.get("/export.step")
-def export_step_route(p: PlateParams = Depends(_params)) -> Response:
-	plate, _ = _build(p)
-	with tempfile.TemporaryDirectory() as tmp_dir:
-		tmp_path = Path(tmp_dir) / "calibration_plate.step"
-		export_step(plate, str(tmp_path))
-		data = tmp_path.read_bytes()
-	name = f"calibration_plate_{p.width:g}x{p.length:g}x{p.thickness:g}.step"
-	return Response(
-		content=data,
-		media_type="application/step",
-		headers={"Content-Disposition": f'attachment; filename="{name}"'},
-	)
+def export_step_route(p: PlateParams = Depends(_params)):
+	return download_response(_file(p, "step"), _filename(p, "step"))

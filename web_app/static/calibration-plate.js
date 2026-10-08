@@ -9,6 +9,7 @@ const borderBitsInput = document.getElementById("border_bits");
 const cornerSquaresInput = document.getElementById("corner_squares");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
+const downloadStepBtn = document.getElementById("download-step-btn");
 const aprilgridYamlBtn = document.getElementById("aprilgrid-yaml-btn");
 const checkerYamlBtn = document.getElementById("checker-yaml-btn");
 const layoutInfoEl = document.getElementById("layout-info");
@@ -172,6 +173,7 @@ async function onGenerate() {
 
 	generateBtn.disabled = true;
 	downloadBtn.disabled = true;
+	downloadStepBtn.disabled = true;
 	const query = buildQuery(params);
 
 	try {
@@ -210,6 +212,7 @@ async function onGenerate() {
 		fitCameraToObject(currentModel);
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
+		downloadStepBtn.disabled = false;
 		setStatus(`Generated plate ${params.width} x ${params.length} x ${params.thickness} mm. Drag to rotate and see the AprilGrid underneath.`);
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
@@ -218,7 +221,8 @@ async function onGenerate() {
 	}
 }
 
-function onDownload() {
+// format: "3mf" (for slicing) or "step" (for CAD)
+function onDownload(format) {
 	let params;
 	try {
 		params = readParams();
@@ -226,7 +230,7 @@ function onDownload() {
 		setStatus(exc.message, true);
 		return;
 	}
-	window.location.href = `api/calibration-plate/export.step?${buildQuery(params)}`;
+	window.location.href = `api/calibration-plate/export.${format}?${buildQuery(params)}`;
 }
 
 function downloadText(filename, text) {
@@ -241,13 +245,15 @@ function downloadText(filename, text) {
 }
 
 generateBtn.addEventListener("click", onGenerate);
-downloadBtn.addEventListener("click", onDownload);
+downloadBtn.addEventListener("click", () => onDownload("3mf"));
+downloadStepBtn.addEventListener("click", () => onDownload("step"));
 aprilgridYamlBtn.addEventListener("click", () => currentLayout && downloadText("aprilgrid.yaml", currentLayout.aprilgrid_yaml));
 checkerYamlBtn.addEventListener("click", () => currentLayout && downloadText("checkerboard.yaml", currentLayout.checkerboard_yaml));
 // Any parameter change invalidates the shown model, layout and download.
 [...Object.values(inputs), firstTagIdInput].forEach((el) => {
 	el.addEventListener("input", () => {
 		downloadBtn.disabled = true;
+		downloadStepBtn.disabled = true;
 		clearLayout();
 	});
 	el.addEventListener("keydown", (e) => {

@@ -17,8 +17,11 @@
 	#generate-btn { background: #5a8cd2; color: white; }
 	#generate-btn:hover { background: #4a7cc2; }
 	#download-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
+	#download-step-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
 	#download-btn:hover:not(:disabled) { background: #4a4f55; }
+	#download-step-btn:hover:not(:disabled) { background: #4a4f55; }
 	#download-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	#download-step-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 	.fixed-info { margin-top: 14px; font-size: 11px; color: #6a6f75; line-height: 1.6; }
 	.hint { margin-top: 4px; font-size: 11px; color: #6a6f75; }
 	.controls .radio, .controls .check { display: flex; align-items: center; gap: 8px; }
@@ -79,7 +82,8 @@
 			<div id="pattern-warning" role="alert" hidden></div>
 
 			<button id="generate-btn">Generate</button>
-			<button id="download-btn" disabled>Download STEP</button>
+			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
+			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
 			<button id="aprilgrid-yaml-btn" class="yaml-btn" disabled>Download Kalibr AprilGrid YAML</button>
 			<button id="checker-yaml-btn" class="yaml-btn" disabled>Download Kalibr checkerboard YAML</button>
 

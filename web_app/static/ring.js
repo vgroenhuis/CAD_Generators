@@ -7,6 +7,7 @@ const idInput = document.getElementById("id");
 const thicknessInput = document.getElementById("thickness");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
+const downloadStepBtn = document.getElementById("download-step-btn");
 const statusEl = document.getElementById("status");
 const placeholderEl = document.getElementById("viewer-placeholder");
 const canvas = document.getElementById("viewer-canvas");
@@ -140,6 +141,8 @@ async function onGenerate() {
 		placeholderEl.style.display = "none";
 
 		downloadBtn.disabled = false;
+
+		downloadStepBtn.disabled = false;
 		setStatus(`Generated ring: OD=${params.od} mm, ID=${params.id} mm, thickness=${params.thickness} mm`);
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
@@ -148,7 +151,8 @@ async function onGenerate() {
 	}
 }
 
-function onDownload() {
+// format: "3mf" (for slicing) or "step" (for CAD)
+function onDownload(format) {
 	let params;
 	try {
 		params = readParams();
@@ -157,11 +161,12 @@ function onDownload() {
 		return;
 	}
 	const query = new URLSearchParams({ od: params.od, id: params.id, thickness: params.thickness });
-	window.location.href = `api/ring/export.step?${query}`;
+	window.location.href = `api/ring/export.${format}?${query}`;
 }
 
 generateBtn.addEventListener("click", onGenerate);
-downloadBtn.addEventListener("click", onDownload);
+downloadBtn.addEventListener("click", () => onDownload("3mf"));
+downloadStepBtn.addEventListener("click", () => onDownload("step"));
 [odInput, idInput, thicknessInput].forEach((el) => {
 	el.addEventListener("keydown", (e) => {
 		if (e.key === "Enter") onGenerate();
