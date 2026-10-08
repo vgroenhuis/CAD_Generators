@@ -38,6 +38,7 @@ _FIELDS = [
 	("disc_thickness", "Disc thickness (mm)", "disc_thickness", float),
 	("tray_units", "Tray width (25 mm units)", "tray_units", int),
 	("back_height", "Back height (mm)", "back_height", float),
+	("lip_height", "Front lip height (mm)", "lip_height", float),
 	("groove_pitch", "Divider step (mm)", "groove_pitch", float),
 	("slot_scale", "Multiconnect slot scale", "slot_scale", float),
 ]

@@ -40,12 +40,13 @@ def _params(
 	disc_thickness: float = Query(1.0, ge=0.2, le=5),
 	tray_units: int = Query(9, ge=2, le=12),
 	back_height: float = Query(100.0, ge=40, le=200),
+	lip_height: float = Query(25.0, ge=10, le=70),
 	groove_pitch: float = Query(5.0, ge=3, le=20),
 	slot_scale: float = Query(1.0, ge=0.9, le=1.1),
 ):
 	p = RackParams(
 		disc_diameter=disc_diameter, disc_thickness=disc_thickness, tray_units=tray_units,
-		back_height=back_height, groove_pitch=groove_pitch, slot_scale=slot_scale,
+		back_height=back_height, lip_height=lip_height, groove_pitch=groove_pitch, slot_scale=slot_scale,
 	)
 	try:
 		parsed = parse_grits(grits)

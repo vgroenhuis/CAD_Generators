@@ -89,10 +89,15 @@ P3000:3</textarea>
 				<input type="text" inputmode="decimal" autocomplete="off" id="back_height" value="100"></div>
 			</div>
 			<div class="row">
+				<div><label for="lip_height">Front lip height (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="lip_height" value="25"></div>
 				<div><label for="groove_pitch">Divider step (mm)</label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="groove_pitch" value="5"></div>
+			</div>
+			<div class="row">
 				<div><label for="slot_scale">Multiconnect slot scale</label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="slot_scale" value="1"></div>
+				<div></div>
 			</div>
 
 			<button id="generate-btn">Generate</button>
@@ -102,7 +107,7 @@ P3000:3</textarea>
 			<div id="status">Enter grits and click Generate.</div>
 			<div id="layout"></div>
 
-			<div class="fixed-info">The rack hangs on Multiboard with Multiconnect connectors (25 mm grid). Discs stand on edge; dividers drop into floor and back grooves and can be moved whenever a stack shrinks or grows. Grit labels clip onto the front lip and slide along it. The zip holds the tray, the divider, one label per grit, the assembly and a slot test piece: print the test piece first to check the fit, and adjust the slot scale if needed. Print the tray upright, the divider flat and the labels on their side.</div>
+			<div class="fixed-info">The rack hangs on Multiboard with Multiconnect connectors (25 mm grid). Discs stand on edge in a curved cradle that matches their size, so they cannot roll out; the cradle is 5 mm less deep than the front lip is high. Dividers drop into floor and back grooves and can be moved whenever a stack shrinks or grows. Grit labels clip onto the front lip and slide along it. The zip holds the tray, the divider, one label per grit, the assembly and a slot test piece: print the test piece first to check the fit, and adjust the slot scale if needed. Print the tray upright, the divider flat and the labels on their side.</div>
 		</div>
 		<div class="viewer">
 			<div class="viewer-placeholder" id="viewer-placeholder">No model generated yet.</div>

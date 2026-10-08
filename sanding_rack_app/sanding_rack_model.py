@@ -50,9 +50,10 @@ class RackParams:
     compartment_clearance: float = 3.0  # extra room per compartment for grabbing a disc
     tray_units: int = 9  # tray width in 25 mm Multiboard units (9 -> 224.6 mm)
     back_height: float = 100.0
-    lip_height: float = 25.0  # front lip, above the floor
+    lip_height: float = 25.0  # front lip, above the floor; the cradle is 5 mm less deep
     wall: float = 3.0  # side walls and front lip
-    floor: float = 4.0
+    floor: float = 4.0  # below the lowest point of the cradle
+    cradle_clearance: float = 1.5  # cradle radius = disc radius + this
     divider_thickness: float = 2.0
     groove_pitch: float = 5.0
     groove_depth: float = 1.5
@@ -130,6 +131,35 @@ def tray_depth(p: RackParams) -> float:
     return back_thickness(p) + inner_depth(p) + p.wall
 
 
+# The floor is a cradle: a cylinder segment (axis along x) that matches the discs, so they
+# rest in it instead of on one point. It rises up to cradle_top, 5 mm below the top of the
+# front lip (room for the label clips' hook); towards the back wall and the lip it ends in
+# short flat ledges at that height.
+
+def cradle_radius(p: RackParams) -> float:
+    return p.disc_diameter / 2 + p.cradle_clearance
+
+
+def cradle_centre(p: RackParams) -> tuple[float, float]:
+    """(y, z) of the cradle axis: centred between back wall and lip, lowest point on the floor."""
+    lip_y = tray_depth(p) - p.wall
+    return (back_thickness(p) + lip_y) / 2, p.floor + cradle_radius(p)
+
+
+def cradle_top(p: RackParams) -> float:
+    return p.floor + p.lip_height - 5.0
+
+
+def _below_cradle(p: RackParams, offset: float, x0: float, x1: float, y0: float, y1: float) -> Part:
+    """Everything up to the cradle surface moved up by `offset` (negative = down), within
+    x0..x1 and y0..y1: the arc, capped by the flat ledges at cradle_top + offset."""
+    yc, zc = cradle_centre(p)
+    z_top = cradle_top(p) + offset
+    block = Pos((x0 + x1) / 2, (y0 + y1) / 2, (z_top - 1) / 2) * Box(x1 - x0, y1 - y0, z_top + 1)
+    hollow = Pos((x0 + x1) / 2, yc, zc) * (Rot(0, 90, 0) * Cylinder(cradle_radius(p) - offset, x1 - x0 + 2))
+    return block - hollow
+
+
 def groove_positions(p: RackParams) -> list[float]:
     """x centres of the divider grooves, centred in the tray, at least 3 mm from the walls."""
     w = tray_width(p)
@@ -168,6 +198,14 @@ def validate(p: RackParams) -> None:
         raise ValueError("Groove pitch too small for the divider thickness.")
     if p.floor <= p.groove_depth + 1.0:
         raise ValueError("The floor must be at least 1 mm thicker than the groove depth.")
+    if p.lip_height < 10:
+        raise ValueError("The front lip must be at least 10 mm high.")
+    if p.floor + p.lip_height > p.back_height - 10:
+        raise ValueError("The front lip must be at least 10 mm lower than the back.")
+    if p.lip_height - 5 >= cradle_radius(p):
+        raise ValueError("The front lip is too high for the disc size (the cradle would pass its middle).")
+    if p.cradle_clearance < 0:
+        raise ValueError("The cradle clearance cannot be negative.")
 
 
 # ---------------------------------------------------------------- layout planner
@@ -244,15 +282,20 @@ def build_tray(p: RackParams) -> Part:
     tray = Pos(w / 2, tb / 2, p.back_height / 2) * Box(w, tb, p.back_height)
     tray += Pos(w / 2, d / 2, p.floor / 2) * Box(w, d, p.floor)
     tray += Pos(w / 2, lip_y + p.wall / 2, (p.floor + p.lip_height) / 2) * Box(w, p.wall, p.floor + p.lip_height)
+    tray += _below_cradle(p, 0.0, 0, w, tb - 0.01, lip_y + 0.01)  # the cradle floor
     tray += _yz_profile(_side_profile(p), 0, p.wall)
     tray += _yz_profile(_side_profile(p), w - p.wall, p.wall)
 
+    # Grooves: a band of constant depth under the cradle surface (continuing a little into
+    # the back wall, where it meets the back grooves), cut where the dividers can go.
     gw, gd = p.divider_thickness + p.groove_clearance, p.groove_depth
+    band = _below_cradle(p, 0.0, 0, w, tb - gd, lip_y) - _below_cradle(p, -gd, -1, w + 1, tb - gd - 1, lip_y + 1)
+    slots = [Pos(x, d / 2, p.back_height / 2) * Box(gw, d, p.back_height) for x in groove_positions(p)]
+    tray -= band & Compound(slots)
+    back_z0 = cradle_top(p) - gd
+    back_len = p.back_height - back_z0 + 1
     for x in groove_positions(p):
-        floor_len = lip_y - (tb - gd)
-        tray -= Pos(x, tb - gd + floor_len / 2, p.floor - gd / 2) * Box(gw, floor_len, gd + 0.01)
-        back_len = p.back_height - p.floor + gd + 1
-        tray -= Pos(x, tb - gd / 2, p.floor - gd + back_len / 2) * Box(gw, gd + 0.01, back_len)
+        tray -= Pos(x, tb - gd / 2, back_z0 + back_len / 2) * Box(gw, gd + 0.01, back_len)
 
     return multiconnect.cut_slots(tray, w, p.back_height, scale=p.slot_scale)
 
@@ -261,15 +304,18 @@ def _divider_profile(p: RackParams) -> list[tuple[float, float]]:
     tb, lip_y = back_thickness(p), tray_depth(p) - p.wall
     y_back = tb - p.groove_depth + 0.1  # sits in the back groove
     y_front = lip_y - 2.0  # stops short of the lip, leaving room for the label clips
-    z_bottom = p.floor - p.groove_depth + 0.1  # sits in the floor groove
     z_front_top = p.floor + p.lip_height + 8.0  # finger tab above the lip
-    return [(y_back, z_bottom), (y_front, z_bottom), (y_front, z_front_top), (y_back, p.back_height - 2.0)]
+    # The bottom edge is cut to the cradle shape by build_divider.
+    return [(y_back, 0), (y_front, 0), (y_front, z_front_top), (y_back, p.back_height - 2.0)]
 
 
 def build_divider(p: RackParams) -> Part:
-    """Divider in its installed orientation, centred on x = 0."""
+    """Divider in its installed orientation, centred on x = 0. Its bottom edge follows the
+    cradle, sitting in the floor groove with 0.1 mm to spare."""
     t = p.divider_thickness
-    return _yz_profile(_divider_profile(p), -t / 2, t)
+    blank = _yz_profile(_divider_profile(p), -t / 2, t)
+    bb = blank.bounding_box()
+    return blank - _below_cradle(p, -p.groove_depth + 0.1, -t, t, bb.min.Y - 1, bb.max.Y + 1)
 
 
 def _label_profile(p: RackParams) -> list[tuple[float, float]]:
@@ -340,8 +386,10 @@ def build_rack(grits: list[Grit], p: RackParams, discs: bool = True) -> RackMode
                 stack = c.grit.count * p.disc_thickness
                 r = p.disc_diameter / 2
                 cyl = Rot(0, 90, 0) * Cylinder(r, stack)
-                y = back_thickness(p) + 2.0 + r
-                disc = Pos(model_x(c.x0 + 0.5 + stack / 2), y, p.floor + r) * cyl
+                # In the cradle, 0.5 mm clear of its lowest line (an exactly tangent preview disc
+                # trips up boolean checks on the assembly).
+                yc, _ = cradle_centre(p)
+                disc = Pos(model_x(c.x0 + 0.5 + stack / 2), yc, p.floor + r + 0.5) * cyl
                 disc.label, disc.color = f"discs {c.grit.name}", Color(0.55, 0.35, 0.2, 0.6)
                 children.append(disc)
     return RackModel(layout, tray, divider, labels, Compound(children=children, label="sanding_rack"))
@@ -366,13 +414,15 @@ def main() -> None:
     ap.add_argument("--disc-thickness", type=float, default=d.disc_thickness)
     ap.add_argument("--tray-units", type=int, default=d.tray_units, help="tray width in 25 mm units")
     ap.add_argument("--back-height", type=float, default=d.back_height)
+    ap.add_argument("--lip-height", type=float, default=d.lip_height, help="front lip height (mm)")
     ap.add_argument("--groove-pitch", type=float, default=d.groove_pitch)
     ap.add_argument("--slot-scale", type=float, default=d.slot_scale, help="Multiconnect slot tolerance")
     ap.add_argument("--out-dir", default="sanding_rack")
     ap.add_argument("--slot-test", action="store_true", help="also export a small slot test piece")
     a = ap.parse_args()
     p = RackParams(disc_diameter=a.disc_diameter, disc_thickness=a.disc_thickness, tray_units=a.tray_units,
-                   back_height=a.back_height, groove_pitch=a.groove_pitch, slot_scale=a.slot_scale)
+                   back_height=a.back_height, lip_height=a.lip_height, groove_pitch=a.groove_pitch,
+                   slot_scale=a.slot_scale)
     model = build_rack(parse_grits(a.grits), p)
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
