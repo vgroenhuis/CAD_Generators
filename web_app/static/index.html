@@ -12,9 +12,11 @@
 	a.card.disabled { opacity: 0.5; pointer-events: none; }
 	a.card h2 { margin: 0 0 8px 0; font-size: 16px; }
 	a.card p { margin: 0; font-size: 13px; color: #a0a5ab; }
+	a.home { display: inline-block; margin-bottom: 4px; color: #8fb4e8; text-decoration: none; }
 </style>
 </head>
 <body>
+	<a class="home" id="home-link" href="/" hidden></a>
 	<h1>CAD Generators</h1>
 	<p>Select a generator to enter parameters and preview/download the model.</p>
 	<div class="grid">
@@ -43,5 +45,18 @@
 			<p>Multiboard (Multiconnect) wall rack for sanding discs, with movable dividers per grit.</p>
 		</a>
 	</div>
+	<script>
+		// A link back to the site's home page, when this deployment has one (see /api/site).
+		fetch("api/site")
+			.then((r) => (r.ok ? r.json() : null))
+			.then((site) => {
+				if (!site || !site.home) return;
+				const link = document.getElementById("home-link");
+				link.href = site.home.url;
+				link.textContent = `\u2190 ${site.home.title}`;
+				link.hidden = false;
+			})
+			.catch(() => {});
+	</script>
 </body>
 </html>

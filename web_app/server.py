@@ -11,11 +11,12 @@ its default settings gets them immediately. Set CAD_WARM_CACHE=0 to skip that.
 
 import logging
 import os
+import re
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from web_app import progress
@@ -59,6 +60,23 @@ app.include_router(powerbank_holder.router, prefix="/api/powerbank-holder")
 app.include_router(apriltag_cube.router, prefix="/api/apriltag-cube")
 app.include_router(calibration_plate.router, prefix="/api/calibration-plate")
 app.include_router(sanding_rack.router, prefix="/api/sanding-rack")
+
+
+_SAFE_URL = re.compile(r"(/|https?://)[^\s\"'<>]*")
+
+
+@app.get("/api/site")
+def site_route(request: Request) -> dict:
+	"""Where this deployment's home page is, if it has one, for the "back" link on
+	the index page. A reverse proxy that serves the app below a site with its own
+	home page sets X-Site-Home-Url / X-Site-Home-Title; CAD_HOME_URL and
+	CAD_HOME_TITLE do the same without one. Neither set (e.g. in a container): no link.
+	"""
+	url = request.headers.get("x-site-home-url") or os.environ.get("CAD_HOME_URL", "")
+	title = request.headers.get("x-site-home-title") or os.environ.get("CAD_HOME_TITLE", "") or "Home"
+	if not _SAFE_URL.fullmatch(url):
+		return {"home": None}
+	return {"home": {"url": url, "title": title[:80]}}
 
 
 @app.get("/api/progress/{job}")
