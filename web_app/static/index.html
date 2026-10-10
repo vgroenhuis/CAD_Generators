@@ -10,6 +10,7 @@
 	a.card { display: block; width: 220px; padding: 20px; border-radius: 8px; background: #2a2e33; color: inherit; text-decoration: none; border: 1px solid #3a3f45; }
 	a.card:hover { border-color: #5a8cd2; }
 	a.card.disabled { opacity: 0.5; pointer-events: none; }
+	a.card .icon { display: block; width: 56px; height: 56px; margin-bottom: 12px; }
 	a.card h2 { margin: 0 0 8px 0; font-size: 16px; }
 	a.card p { margin: 0; font-size: 13px; color: #a0a5ab; }
 	a.home { display: inline-block; margin-bottom: 4px; color: #8fb4e8; text-decoration: none; }
@@ -21,26 +22,32 @@
 	<p>Select a generator to enter parameters and preview/download the model.</p>
 	<div class="grid">
 		<a class="card" href="ring.html">
+			<svg class="icon" viewBox="8 14 84 84" role="img" aria-label="Ring"><path d="M12 46 A38 16 0 0 0 88 46 L88 60 A38 16 0 0 1 12 60 Z" fill="#5a8cd2" fill-opacity=".22" stroke="#5a8cd2" stroke-width="2"/><path d="M32 46 A18 7.5 0 0 1 68 46 L68 52 A18 7.5 0 0 0 32 52 Z" fill="#5a8cd2" fill-opacity=".12"/><path fill-rule="evenodd" d="M12 46 A38 16 0 1 0 88 46 A38 16 0 1 0 12 46 Z M32 46 A18 7.5 0 1 0 68 46 A18 7.5 0 1 0 32 46 Z" fill="#5a8cd2" fill-opacity=".38" stroke="#5a8cd2" stroke-width="2"/></svg>
 			<h2>Ring</h2>
 			<p>Parametric ring: OD, ID, thickness.</p>
 		</a>
 		<a class="card disabled" href="#">
+			<svg class="icon" viewBox="2 3 96 96" role="img" aria-label="Pneumatic cylinder"><rect x="8" y="36" width="64" height="30" rx="4" fill="#5a8cd2" fill-opacity=".22" stroke="#5a8cd2" stroke-width="2"/><rect x="8" y="36" width="9" height="30" rx="3" fill="#5a8cd2" fill-opacity=".45"/><rect x="63" y="36" width="9" height="30" rx="3" fill="#5a8cd2" fill-opacity=".45"/><rect x="38" y="39" width="6" height="24" fill="#5a8cd2" fill-opacity=".7"/><rect x="44" y="48" width="48" height="6" rx="2" fill="#a0a5ab"/><rect x="20" y="28" width="8" height="8" fill="#a0a5ab"/><rect x="52" y="28" width="8" height="8" fill="#a0a5ab"/></svg>
 			<h2>Pneumatic Cylinder</h2>
 			<p>Coming soon.</p>
 		</a>
 		<a class="card" href="powerbank-holder.html">
+			<svg class="icon" viewBox="8 13 84 84" role="img" aria-label="Powerbank holder"><path d="M14 36 L26 24 L88 24 L76 36 Z" fill="#5a8cd2" fill-opacity=".10" stroke="#5a8cd2" stroke-width="1.5" stroke-dasharray="3 3"/><path d="M76 36 L88 24 L88 66 L76 78 Z" fill="#5a8cd2" fill-opacity=".30" stroke="#5a8cd2" stroke-width="2" stroke-linejoin="round"/><path fill-rule="evenodd" d="M14 36 H76 V78 H14 Z M54 57 a9 9 0 1 0 -18 0 a9 9 0 1 0 18 0 Z" fill="#5a8cd2" fill-opacity=".22" stroke="#5a8cd2" stroke-width="2" stroke-linejoin="round"/></svg>
 			<h2>Powerbank Holder</h2>
 			<p>LynXP robot powerbank holder walls: width, height, length, hole diameter.</p>
 		</a>
 		<a class="card" href="apriltag-cube.html">
+			<svg class="icon" viewBox="4 4 112 112" role="img" aria-label="AprilTag tag16h5"><rect x="12" y="12" width="96" height="96" rx="2" fill="#ffffff"/><rect x="24" y="24" width="72" height="72" fill="#0b0b0b"/><path d="M60 36h12v12h-12z M72 48h12v12h-12z M72 60h12v12h-12z M60 48h12v12h-12z M72 72h12v12h-12z M60 72h12v12h-12z M36 72h12v12h-12z" fill="#ffffff"/></svg>
 			<h2>AprilTag Cube</h2>
 			<p>Two-colour tag16h5 cube for multimaterial printing: tag ID, size, black depth.</p>
 		</a>
 		<a class="card" href="calibration-plate.html">
+			<svg class="icon" viewBox="5 5 90 90" role="img" aria-label="Calibration checkerboard"><rect x="10" y="18" width="80" height="64" fill="#e8e8e8" stroke="#5a8cd2" stroke-width="2"/><rect x="10" y="18" width="16" height="16" fill="#1a1d21"/><rect x="42" y="18" width="16" height="16" fill="#1a1d21"/><rect x="74" y="18" width="16" height="16" fill="#1a1d21"/><rect x="26" y="34" width="16" height="16" fill="#1a1d21"/><rect x="58" y="34" width="16" height="16" fill="#1a1d21"/><rect x="10" y="50" width="16" height="16" fill="#1a1d21"/><rect x="42" y="50" width="16" height="16" fill="#1a1d21"/><rect x="74" y="50" width="16" height="16" fill="#1a1d21"/><rect x="26" y="66" width="16" height="16" fill="#1a1d21"/><rect x="58" y="66" width="16" height="16" fill="#1a1d21"/></svg>
 			<h2>Calibration Plate</h2>
 			<p>Two-colour camera calibration plate: checkerboard on top, Kalibr AprilGrid (tag36h11) underneath.</p>
 		</a>
 		<a class="card" href="sanding-rack.html">
+			<svg class="icon" viewBox="5 7 90 90" role="img" aria-label="Sanding discs in a rack"><ellipse cx="24" cy="50" rx="5" ry="26" transform="rotate(-12 24 50)" fill="#c9a26b" stroke="#1a1d21" stroke-width="1"/><ellipse cx="36" cy="50" rx="5" ry="26" transform="rotate(-12 36 50)" fill="#b5834a" stroke="#1a1d21" stroke-width="1"/><ellipse cx="48" cy="50" rx="5" ry="26" transform="rotate(-12 48 50)" fill="#c26e3c" stroke="#1a1d21" stroke-width="1"/><ellipse cx="60" cy="50" rx="5" ry="26" transform="rotate(-12 60 50)" fill="#a5553a" stroke="#1a1d21" stroke-width="1"/><ellipse cx="72" cy="50" rx="5" ry="26" transform="rotate(-12 72 50)" fill="#7f4636" stroke="#1a1d21" stroke-width="1"/><path d="M10 66 H90 V82 H10 Z" fill="#5a8cd2" fill-opacity=".30" stroke="#5a8cd2" stroke-width="2"/><path d="M10 66 V58 M90 66 V58" stroke="#5a8cd2" stroke-width="2"/></svg>
 			<h2>Sanding Disc Rack</h2>
 			<p>Multiboard (Multiconnect) wall rack for sanding discs, with movable dividers per grit.</p>
 		</a>
