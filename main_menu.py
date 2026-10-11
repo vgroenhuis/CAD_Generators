@@ -19,6 +19,7 @@ _APRILTAG_CUBE_UI_SCRIPT = _APP_DIR / "apriltag_cube_app" / "apriltag_cube_ui.py
 _CALIBRATION_PLATE_UI_SCRIPT = _APP_DIR / "calibration_plate_app" / "calibration_plate_ui.py"
 _SANDING_RACK_UI_SCRIPT = _APP_DIR / "sanding_rack_app" / "sanding_rack_ui.py"
 _ORIFICE_UI_SCRIPT = _APP_DIR / "orifice_app" / "orifice_ui.py"
+_CABLE_CLIP_UI_SCRIPT = _APP_DIR / "cable_clip_app" / "cable_clip_ui.py"
 _SANDBOX_APP_SCRIPT = _APP_DIR / "sandbox" / "sandbox_app.py"
 _POWERBANK_HOLDER_UI_SCRIPT = _APP_DIR / "powerbank_holder_app" / "powerbank_holder_ui.py"
 
@@ -318,6 +319,14 @@ def main() -> None:
 		command=lambda: launch_app_process(_ORIFICE_UI_SCRIPT, "Orifice App"),
 	)
 	orifice_btn.pack(pady=6)
+
+	cable_clip_btn = ttk.Button(
+		frame,
+		text="Cable Clip App",
+		width=24,
+		command=lambda: launch_app_process(_CABLE_CLIP_UI_SCRIPT, "Cable Clip App"),
+	)
+	cable_clip_btn.pack(pady=6)
 
 	sandbox_btn = ttk.Button(
 		frame,

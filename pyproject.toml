@@ -67,6 +67,7 @@ apriltag-cube-app = "apriltag_cube_app.apriltag_cube_ui:main"
 calibration-plate-app = "calibration_plate_app.calibration_plate_ui:main"
 sanding-rack-app = "sanding_rack_app.sanding_rack_ui:main"
 orifice-app = "orifice_app.orifice_ui:main"
+cable-clip-app = "cable_clip_app.cable_clip_ui:main"
 sandbox-app = "sandbox.sandbox_app:main"
 ring-web = "web_app.server:main"
 
@@ -77,4 +78,4 @@ py-modules = ["main_menu"]
 cad_common = ["fonts/*"]
 
 [tool.setuptools.packages.find]
-include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "apriltag_cube_app*", "calibration_plate_app*", "sanding_rack_app*", "orifice_app*", "cad_common*", "sandbox*", "web_app*"]
+include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "apriltag_cube_app*", "calibration_plate_app*", "sanding_rack_app*", "orifice_app*", "cable_clip_app*", "cad_common*", "sandbox*", "web_app*"]
