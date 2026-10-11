@@ -39,7 +39,8 @@
 	.row { display: flex; gap: 10px; }
 	.row > div { flex: 1; }
 	#info { margin-top: 14px; font-size: 12px; color: #c0c4c9; line-height: 1.5; }
-	.viewer-options { position: absolute; top: 10px; right: 14px; font-size: 13px; color: #c0c4c9; display: flex; gap: 6px; align-items: center; }
+	.view-section { margin-top: 18px; padding-top: 12px; border-top: 1px solid #3a3f45; }
+	.view-section h3 { margin-top: 0 !important; }
 </style>
 </head>
 <body>
@@ -96,6 +97,12 @@
 			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
 			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
 
+			<div class="view-section">
+				<h3>View</h3>
+				<label class="check" for="cut"><input type="checkbox" id="cut" checked> Cut in half</label>
+				<div class="hint">Only changes the 3D preview, not the model or the downloads.</div>
+			</div>
+
 			<div id="status">Enter dimensions and click Generate.</div>
 			<div id="info"></div>
 
@@ -103,7 +110,6 @@
 		</div>
 		<div class="viewer">
 			<div class="viewer-placeholder" id="viewer-placeholder">No model generated yet.</div>
-			<label class="viewer-options" for="cut"><input type="checkbox" id="cut" checked> Cut in half</label>
 			<canvas id="viewer-canvas"></canvas>
 		</div>
 	</main>

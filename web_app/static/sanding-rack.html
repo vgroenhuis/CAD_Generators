@@ -43,7 +43,8 @@
 	#layout .tray { margin-top: 8px; padding: 6px 8px; background: #23272c; border: 1px solid #3a3f45; border-radius: 4px; }
 	#layout .tray b { color: #e8e8e8; }
 	#layout .muted { color: #8a8f95; }
-	.viewer-options { position: absolute; top: 10px; right: 14px; font-size: 13px; color: #c0c4c9; display: flex; gap: 6px; align-items: center; }
+	.view-section { margin-top: 18px; padding-top: 12px; border-top: 1px solid #3a3f45; }
+	.view-section h3 { margin-top: 0 !important; }
 </style>
 </head>
 <body>
@@ -106,6 +107,12 @@ P3000:3</textarea>
 			<button id="slot-test-btn" class="secondary-btn">Download slot test piece (3MF)</button>
 			<button id="slot-test-step-btn" class="secondary-btn">Download slot test piece (STEP)</button>
 
+			<div class="view-section">
+				<h3>View</h3>
+				<label class="check" for="show_discs"><input type="checkbox" id="show_discs" checked> Show discs</label>
+				<div class="hint">Only changes the 3D preview, not the model or the downloads.</div>
+			</div>
+
 			<div id="status">Enter grits and click Generate.</div>
 			<div id="layout"></div>
 
@@ -113,7 +120,6 @@ P3000:3</textarea>
 		</div>
 		<div class="viewer">
 			<div class="viewer-placeholder" id="viewer-placeholder">No model generated yet.</div>
-			<label class="viewer-options" for="show_discs"><input type="checkbox" id="show_discs" checked> Show discs</label>
 			<canvas id="viewer-canvas"></canvas>
 		</div>
 	</main>

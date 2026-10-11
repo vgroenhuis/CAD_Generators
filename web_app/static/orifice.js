@@ -182,7 +182,7 @@ async function onGenerate() {
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
 		downloadStepBtn.disabled = false;
-		setStatus("Generated. Drag to rotate; untick \"Cut in half\" to see the whole part.");
+		setStatus("Generated. Drag to rotate; untick \"Cut in half\" under View to see the whole part.");
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
 	} finally {
