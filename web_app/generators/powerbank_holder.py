@@ -35,7 +35,7 @@ def _build(key: tuple):
 
 
 cache = ModelCache("powerbank_holder", _build)
-DEFAULT = (25.0, 30.0, 120.0, 2.9, 1.0)  # matches the defaults in powerbank-holder.html
+DEFAULT = (25.0, 30.0, 120.0, 2.9, 1.0)  # width, height, length, hole_diameter, outer_margin; the page loads them from /defaults
 FILES = {
 	"glb": lambda m: glb_bytes(m["part"]),
 	"3mf": lambda m: threemf_bytes(m["part"], "powerbank_holder"),
@@ -55,6 +55,12 @@ def _key(
 
 def warm() -> None:
 	warm_entry(cache, DEFAULT, DEFAULT, FILES)
+
+
+@router.get("/defaults")
+def defaults_route() -> dict:
+	"""The page's starting values (by input id), so they are defined only here."""
+	return dict(zip(("width", "height", "length", "hole_diameter", "outer_margin"), DEFAULT))
 
 
 @router.get("/preview.glb")

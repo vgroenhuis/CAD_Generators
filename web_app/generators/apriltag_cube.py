@@ -30,7 +30,8 @@ def _build(key: tuple):
 
 
 cache = ModelCache("apriltag_cube", _build)
-DEFAULT = ((0,), 40.0, 1.0, False, False)  # matches the defaults in apriltag-cube.html
+DEFAULT = ((0,), 40.0, 1.0, False, False)  # tag ids, size, depth, axes, per face; the page loads them from /defaults
+DEFAULT_DIE_IDS = (0, 1, 2, 3, 4, 5)  # starting value of the page's "six different tags" field
 FILES = {
 	"glb": glb_bytes,
 	"3mf": lambda cube: threemf_bytes(cube, "apriltag_cube"),
@@ -65,6 +66,17 @@ def _file(key: tuple, kind: str) -> bytes:
 
 def warm() -> None:
 	warm_entry(cache, DEFAULT, DEFAULT, FILES)
+
+
+@router.get("/defaults")
+def defaults_route() -> dict:
+	"""The page's starting values (by input id), so they are defined only here."""
+	ids, size, depth, axes, per_face = DEFAULT
+	return {
+		"tag_id": ",".join(map(str, ids)) if not per_face else "0",
+		"tag_ids": ",".join(map(str, ids if per_face else DEFAULT_DIE_IDS)),
+		"size": size, "depth": depth, "axes": axes, "mode_same": not per_face, "mode_dice": per_face,
+	}
 
 
 @router.get("/preview.glb")

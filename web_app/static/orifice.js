@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { downloadWithProgress, fetchWithProgress } from "./progress.js";
+import { loadDefaults } from "./defaults.js";
 
 const NUMBER_FIELDS = [
 	"socket_a_id", "socket_a_wall", "socket_a_depth", "socket_b_id", "socket_b_wall", "socket_b_depth",
@@ -226,4 +227,10 @@ Object.values(inputs).forEach((el) => {
 });
 
 updateSeriesFields();
-onGenerate();
+// Start from the server's defaults (the model's), then show the default model.
+loadDefaults("api/orifice")
+	.then(() => {
+		updateSeriesFields();
+		onGenerate();
+	})
+	.catch((exc) => setStatus(exc.message, true));

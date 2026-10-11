@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { downloadWithProgress, fetchWithProgress } from "./progress.js";
+import { loadDefaults } from "./defaults.js";
 
 const NUMBER_FIELDS = ["width", "length", "thickness", "depth", "margin", "square_size", "tag_size", "tag_spacing"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
@@ -275,4 +276,10 @@ checkerYamlBtn.addEventListener("click", () => currentLayout && downloadText("ch
 );
 updatePatternWarning();
 
-onGenerate();
+// Start from the server's defaults (the model's), then show the default model.
+loadDefaults("api/calibration-plate")
+	.then(() => {
+		updatePatternWarning();
+		onGenerate();
+	})
+	.catch((exc) => setStatus(exc.message, true));

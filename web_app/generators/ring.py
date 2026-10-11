@@ -13,7 +13,7 @@ from web_app.model_cache import ModelCache, warm as warm_entry
 
 router = APIRouter()
 cache = ModelCache("ring", lambda key: build_ring(*key))
-DEFAULT = (20.0, 10.0, 5.0)  # matches the defaults in ring.html
+DEFAULT = (20.0, 10.0, 5.0)  # od, id, thickness; the page loads them from /defaults
 FILES = {
 	"glb": glb_bytes,
 	"3mf": lambda part: threemf_bytes(part, "ring"),
@@ -33,6 +33,12 @@ def _key(
 
 def warm() -> None:
 	warm_entry(cache, DEFAULT, DEFAULT, FILES)
+
+
+@router.get("/defaults")
+def defaults_route() -> dict:
+	"""The page's starting values (by input id), so they are defined only here."""
+	return dict(zip(("od", "id", "thickness"), DEFAULT))
 
 
 @router.get("/preview.glb")

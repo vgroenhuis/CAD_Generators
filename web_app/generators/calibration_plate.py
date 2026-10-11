@@ -11,6 +11,8 @@ plate is made when the server starts. Size limits keep a public server from bein
 asked for arbitrarily large builds.
 """
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from calibration_plate_app.calibration_plate_model import PlateParams, build_calibration_plate, compute_layout, pattern_warning
@@ -25,7 +27,7 @@ _MAX_SQUARES = 1000
 _MAX_TAGS = 200
 
 cache = ModelCache("calibration_plate", build_calibration_plate, size=4)
-DEFAULT = PlateParams()  # matches the defaults in calibration-plate.html
+DEFAULT = PlateParams()  # the model's defaults; the page loads them from /defaults
 FILES = {
 	"glb": lambda m: glb_bytes(m[0]),
 	"3mf": lambda m: threemf_bytes(m[0], "calibration_plate"),
@@ -78,6 +80,12 @@ def _filename(p: PlateParams, ext: str) -> str:
 
 def warm() -> None:
 	warm_entry(cache, _key(DEFAULT), DEFAULT, FILES)
+
+
+@router.get("/defaults")
+def defaults_route() -> dict:
+	"""The page's starting values (by input id), so they are defined only in the model."""
+	return asdict(DEFAULT)
 
 
 @router.get("/layout")

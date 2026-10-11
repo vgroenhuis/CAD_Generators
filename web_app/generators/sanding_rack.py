@@ -10,6 +10,7 @@ keep a public server from being asked for arbitrarily large builds.
 
 import io
 import zipfile
+from dataclasses import asdict
 
 from build123d import Pos
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -145,8 +146,15 @@ def _file(args, kind: str) -> bytes:
 
 
 def warm() -> None:
-	args = (parse_grits(DEFAULT_GRITS), RackParams())  # matches the defaults in sanding-rack.html
+	args = (parse_grits(DEFAULT_GRITS), RackParams())  # the model's defaults, also the page's (see /defaults)
 	warm_entry(cache, _key(args), args, _makers(args))
+
+
+@router.get("/defaults")
+def defaults_route() -> dict:
+	"""The page's starting values (by input id), so they are defined only in the model."""
+	grits = "\n".join(f"{g.name}:{g.count}" for g in parse_grits(DEFAULT_GRITS))
+	return {"grits": grits, **asdict(RackParams())}
 
 
 @router.get("/layout")

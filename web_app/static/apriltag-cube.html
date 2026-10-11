@@ -51,21 +51,21 @@
 	<main>
 		<div class="controls">
 			<label>Tags (tag16h5, IDs 0-29)</label>
-			<label class="radio" for="mode_same"><input type="radio" name="tag_mode" id="mode_same" value="same" checked> Same tag on all faces</label>
-			<input type="text" id="tag_id" value="0" autocomplete="off" placeholder="0  or  0,1,2,3">
+			<label class="radio" for="mode_same"><input type="radio" name="tag_mode" id="mode_same" value="same"> Same tag on all faces</label>
+			<input type="text" id="tag_id" autocomplete="off" placeholder="0  or  0,1,2,3">
 			<div class="hint">One ID, or several comma-separated IDs: one cube per ID, in the smallest square grid (2x2, 3x3, ...) with 2 mm spacing.</div>
 			<label class="radio" for="mode_dice"><input type="radio" name="tag_mode" id="mode_dice" value="dice"> Six different tags (die order)</label>
-			<input type="text" id="tag_ids" value="0,1,2,3,4,5" autocomplete="off" placeholder="0,1,2,3,4,5">
+			<input type="text" id="tag_ids" autocomplete="off" placeholder="0,1,2,3,4,5">
 			<div class="hint">Six comma-separated IDs for faces 1-6. Faces 1, 2, 3 point along +X, +Y, +Z (right-hand rule); 4, 5, 6 are opposite to 3, 2, 1.</div>
 
 			<label for="size">Cube size (mm)</label>
-			<input type="text" inputmode="decimal" autocomplete="off" id="size" value="40">
+			<input type="text" inputmode="decimal" autocomplete="off" id="size">
 
 			<label for="tag_size">Tag size (mm, black square)</label>
-			<input type="text" inputmode="decimal" autocomplete="off" id="tag_size" value="30">
+			<input type="text" inputmode="decimal" autocomplete="off" id="tag_size">
 
 			<label for="depth">Black depth (mm)</label>
-			<input type="text" inputmode="decimal" autocomplete="off" id="depth" value="1">
+			<input type="text" inputmode="decimal" autocomplete="off" id="depth">
 
 			<label class="check" for="axes"><input type="checkbox" id="axes"> Red/green axes (X/Y) on the floor</label>
 

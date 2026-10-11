@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { downloadWithProgress, fetchWithProgress } from "./progress.js";
+import { loadDefaults } from "./defaults.js";
 
 const tagIdInput = document.getElementById("tag_id");
 const tagIdsInput = document.getElementById("tag_ids");
@@ -85,7 +86,7 @@ function parseNumber(text) {
 const FACE_COUNT = 6;
 
 function isDiceMode() {
-	return document.querySelector('input[name="tag_mode"]:checked').value === "dice";
+	return document.getElementById("mode_dice").checked;
 }
 
 function updateMode() {
@@ -252,4 +253,11 @@ axesInput.addEventListener("change", onGenerate);
 	});
 });
 
-onGenerate();
+// Start from the server's defaults (the model's), then show the default model.
+loadDefaults("api/apriltag-cube")
+	.then(() => {
+		updateMode();
+		syncTagSizeFromCube();
+		onGenerate();
+	})
+	.catch((exc) => setStatus(exc.message, true));

@@ -6,6 +6,8 @@ Built models and their files are cached (see web_app/model_cache.py); the defaul
 connector is made when the server starts.
 """
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from orifice_app.orifice_model import OrificeParams, build_orifice, describe, diameters, section, validate
@@ -15,7 +17,7 @@ from web_app.model_cache import ModelCache, warm as warm_entry
 router = APIRouter()
 
 cache = ModelCache("orifice", build_orifice, size=6)
-DEFAULT = OrificeParams()  # matches the defaults in orifice.html
+DEFAULT = OrificeParams()  # the model's defaults; the page loads them from /defaults
 FILES = {
 	"glb": lambda part: glb_bytes(part, linear_deflection=0.02, angular_deflection=0.1),
 	"3mf": lambda part: threemf_bytes(part, "orifice", tolerance=0.005),
@@ -70,6 +72,12 @@ def _filename(p: OrificeParams, ext: str) -> str:
 
 def warm() -> None:
 	warm_entry(cache, _key(DEFAULT), DEFAULT, FILES)
+
+
+@router.get("/defaults")
+def defaults_route() -> dict:
+	"""The page's starting values (by input id), so they are defined only in the model."""
+	return asdict(DEFAULT)
 
 
 @router.get("/info")

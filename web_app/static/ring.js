@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { downloadWithProgress, fetchWithProgress } from "./progress.js";
+import { loadDefaults } from "./defaults.js";
 
 const odInput = document.getElementById("od");
 const idInput = document.getElementById("id");
@@ -178,4 +179,9 @@ downloadStepBtn.addEventListener("click", () => onDownload("step"));
 	});
 });
 
-onGenerate();
+// Start from the server's defaults (the model's), then show the default model.
+loadDefaults("api/ring")
+	.then(() => {
+		onGenerate();
+	})
+	.catch((exc) => setStatus(exc.message, true));

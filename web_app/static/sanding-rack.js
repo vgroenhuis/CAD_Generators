@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { downloadWithProgress, fetchWithProgress } from "./progress.js";
+import { loadDefaults } from "./defaults.js";
 
 const NUMBER_FIELDS = ["disc_diameter", "disc_thickness", "tray_units", "back_height", "lip_height", "groove_pitch", "slot_scale"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
@@ -257,4 +258,9 @@ Object.values(inputs).forEach((el) => {
 	});
 });
 
-onGenerate();
+// Start from the server's defaults (the model's), then show the default model.
+loadDefaults("api/sanding-rack")
+	.then(() => {
+		onGenerate();
+	})
+	.catch((exc) => setStatus(exc.message, true));

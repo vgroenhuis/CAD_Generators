@@ -14,7 +14,7 @@ A collection of Tkinter GUI applications for generating 3D models using [build12
 - **Sandbox App** – Minimal demo window used to test standalone/embedded launch behavior
 - **Main Menu** – Launches any app as its own process from a central hub
 - **3D Viewer** – Models are shown in the [OCP CAD Viewer](https://github.com/bernhard-42/vscode-ocp-cad-viewer) VS Code extension
-- **Export Options** – Save models as STEP files, or open directly in BambuStudio/PrusaSlicer. The web app offers 3MF (for slicing: fast, small, two-colour models as coloured parts of one object) as the main download, and STEP (exact geometry, for CAD) next to it. It caches built models and their files, and builds the default model of every generator when it starts (set `CAD_WARM_CACHE=0` to skip that).
+- **Export Options** – Save models as STEP files, or open directly in BambuStudio/PrusaSlicer. The web app offers 3MF (for slicing: fast, small, two-colour models as coloured parts of one object) as the main download, and STEP (exact geometry, for CAD) next to it. It caches built models and their files, and builds the default model of every generator when it starts (set `CAD_WARM_CACHE=0` to skip that). The web pages load their starting values from the server (`api/<generator>/defaults`), which takes them from the model's defaults (e.g. `OrificeParams` in `orifice_app/orifice_model.py`; for the ring and powerbank holder, `DEFAULT` in their `web_app/generators/` module): change a default there and the page, the warmed cache, the desktop app and the command line all follow.
 - **Persistent Parameters** – Each app remembers its last-used values between sessions
 
 ## Installation
