@@ -54,6 +54,7 @@ class OrificeParams:
     spacing: float = 2.0  # gap between neighbouring connections in a series
     beam_width: float = 2.0  # thickness of the wall that joins a series
     taper: float = 2.0  # degrees between each socket wall and the axis (0 = straight); narrows towards the orifice
+    chamfer: float = 0.5  # 45-degree lead-in at each socket opening, this wide (0 = none); eases inserting the tube
 
 
 @dataclass
@@ -75,6 +76,10 @@ def validate(p: OrificeParams) -> None:
         raise ValueError("The shoulder angle must be between 10 and 90 degrees.")
     if not 0 <= p.taper <= 10:
         raise ValueError("The socket taper must be between 0 and 10 degrees.")
+    if p.chamfer < 0 or p.chamfer >= min(p.socket_a_wall, p.socket_b_wall):
+        raise ValueError("The entrance chamfer must be at least 0 and smaller than the socket wall thickness.")
+    if p.chamfer > min(p.socket_a_depth, p.socket_b_depth) / 2:
+        raise ValueError("The entrance chamfer must not exceed half the socket depth.")
     end_a, end_b = socket_end_diameters(p)
     if min(end_a, end_b) <= 0:
         raise ValueError("The taper is too steep for the socket depth: the socket would close up.")
@@ -149,9 +154,11 @@ def _bore(p: OrificeParams, s: Section, d: float) -> Part:
     """The inside of one connection, a little longer than the part at both ends."""
     a, b, r = p.socket_a_id / 2, p.socket_b_id / 2, d / 2  # at the socket openings
     end_a, end_b = (e / 2 for e in socket_end_diameters(p))
+    c, t = p.chamfer, math.tan(math.radians(p.taper))
     return _revolved([
-        (0, -1), (a, -1), (a, 0), (end_a, s.a_end), (r, s.orifice_start), (r, s.orifice_end),
-        (end_b, s.b_start), (b, s.top), (b, s.top + 1), (0, s.top + 1),
+        (0, -1), (a + c + 1, -1), (a + c, 0), (a - c * t, c), (end_a, s.a_end), (r, s.orifice_start),
+        (r, s.orifice_end), (end_b, s.b_start), (b - c * t, s.top - c), (b + c, s.top), (b + c + 1, s.top + 1),
+        (0, s.top + 1),
     ])
 
 
@@ -208,6 +215,7 @@ def main() -> None:
     ap.add_argument("--orifice-length", type=float, default=d.orifice_length)
     ap.add_argument("--angle", type=float, default=d.angle, help="shoulder angle to the axis (deg, 90 = flat)")
     ap.add_argument("--taper", type=float, default=d.taper, help="socket taper (deg per side, 0 = straight)")
+    ap.add_argument("--chamfer", type=float, default=d.chamfer, help="entrance chamfer width (mm, 0 = none)")
     ap.add_argument("--series", action="store_true", help="one connection per diameter from --d-min to --d-max")
     ap.add_argument("--d-min", type=float, default=d.d_min)
     ap.add_argument("--d-max", type=float, default=d.d_max)
@@ -215,7 +223,7 @@ def main() -> None:
     ap.add_argument("--out", default="orifice.step")
     a = ap.parse_args()
     p = OrificeParams(a.a_id, a.a_wall, a.a_depth, a.b_id, a.b_wall, a.b_depth, a.orifice, a.orifice_length,
-                      a.angle, a.series, a.d_min, a.d_max, a.step, taper=a.taper)
+                      a.angle, a.series, a.d_min, a.d_max, a.step, taper=a.taper, chamfer=a.chamfer)
     export_step(build_orifice(p), a.out)
     print(f"Wrote {a.out}: {describe(p)}")
 

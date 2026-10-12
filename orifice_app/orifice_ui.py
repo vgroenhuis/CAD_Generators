@@ -42,6 +42,7 @@ _FIELDS = [
 	("orifice_length", "Orifice length", "orifice_length"),
 	("angle", "Shoulder angle (deg)", "angle"),
 	("taper", "Socket taper (deg)", "taper"),
+	("chamfer", "Entrance chamfer (mm)", "chamfer"),
 	("d_min", "Series min diameter", "d_min"),
 	("d_max", "Series max diameter", "d_max"),
 	("d_step", "Series step", "d_step"),

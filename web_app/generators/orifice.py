@@ -42,11 +42,13 @@ def _params(
 	d_max: float = Query(1.2, gt=0),
 	d_step: float = Query(0.2, gt=0),
 	taper: float = Query(..., ge=0, le=10),
+	chamfer: float = Query(..., ge=0, le=5),
 ) -> OrificeParams:
 	p = OrificeParams(
 		socket_a_id, socket_a_wall, socket_a_depth, socket_b_id, socket_b_wall, socket_b_depth,
 		orifice_diameter, orifice_length, angle, series, d_min, d_max, d_step,
 		taper=taper,
+		chamfer=chamfer,
 	)
 	try:
 		validate(p)  # cheap; also limits a series to 50 orifices
