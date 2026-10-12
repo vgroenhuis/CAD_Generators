@@ -6,7 +6,7 @@ import { loadDefaults } from "./defaults.js";
 
 const NUMBER_FIELDS = [
 	"socket_a_id", "socket_a_wall", "socket_a_depth", "socket_b_id", "socket_b_wall", "socket_b_depth",
-	"orifice_diameter", "orifice_length", "angle", "d_min", "d_max", "d_step",
+	"orifice_diameter", "orifice_length", "angle", "d_min", "d_max", "d_step", "taper",
 ];
 const SERIES_FIELDS = ["d_min", "d_max", "d_step"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
@@ -159,7 +159,11 @@ async function onGenerate() {
 			return;
 		}
 		const info = await infoResponse.json();
-		infoEl.textContent = info.summary;
+		const fmt = (v) => v.toFixed(2);
+		infoEl.textContent =
+			info.summary.split("; ").slice(0, 2).join("\n") +
+			`\nSocket A: \u2300${fmt(info.socket_a[0])} at the opening \u2192 \u2300${fmt(info.socket_a[1])} at the bottom` +
+			`\nSocket B: \u2300${fmt(info.socket_b[0])} at the opening \u2192 \u2300${fmt(info.socket_b[1])} at the bottom`;
 
 		const response = await fetchWithProgress(`api/orifice/preview.glb?${query}`, setStatus);
 		if (!response.ok) {

@@ -10,7 +10,9 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from orifice_app.orifice_model import OrificeParams, build_orifice, describe, diameters, section, validate
+from orifice_app.orifice_model import (
+	OrificeParams, build_orifice, describe, diameters, section, socket_end_diameters, validate,
+)
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
 
@@ -39,10 +41,12 @@ def _params(
 	d_min: float = Query(0.4, gt=0),
 	d_max: float = Query(1.2, gt=0),
 	d_step: float = Query(0.2, gt=0),
+	taper: float = Query(..., ge=0, le=10),
 ) -> OrificeParams:
 	p = OrificeParams(
 		socket_a_id, socket_a_wall, socket_a_depth, socket_b_id, socket_b_wall, socket_b_depth,
 		orifice_diameter, orifice_length, angle, series, d_min, d_max, d_step,
+		taper=taper,
 	)
 	try:
 		validate(p)  # cheap; also limits a series to 50 orifices
@@ -83,7 +87,11 @@ def defaults_route() -> dict:
 @router.get("/info")
 def info_route(p: OrificeParams = Depends(_params)) -> dict:
 	ds = diameters(p)
-	return {"diameters": ds, "length": round(section(p, ds[0]).top, 2), "summary": describe(p)}
+	end_a, end_b = socket_end_diameters(p)
+	return {
+		"diameters": ds, "length": round(section(p, ds[0]).top, 2), "summary": describe(p),
+		"socket_a": [p.socket_a_id, round(end_a, 3)], "socket_b": [p.socket_b_id, round(end_b, 3)],
+	}
 
 
 @router.get("/preview.glb")

@@ -43,7 +43,7 @@
 	.controls h3 { font-size: 13px; margin: 18px 0 0 0; color: #e8e8e8; font-weight: 600; }
 	.row { display: flex; gap: 10px; }
 	.row > div { flex: 1; }
-	#info { margin-top: 14px; font-size: 12px; color: #c0c4c9; line-height: 1.5; }
+	#info { margin-top: 14px; font-size: 12px; color: #c0c4c9; line-height: 1.5; white-space: pre-line; }
 	.view-section { margin-top: 18px; padding-top: 12px; border-top: 1px solid #3a3f45; }
 	.view-section h3 { margin-top: 0 !important; }
 </style>
@@ -74,7 +74,10 @@
 				<div><label for="socket_b_depth">Depth (mm)</label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="socket_b_depth"></div>
 			</div>
-			<div class="hint">Set the inner diameter to the tube's outer diameter, plus the clearance your printer needs.</div>
+			<div class="hint">Set the inner diameter to the tube's outer diameter, plus the clearance your printer needs. This is the diameter at the opening.</div>
+			<label for="taper">Socket taper (&deg; per side)</label>
+			<input type="text" inputmode="decimal" autocomplete="off" id="taper">
+			<div class="hint">Both sockets narrow from the opening towards the orifice, so a pushed-in tube wedges tighter. 0&deg; gives straight sockets.</div>
 
 			<h3>Orifice</h3>
 			<div class="row">

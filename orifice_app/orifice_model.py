@@ -8,6 +8,11 @@
       * a conical shoulder from the orifice up to socket B
       * socket B: a bore for the second tube, open at the top
 
+    The sockets can be tapered: each bore narrows from its opening towards the orifice
+    (the given inner diameter is the one at the opening), so a pushed-in tube wedges
+    tighter the further it goes. The taper angle is measured between the socket wall and
+    the axis, like the shoulder angle; 0 gives straight sockets.
+
     The shoulder angle applies to both shoulders and is measured between the socket axis
     and the cone wall: 90 degrees is a flat step, smaller angles give a longer, steeper
     shoulder (the default 30 degrees prints well as an overhang).
@@ -48,6 +53,7 @@ class OrificeParams:
     d_step: float = 0.2
     spacing: float = 2.0  # gap between neighbouring connections in a series
     beam_width: float = 2.0  # thickness of the wall that joins a series
+    taper: float = 2.0  # degrees between each socket wall and the axis (0 = straight); narrows towards the orifice
 
 
 @dataclass
@@ -67,11 +73,17 @@ def validate(p: OrificeParams) -> None:
             raise ValueError(f"{name.replace('_', ' ').capitalize()} must be greater than 0.")
     if not 10 <= p.angle <= 90:
         raise ValueError("The shoulder angle must be between 10 and 90 degrees.")
+    if not 0 <= p.taper <= 10:
+        raise ValueError("The socket taper must be between 0 and 10 degrees.")
+    end_a, end_b = socket_end_diameters(p)
+    if min(end_a, end_b) <= 0:
+        raise ValueError("The taper is too steep for the socket depth: the socket would close up.")
     for d in diameters(p):
         if d <= 0:
             raise ValueError("Orifice diameters must be greater than 0.")
-        if d >= min(p.socket_a_id, p.socket_b_id):
-            raise ValueError(f"Orifice diameter {d:g} mm must be smaller than both socket inner diameters.")
+        if d >= min(end_a, end_b):
+            raise ValueError(f"Orifice diameter {d:g} mm must be smaller than both sockets, also at their tapered "
+                             f"bottom ({end_a:.2f} and {end_b:.2f} mm).")
     if p.series and (p.spacing < 0 or p.beam_width <= 0):
         raise ValueError("Spacing must be >= 0 and the joining wall thickness > 0.")
     if p.series and p.beam_width > p.socket_a_id + 2 * p.socket_a_wall:
@@ -91,10 +103,17 @@ def diameters(p: OrificeParams) -> list[float]:
     return [round(p.d_min + i * p.d_step, 6) for i in range(n)]
 
 
+def socket_end_diameters(p: OrificeParams) -> tuple[float, float]:
+    """Inner diameter at the bottom of socket A and of socket B (where the shoulders start)."""
+    shrink = 2 * math.tan(math.radians(p.taper))
+    return p.socket_a_id - shrink * p.socket_a_depth, p.socket_b_id - shrink * p.socket_b_depth
+
+
 def section(p: OrificeParams, d: float) -> Section:
     t = math.tan(math.radians(p.angle))
-    cone_a = 0.0 if p.angle >= 90 else (p.socket_a_id - d) / 2 / t
-    cone_b = 0.0 if p.angle >= 90 else (p.socket_b_id - d) / 2 / t
+    end_a, end_b = socket_end_diameters(p)
+    cone_a = 0.0 if p.angle >= 90 else (end_a - d) / 2 / t
+    cone_b = 0.0 if p.angle >= 90 else (end_b - d) / 2 / t
     a_end = p.socket_a_depth
     o0 = a_end + cone_a
     o1 = o0 + p.orifice_length
@@ -128,10 +147,11 @@ def _outer(p: OrificeParams, s: Section) -> Part:
 
 def _bore(p: OrificeParams, s: Section, d: float) -> Part:
     """The inside of one connection, a little longer than the part at both ends."""
-    a, b, r = p.socket_a_id / 2, p.socket_b_id / 2, d / 2
+    a, b, r = p.socket_a_id / 2, p.socket_b_id / 2, d / 2  # at the socket openings
+    end_a, end_b = (e / 2 for e in socket_end_diameters(p))
     return _revolved([
-        (0, -1), (a, -1), (a, s.a_end), (r, s.orifice_start), (r, s.orifice_end),
-        (b, s.b_start), (b, s.top + 1), (0, s.top + 1),
+        (0, -1), (a, -1), (a, 0), (end_a, s.a_end), (r, s.orifice_start), (r, s.orifice_end),
+        (end_b, s.b_start), (b, s.top), (b, s.top + 1), (0, s.top + 1),
     ])
 
 
@@ -163,7 +183,16 @@ def describe(p: OrificeParams) -> str:
     s = section(p, ds[0])
     which = (f"{len(ds)} orifices: " + ", ".join(f"{d:g}" for d in ds) + " mm (smallest on the left)"
              if len(ds) > 1 else f"orifice {ds[0]:g} mm")
-    return f"{which}; length {s.top:.1f} mm, shoulders {p.angle:g} deg"
+    return f"{which}; length {s.top:.1f} mm, shoulders {p.angle:g} deg; {socket_summary(p)}"
+
+
+def socket_summary(p: OrificeParams) -> str:
+    """Inner diameter of each socket at its opening and at its bottom."""
+    end_a, end_b = socket_end_diameters(p)
+    if p.taper == 0:
+        return f"sockets {p.socket_a_id:g} / {p.socket_b_id:g} mm (straight)"
+    return (f"socket A {p.socket_a_id:.2f} -> {end_a:.2f} mm, socket B {p.socket_b_id:.2f} -> {end_b:.2f} mm "
+            f"(opening -> bottom, {p.taper:g} deg taper)")
 
 
 def main() -> None:
@@ -178,6 +207,7 @@ def main() -> None:
     ap.add_argument("--orifice", type=float, default=d.orifice_diameter, help="orifice diameter (mm)")
     ap.add_argument("--orifice-length", type=float, default=d.orifice_length)
     ap.add_argument("--angle", type=float, default=d.angle, help="shoulder angle to the axis (deg, 90 = flat)")
+    ap.add_argument("--taper", type=float, default=d.taper, help="socket taper (deg per side, 0 = straight)")
     ap.add_argument("--series", action="store_true", help="one connection per diameter from --d-min to --d-max")
     ap.add_argument("--d-min", type=float, default=d.d_min)
     ap.add_argument("--d-max", type=float, default=d.d_max)
@@ -185,7 +215,7 @@ def main() -> None:
     ap.add_argument("--out", default="orifice.step")
     a = ap.parse_args()
     p = OrificeParams(a.a_id, a.a_wall, a.a_depth, a.b_id, a.b_wall, a.b_depth, a.orifice, a.orifice_length,
-                      a.angle, a.series, a.d_min, a.d_max, a.step)
+                      a.angle, a.series, a.d_min, a.d_max, a.step, taper=a.taper)
     export_step(build_orifice(p), a.out)
     print(f"Wrote {a.out}: {describe(p)}")
 
