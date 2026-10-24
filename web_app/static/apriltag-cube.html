@@ -60,9 +60,15 @@
 			<label class="radio" for="mode_same"><input type="radio" name="tag_mode" id="mode_same" value="same"> Same tag on all faces</label>
 			<input type="text" id="tag_id" autocomplete="off" placeholder="0  or  0,1,2,3">
 			<div class="hint">One ID, or several comma-separated IDs: one cube per ID, in the smallest square grid (2x2, 3x3, ...) with 2 mm spacing.</div>
-			<label class="radio" for="mode_dice"><input type="radio" name="tag_mode" id="mode_dice" value="dice"> Six different tags (die order)</label>
-			<input type="text" id="tag_ids" autocomplete="off" placeholder="0,1,2,3,4,5">
-			<div class="hint">Six comma-separated IDs for faces 1-6. Faces 1, 2, 3 point along +X, +Y, +Z (right-hand rule); 4, 5, 6 are opposite to 3, 2, 1.</div>
+			<label class="radio" for="mode_faces"><input type="radio" name="tag_mode" id="mode_faces" value="faces"> Five different tags</label>
+			<input type="text" id="tag_ids" autocomplete="off" placeholder="0,1,2,3,4">
+			<div class="hint">Five comma-separated IDs: the four sides counterclockwise as seen from above (+X, +Y, -X, -Y), then the top (+Z).</div>
+			<label class="radio" for="mode_world"><input type="radio" name="tag_mode" id="mode_world" value="world"> World frame cube</label>
+			<div class="hint">Tags 25 (+X), 26 (+Y), 27 (-X), 28 (-Y) and 29 (top), labelled "World frame", with the red/green axes on the floor.</div>
+
+			<label class="check" for="bottom_label"><input type="checkbox" id="bottom_label"> Label on the bottom face</label>
+			<input type="text" id="label" autocomplete="off" maxlength="40">
+			<div class="hint" id="label-hint">The camera never sees the bottom face. Leave empty for the default label (shown greyed out). Long labels are split over two lines; | forces a line break.</div>
 
 			<label for="size">Cube size (mm)</label>
 			<input type="text" inputmode="decimal" autocomplete="off" id="size">
@@ -79,7 +85,7 @@
 			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
 			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
 
-			<div class="fixed-info">The tag (6 cells wide) sits inside a 1-cell white margin, so tag size = 0.75 x cube size. The STEP file contains two bodies, "white" (cube with pockets) and "black" (tag cells), for multimaterial printing. With axes enabled, "red" (+X) and "green" (+Y) arrows lie flat on the floor beside the cube, on its X and Y axes.</div>
+			<div class="fixed-info">The tag (6 cells wide) sits inside a 1-cell white margin, so tag size = 0.75 x cube size. The STEP file contains two bodies, "white" (cube with pockets) and "black" (tag cells and bottom label, inlaid flush), for multimaterial printing. With axes enabled, "red" (+X) and "green" (+Y) arrows lie flat on the floor beside the cube, on its X and Y axes.</div>
 
 			<div id="status">Enter dimensions and click Generate.</div>
 		</div>

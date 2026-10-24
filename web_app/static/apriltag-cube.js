@@ -8,6 +8,10 @@ const tagIdInput = document.getElementById("tag_id");
 const tagIdsInput = document.getElementById("tag_ids");
 const modeInputs = document.querySelectorAll('input[name="tag_mode"]');
 const axesInput = document.getElementById("axes");
+const bottomLabelInput = document.getElementById("bottom_label");
+const labelInput = document.getElementById("label");
+const labelHint = document.getElementById("label-hint");
+const labelHintText = labelHint.textContent;
 const sizeInput = document.getElementById("size");
 const tagSizeInput = document.getElementById("tag_size");
 const depthInput = document.getElementById("depth");
@@ -83,22 +87,52 @@ function parseNumber(text) {
 	return /^\d*\.?\d+$|^\d+\.$/.test(trimmed) ? parseFloat(trimmed) : NaN;
 }
 
-const FACE_COUNT = 6;
+const FACE_COUNT = 5;
+// Set from the server's defaults (see loadDefaults below).
+let worldFrameIds = [25, 26, 27, 28, 29];
+let worldFrameLabel = "World frame";
 
-function isDiceMode() {
-	return document.getElementById("mode_dice").checked;
+function tagMode() {
+	return document.querySelector('input[name="tag_mode"]:checked')?.value || "same";
+}
+
+// The label used when the label field is empty; mirrors default_label() in apriltag_cube_model.py.
+function defaultLabel(ids) {
+	if (ids.join(",") === worldFrameIds.join(",")) return worldFrameLabel;
+	if (new Set(ids).size === 1) return String(ids[0]);
+	return ids.join(",");
+}
+
+function currentIds() {
+	try {
+		return readTagIds();
+	} catch (e) {
+		return null;
+	}
 }
 
 function updateMode() {
-	const dice = isDiceMode();
-	tagIdInput.disabled = dice;
-	tagIdsInput.disabled = !dice;
+	const mode = tagMode();
+	tagIdInput.disabled = mode !== "same";
+	tagIdsInput.disabled = mode !== "faces";
+	axesInput.disabled = mode === "world";
+	if (mode === "world") axesInput.checked = true;
+	updateLabel();
+}
+
+// In a grid every cube is labelled with its own ID, so the label text applies to single cubes only.
+function updateLabel() {
+	const ids = currentIds();
+	const grid = tagMode() === "same" && ids && ids.length > 1;
+	labelInput.disabled = !bottomLabelInput.checked || grid;
+	labelInput.placeholder = ids && !grid ? defaultLabel(ids) : "";
+	labelHint.textContent = grid ? "Each cube in the grid is labelled with its tag ID." : labelHintText;
 }
 
 const MAX_CUBES = 64;
 
-// perFace false: one or more IDs, one cube each (same tag on all faces); true: six IDs for
-// faces 1-6 of a single cube, in die order.
+// perFace false: one or more IDs, one cube each (same tag on all faces); true: five IDs for
+// a single cube, the four sides counterclockwise from +X, then the top.
 function parseTagIds(text, perFace) {
 	const parts = text.split(/[,;]/).map((s) => s.trim()).filter((s) => s !== "");
 	if (!parts.every((s) => /^\d+$/.test(s))) {
@@ -106,7 +140,7 @@ function parseTagIds(text, perFace) {
 	}
 	const ids = parts.map(Number);
 	if (perFace && ids.length !== FACE_COUNT) {
-		throw new Error("Enter 6 comma-separated tag IDs, in die order (faces 1 to 6).");
+		throw new Error("Enter 5 comma-separated tag IDs: four sides counterclockwise from +X, then the top.");
 	}
 	if (!perFace && ids.length === 0) throw new Error("Enter at least one tag ID.");
 	if (!perFace && ids.length > MAX_CUBES) throw new Error(`At most ${MAX_CUBES} cubes can be generated at once.`);
@@ -114,8 +148,15 @@ function parseTagIds(text, perFace) {
 	return ids;
 }
 
+function readTagIds() {
+	const mode = tagMode();
+	if (mode === "world") return worldFrameIds;
+	return mode === "faces" ? parseTagIds(tagIdsInput.value, true) : parseTagIds(tagIdInput.value, false);
+}
+
 function readParams() {
-	const tagIds = isDiceMode() ? parseTagIds(tagIdsInput.value, true) : parseTagIds(tagIdInput.value, false);
+	const tagIds = readTagIds();
+	const mode = tagMode();
 	const size = parseNumber(sizeInput.value);
 	const depth = parseNumber(depthInput.value);
 	if (!Number.isFinite(size) || !Number.isFinite(depth)) {
@@ -123,7 +164,13 @@ function readParams() {
 	}
 	if (size <= 0 || depth <= 0) throw new Error("Size and depth must be greater than 0.");
 	if (depth >= size / 2) throw new Error("Black depth must be smaller than half the cube size.");
-	return { tagIds, size, depth, axes: axesInput.checked, perFace: isDiceMode() };
+	return {
+		tagIds, size, depth,
+		axes: mode === "world" || axesInput.checked,
+		perFace: mode !== "same",
+		bottomLabel: bottomLabelInput.checked,
+		label: labelInput.disabled ? "" : labelInput.value.trim(),
+	};
 }
 
 function fitCameraToObject(object) {
@@ -167,6 +214,8 @@ function buildQuery(params) {
 		depth: params.depth,
 		axes: params.axes,
 		per_face: params.perFace,
+		bottom_label: params.bottomLabel,
+		label: params.label,
 	});
 }
 
@@ -215,6 +264,7 @@ async function onGenerate() {
 			what = `${params.tagIds.length} cubes in a ${n}x${n} grid: tag16h5 ids ${idsText}`;
 		} else {
 			what = `cube: tag16h5 ${params.tagIds.length === 1 ? "id" : "ids"} ${idsText}`;
+			if (params.bottomLabel) what += `, label "${params.label || defaultLabel(params.tagIds)}"`;
 		}
 		setStatus(`Generated ${what}, ${params.size} mm, black depth ${params.depth} mm`);
 	} catch (exc) {
@@ -244,10 +294,18 @@ async function onDownload(format) {
 generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
-modeInputs.forEach((el) => el.addEventListener("change", updateMode));
+modeInputs.forEach((el) => el.addEventListener("change", () => {
+	updateMode();
+	onGenerate();
+}));
 updateMode();
 axesInput.addEventListener("change", onGenerate);
-[tagIdInput, tagIdsInput, sizeInput, tagSizeInput, depthInput].forEach((el) => {
+bottomLabelInput.addEventListener("change", () => {
+	updateLabel();
+	onGenerate();
+});
+[tagIdInput, tagIdsInput].forEach((el) => el.addEventListener("input", updateLabel));
+[tagIdInput, tagIdsInput, labelInput, sizeInput, tagSizeInput, depthInput].forEach((el) => {
 	el.addEventListener("keydown", (e) => {
 		if (e.key === "Enter") onGenerate();
 	});
@@ -255,7 +313,9 @@ axesInput.addEventListener("change", onGenerate);
 
 // Start from the server's defaults (the model's), then show the default model.
 loadDefaults("api/apriltag-cube")
-	.then(() => {
+	.then((defaults) => {
+		worldFrameIds = defaults.world_frame_ids.split(",").map(Number);
+		worldFrameLabel = defaults.world_frame_label;
 		updateMode();
 		syncTagSizeFromCube();
 		onGenerate();
