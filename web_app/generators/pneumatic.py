@@ -1,7 +1,8 @@
 """API routes for the Pneumatic Components page: one sub-router per component, each with
 defaults (and presets), a summary, glTF preview, 3MF and STEP.
 
-  /blind-plug/...  blind plug for a push-in fitting (pneumatic_app/blind_plug_model.py)
+  /blind-plug/...      blind plug for a push-in fitting (pneumatic_app/blind_plug_model.py)
+  /connector-male/...  male part and clip set of the printable connector (pneumatic_app/connector_model.py)
 
 All endpoints of a component take its parameters as query parameters. Built models and
 their files are cached (see web_app/model_cache.py); each component's default model is
@@ -15,6 +16,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pneumatic_app.blind_plug_model import (
 	MAX_COUNT, PRESETS as BLIND_PLUG_PRESETS, BlindPlugParams, build_print_layout as build_blind_plugs,
 	describe as describe_blind_plug, total_length, validate as validate_blind_plug,
+)
+from pneumatic_app.connector_model import (
+	ConnectorParams, build_print_layout as build_connector_male, describe as describe_connector_male,
+	validate as validate_connector_male,
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
@@ -88,5 +93,63 @@ def blind_plug_step(p: BlindPlugParams = Depends(_blind_plug_params)):
 	return download_response(_blind_plug_file(p, "step"), _blind_plug_filename(p, "step"))
 
 
+# --- Connector, male part and clips ---
+
+connector_male_cache = ModelCache("connector_male", build_connector_male, size=6)
+CONNECTOR_MALE_DEFAULT = ConnectorParams()
+CONNECTOR_MALE_FILES = _files("pneumatic_connector_male")
+
+
+def _connector_male_params(
+	ports: int = Query(..., ge=1, le=100),  # validate() gives the friendly limit
+	pitch: float = Query(..., gt=0, le=30),
+	hole: float = Query(..., gt=0, le=10),
+	clips: bool = Query(True),
+) -> ConnectorParams:
+	p = ConnectorParams(ports, pitch, hole, clips)
+	try:
+		validate_connector_male(p)
+	except ValueError as exc:
+		raise HTTPException(status_code=400, detail=str(exc))
+	return p
+
+
+def _connector_male_file(p: ConnectorParams, kind: str) -> bytes:
+	return connector_male_cache.file(tuple(vars(p).values()), p, kind, CONNECTOR_MALE_FILES[kind])
+
+
+def _connector_male_filename(p: ConnectorParams, ext: str) -> str:
+	clips = "_clips" if p.clips else ""
+	return f"connector_male_{p.ports}x_{p.hole:g}mm{clips}.{ext}"
+
+
+@router.get("/connector-male/defaults")
+def connector_male_defaults() -> dict:
+	return asdict(CONNECTOR_MALE_DEFAULT)
+
+
+@router.get("/connector-male/info")
+def connector_male_info(p: ConnectorParams = Depends(_connector_male_params)) -> dict:
+	return {"summary": describe_connector_male(p)}
+
+
+@router.get("/connector-male/preview.glb")
+def connector_male_preview(p: ConnectorParams = Depends(_connector_male_params)):
+	return glb_response(_connector_male_file(p, "glb"))
+
+
+@router.get("/connector-male/export.3mf")
+def connector_male_3mf(p: ConnectorParams = Depends(_connector_male_params)):
+	return download_response(_connector_male_file(p, "3mf"), _connector_male_filename(p, "3mf"))
+
+
+@router.get("/connector-male/export.step")
+def connector_male_step(p: ConnectorParams = Depends(_connector_male_params)):
+	return download_response(_connector_male_file(p, "step"), _connector_male_filename(p, "step"))
+
+
 def warm() -> None:
 	warm_entry(blind_plug_cache, tuple(vars(BLIND_PLUG_DEFAULT).values()), BLIND_PLUG_DEFAULT, BLIND_PLUG_FILES)
+	warm_entry(
+		connector_male_cache, tuple(vars(CONNECTOR_MALE_DEFAULT).values()), CONNECTOR_MALE_DEFAULT, CONNECTOR_MALE_FILES,
+	)
