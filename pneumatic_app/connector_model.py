@@ -225,7 +225,8 @@ def build_print_layout(p: ConnectorParams) -> Compound:
 
 # --- Assembly (male part with tubes and both clips on their tabs) ---
 
-TUBE_OD = 3.0
+TUBE_BORES = {3.0: 2.0, 4.0: 2.5}  # tube outer diameter -> inner diameter (mm)
+TUBE_OD = 3.0  # this connector's tube
 TUBE_COLOR = Color(0.75, 0.77, 0.8)
 TUBE_OUT = 4.0  # tube length beyond the mating face
 TUBE_BELOW = 12.0  # tube length shown beyond the glue face
@@ -265,7 +266,8 @@ def _assembly_parts(p: ConnectorParams, angle_left: float = 0.0, angle_right: fl
     right = Pos(2 * xc, 0, 0) * Rot(0, 180, 0) * Pos(px, py, 0) * Rot(0, 0, angle_right) * Pos(-px, -py, 0) * _left_clip_location()
     tube_len = TUBE_OUT + (_TOP - _BOTTOM) + TUBE_BELOW
     tubes = [
-        Pos(i * p.pitch, _TOP + TUBE_OUT - tube_len / 2, 0) * Rot(90, 0, 0) * Cylinder(TUBE_OD / 2, tube_len)
+        Pos(i * p.pitch, _TOP + TUBE_OUT - tube_len / 2, 0) * Rot(90, 0, 0)
+        * (Cylinder(TUBE_OD / 2, tube_len) - Cylinder(TUBE_BORES[TUBE_OD] / 2, tube_len + 0.2))
         for i in range(p.ports)
     ]
     return {
