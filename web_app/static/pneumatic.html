@@ -10,112 +10,46 @@
 <link rel="apple-touch-icon" href="icons/pneumatic-180.png">
 <!-- /FAVICON -->
 <style>
-	html, body { height: 100%; margin: 0; }
-	body { font-family: "Segoe UI", sans-serif; background: #1a1d21; color: #e8e8e8; display: flex; flex-direction: column; }
-	header { padding: 12px 20px; border-bottom: 1px solid #3a3f45; }
-	header a { color: #8fb4e8; text-decoration: none; }
-	h1 { font-size: 18px; margin: 8px 0 0 0; font-weight: 600; }
-	main { flex: 1; display: flex; min-height: 0; }
-	.controls { width: 300px; padding: 16px 20px; border-right: 1px solid #3a3f45; overflow-y: auto; box-sizing: border-box; }
-	.controls label { display: block; margin-top: 12px; font-size: 13px; color: #c0c4c9; }
-	.controls input { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; }
-	.controls button { margin-top: 16px; width: 100%; padding: 8px; border-radius: 4px; border: none; cursor: pointer; font-size: 14px; }
-	#generate-btn { background: #5a8cd2; color: white; }
-	#generate-btn:hover { background: #4a7cc2; }
-	#download-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
-	#download-step-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
-	#download-btn:hover:not(:disabled) { background: #4a4f55; }
-	#download-step-btn:hover:not(:disabled) { background: #4a4f55; }
-	#download-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-	#download-step-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-	.fixed-info { margin-top: 14px; font-size: 11px; color: #6a6f75; line-height: 1.6; }
-	.hint { margin-top: 4px; font-size: 11px; color: #6a6f75; }
-	.controls .radio, .controls .check { display: flex; align-items: center; gap: 8px; }
-	.controls .radio { margin-top: 10px; color: #c0c4c9; }
-	.controls .check { margin-top: 16px; font-size: 13px; color: #e8e8e8; }
-	.controls .radio input, .controls .check input { width: auto; margin: 0; }
-	.controls input:disabled { opacity: 0.45; }
-	#status { margin-top: 14px; font-size: 12px; color: #a0a5ab; white-space: pre-wrap; }
-	#status.error { color: #e08a8a; }
-	.viewer { flex: 1; position: relative; }
-	#viewer-canvas { display: block; width: 100%; height: 100%; }
-	.viewer-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #6a6f75; font-size: 14px; pointer-events: none; }
-	.controls select { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; }
-	.controls h3 { font-size: 13px; margin: 18px 0 0 0; color: #e8e8e8; font-weight: 600; }
-	.row { display: flex; gap: 10px; }
-	.row > div { flex: 1; }
-	#info { margin-top: 14px; font-size: 12px; color: #c0c4c9; line-height: 1.5; }
-	.view-section { margin-top: 18px; padding-top: 12px; border-top: 1px solid #3a3f45; }
-	.view-section h3 { margin-top: 0 !important; }
-	.controls .radio-row { display: flex; gap: 18px; margin-top: 8px; }
-	.controls .radio-row label { display: flex; align-items: center; gap: 6px; margin-top: 0; color: #e8e8e8; font-size: 13px; }
-	.controls .radio-row input { width: auto; margin: 0; }
+	body { font-family: "Segoe UI", sans-serif; background: #1a1d21; color: #e8e8e8; margin: 0; padding: 40px; }
+	h1 { font-weight: 600; }
+	.grid { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 24px; }
+	a.card { display: block; width: 220px; padding: 20px; border-radius: 8px; background: #2a2e33; color: inherit; text-decoration: none; border: 1px solid #3a3f45; }
+	a.card:hover { border-color: #5a8cd2; }
+	a.card.disabled { opacity: 0.5; pointer-events: none; }
+	a.card .icon { display: block; width: 56px; height: 56px; margin-bottom: 12px; }
+	a.card h2 { margin: 0 0 8px 0; font-size: 16px; }
+	a.card p { margin: 0; font-size: 13px; color: #a0a5ab; }
+	a.home { display: inline-block; margin-bottom: 4px; color: #8fb4e8; text-decoration: none; }
 	@media (max-width: 700px) {
-		main { flex-direction: column; }
-		.controls { width: 100%; max-height: 50vh; border-right: none; border-bottom: 1px solid #3a3f45; }
-		.viewer { min-height: 50vh; }
+		body { padding: 20px 16px; }
+		a.card { width: 100%; box-sizing: border-box; }
 	}
 </style>
 </head>
 <body>
-	<header>
-		<a href="index.html">&larr; CAD Generators</a>
-		<h1>Pneumatic Components</h1>
-	</header>
-	<main>
-		<div class="controls">
-			<label for="component">Component</label>
-			<select id="component">
-				<option value="blind-plug">Blind plug</option>
-			</select>
-
-			<div class="component" data-component="blind-plug">
-				<div class="hint">Solid pin pushed into a push-in fitting instead of a tube, to close that port.</div>
-				<label for="blind_plug_preset">Tube size</label>
-				<select id="blind_plug_preset"></select>
-				<div class="row">
-					<div><label for="tube_od">Tube OD (mm)</label>
-					<input type="text" inputmode="decimal" autocomplete="off" id="tube_od"></div>
-					<div><label for="insert_length">Insertion length (mm)</label>
-					<input type="text" inputmode="decimal" autocomplete="off" id="insert_length"></div>
-				</div>
-				<div class="row">
-					<div><label for="tip_chamfer">Tip chamfer (mm)</label>
-					<input type="text" inputmode="decimal" autocomplete="off" id="tip_chamfer"></div>
-					<div></div>
-				</div>
-				<div class="row">
-					<div><label for="head_diameter">Head &#8960; (mm)</label>
-					<input type="text" inputmode="decimal" autocomplete="off" id="head_diameter"></div>
-					<div><label for="head_length">Head length (mm)</label>
-					<input type="text" inputmode="decimal" autocomplete="off" id="head_length"></div>
-				</div>
-				<label for="count">Number of plugs</label>
-				<input type="text" inputmode="numeric" autocomplete="off" id="count">
-				<div class="fixed-info">The pin has the tube's outer diameter; a 45&deg; collar joins it to the head and stops it at the insertion length. Shown and saved in print orientation: standing on the head, tip up, no supports needed.</div>
-			</div>
-
-			<button id="generate-btn">Generate</button>
-			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
-			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
-
-			<div id="status">Enter dimensions and click Generate.</div>
-			<div id="info"></div>
-		</div>
-		<div class="viewer">
-			<div class="viewer-placeholder" id="viewer-placeholder">No model generated yet.</div>
-			<canvas id="viewer-canvas"></canvas>
-		</div>
-	</main>
-
-	<script type="importmap">
-	{
-		"imports": {
-			"three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
-		}
-	}
+	<a class="home" href="index.html">&larr; CAD Generators</a>
+	<h1>Pneumatic Components</h1>
+	<p>Parts for push-in pneumatic fittings and tubing. Select a generator to enter parameters and preview/download the model.</p>
+	<div class="grid">
+		<a class="card" href="orifice.html">
+			<svg class="icon" viewBox="4 4 92 92" role="img" aria-label="Tube connector with an orifice, cut in half"><path d="M30 10 H70 V90 H30 Z" fill="#5a8cd2" fill-opacity=".22" stroke="#5a8cd2" stroke-width="2"/><path d="M40 10 V36 L48.5 46 V54 L40 64 V90 H60 V64 L51.5 54 V46 L60 36 V10 Z" fill="#1a1d21" stroke="#5a8cd2" stroke-width="1.5" stroke-linejoin="round"/><path d="M50 4 V96" stroke="#a0a5ab" stroke-width="1" stroke-dasharray="4 3"/></svg>
+			<h2>Orifice</h2>
+			<p>Pneumatic tube connector with an orifice between two sockets; optionally a joined series of orifice sizes.</p>
+		</a>
+		<a class="card" href="blind-plug.html">
+			<svg class="icon" viewBox="4 4 92 92" role="img" aria-label="Blind plug for a push-in fitting"><path d="M28 92 H72 V82 L60 70 V20 L55 15 H45 L40 20 V70 L28 82 Z" fill="#5a8cd2" fill-opacity=".30" stroke="#5a8cd2" stroke-width="2" stroke-linejoin="round"/><path d="M28 82 H72" stroke="#5a8cd2" stroke-width="1.5"/><path d="M50 6 V96" stroke="#a0a5ab" stroke-width="1" stroke-dasharray="4 3"/></svg>
+			<h2>Blind Plug</h2>
+			<p>Solid pin that closes a port of a push-in fitting; presets for 4 and 6 mm tube.</p>
+		</a>
+		<a class="card disabled" href="#">
+			<svg class="icon" viewBox="2 3 96 96" role="img" aria-label="Pneumatic cylinder"><rect x="8" y="36" width="64" height="30" rx="4" fill="#5a8cd2" fill-opacity=".22" stroke="#5a8cd2" stroke-width="2"/><rect x="8" y="36" width="9" height="30" rx="3" fill="#5a8cd2" fill-opacity=".45"/><rect x="63" y="36" width="9" height="30" rx="3" fill="#5a8cd2" fill-opacity=".45"/><rect x="38" y="39" width="6" height="24" fill="#5a8cd2" fill-opacity=".7"/><rect x="44" y="48" width="48" height="6" rx="2" fill="#a0a5ab"/><rect x="20" y="28" width="8" height="8" fill="#a0a5ab"/><rect x="52" y="28" width="8" height="8" fill="#a0a5ab"/></svg>
+			<h2>Pneumatic Cylinder</h2>
+			<p>Coming soon.</p>
+		</a>
+	</div>
+	<script>
+		// Old links to the blind plug (pneumatic.html#blind-plug) go to its own page.
+		if (location.hash === "#blind-plug") location.replace("blind-plug.html");
 	</script>
-	<script type="module" src="pneumatic.js"></script>
 </body>
 </html>

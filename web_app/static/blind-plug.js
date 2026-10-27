@@ -4,21 +4,10 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { downloadWithProgress, fetchWithProgress } from "./progress.js";
 import { loadDefaults } from "./defaults.js";
 
-// One entry per component: its API, its number fields (input ids = query parameter names),
-// which of those must be whole numbers, and an optional preset <select> (filled from the
-// presets in the component's /defaults). Its inputs live in <div class="component" data-component="...">.
-const COMPONENTS = {
-	"blind-plug": {
-		api: "api/pneumatic/blind-plug",
-		fields: ["tube_od", "insert_length", "tip_chamfer", "head_diameter", "head_length", "count"],
-		integers: ["count"],
-		presetSelect: "blind_plug_preset",
-		presetLabel: (name) => `${name} mm tube`,
-		done: "Generated, in print orientation (standing on its head, tip up). Drag to rotate.",
-	},
-};
-
-const componentSelect = document.getElementById("component");
+const API = "api/pneumatic/blind-plug";
+// Input ids = query parameter names.
+const NUMBER_FIELDS = ["tube_od", "insert_length", "tip_chamfer", "head_diameter", "head_length", "count"];
+const presetSelect = document.getElementById("blind_plug_preset");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
 const downloadStepBtn = document.getElementById("download-step-btn");
@@ -92,20 +81,15 @@ function parseNumber(text) {
 	return /^\d*\.?\d+$|^\d+\.$/.test(trimmed) ? parseFloat(trimmed) : NaN;
 }
 
-function current() {
-	return COMPONENTS[componentSelect.value];
-}
-
 function readParams() {
-	const component = current();
 	const params = {};
-	for (const id of component.fields) {
+	for (const id of NUMBER_FIELDS) {
 		const value = parseNumber(document.getElementById(id).value);
 		if (!Number.isFinite(value)) {
 			const label = document.querySelector(`label[for="${id}"]`).textContent;
 			throw new Error(`${label} must be a number (use a dot as decimal separator).`);
 		}
-		if (component.integers.includes(id) && !Number.isInteger(value)) {
+		if (id === "count" && !Number.isInteger(value)) {
 			const label = document.querySelector(`label[for="${id}"]`).textContent;
 			throw new Error(`${label} must be a whole number.`);
 		}
@@ -142,14 +126,13 @@ async function onGenerate() {
 		setStatus(exc.message, true);
 		return;
 	}
-	const component = current();
 	generateBtn.disabled = true;
 	downloadBtn.disabled = true;
 	downloadStepBtn.disabled = true;
 	const query = buildQuery(params);
 	try {
 		// The summary is cheap and validates the parameters before the build.
-		const infoResponse = await fetch(`${component.api}/info?${query}`);
+		const infoResponse = await fetch(`${API}/info?${query}`);
 		if (!infoResponse.ok) {
 			infoEl.textContent = "";
 			setStatus(await friendlyErrorMessage(infoResponse), true);
@@ -157,7 +140,7 @@ async function onGenerate() {
 		}
 		infoEl.textContent = (await infoResponse.json()).summary;
 
-		const response = await fetchWithProgress(`${component.api}/preview.glb?${query}`, setStatus);
+		const response = await fetchWithProgress(`${API}/preview.glb?${query}`, setStatus);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
@@ -177,7 +160,7 @@ async function onGenerate() {
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
 		downloadStepBtn.disabled = false;
-		setStatus(component.done);
+		setStatus("Generated, in print orientation (standing on its head, tip up). Drag to rotate.");
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
 	} finally {
@@ -195,80 +178,45 @@ async function onDownload(format) {
 		return;
 	}
 	try {
-		const response = await downloadWithProgress(`${current().api}/export.${format}?${buildQuery(params)}`, setStatus);
+		const response = await downloadWithProgress(`${API}/export.${format}?${buildQuery(params)}`, setStatus);
 		setStatus(response.ok ? `Downloaded ${response.filename}.` : await friendlyErrorMessage(response), !response.ok);
 	} catch (exc) {
 		setStatus(`Download failed: ${exc.message || exc}`, true);
 	}
 }
 
-// --- Presets: picking one fills the fields; editing a field selects the matching preset, or "Custom".
+// Presets: picking one fills the fields; editing a field selects the matching preset, or "Custom".
 
 const CUSTOM = "custom";
+let presets = {};
 
-function presetFields(component) {
-	return Object.keys(Object.values(component.presets)[0]);
-}
-
-function matchingPreset(component) {
-	for (const [name, values] of Object.entries(component.presets)) {
-		if (presetFields(component).every((id) => parseNumber(document.getElementById(id).value) === values[id])) return name;
+function matchingPreset() {
+	for (const [name, values] of Object.entries(presets)) {
+		if (Object.entries(values).every(([id, v]) => parseNumber(document.getElementById(id).value) === v)) return name;
 	}
 	return CUSTOM;
 }
 
-function setupPresets(component, presets) {
-	if (!component.presetSelect || !presets) return;
-	component.presets = presets;
-	const select = document.getElementById(component.presetSelect);
-	for (const name of Object.keys(presets)) select.add(new Option(component.presetLabel(name), name));
-	select.add(new Option("Custom", CUSTOM));
-	select.value = matchingPreset(component);
-	select.addEventListener("change", () => {
-		if (select.value === CUSTOM) return;
-		for (const [id, value] of Object.entries(presets[select.value])) document.getElementById(id).value = String(value);
-		onGenerate();
-	});
-	for (const id of presetFields(component)) {
-		document.getElementById(id).addEventListener("input", () => {
-			select.value = matchingPreset(component);
-		});
-	}
+function setupPresets(serverPresets) {
+	presets = serverPresets;
+	for (const name of Object.keys(presets)) presetSelect.add(new Option(`${name} mm tube`, name));
+	presetSelect.add(new Option("Custom", CUSTOM));
+	presetSelect.value = matchingPreset();
 }
 
-// --- Component choice, remembered in the URL hash (pneumatic.html#blind-plug).
-
-function showComponent() {
-	document.querySelectorAll(".component").forEach((el) => {
-		el.hidden = el.dataset.component !== componentSelect.value;
-	});
-	if (location.hash.slice(1) !== componentSelect.value) history.replaceState(null, "", `#${componentSelect.value}`);
-}
-
-const loaded = new Set();
-
-async function selectComponent() {
-	showComponent();
-	const component = current();
-	if (!loaded.has(component)) {
-		try {
-			const defaults = await loadDefaults(component.api);
-			setupPresets(component, defaults.presets);
-			loaded.add(component);
-		} catch (exc) {
-			setStatus(exc.message, true);
-			return;
-		}
-	}
+presetSelect.addEventListener("change", () => {
+	if (presetSelect.value === CUSTOM) return;
+	for (const [id, value] of Object.entries(presets[presetSelect.value])) document.getElementById(id).value = String(value);
 	onGenerate();
-}
+});
 
 generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
-componentSelect.addEventListener("change", selectComponent);
-document.querySelectorAll(".component input").forEach((el) => {
+NUMBER_FIELDS.forEach((id) => {
+	const el = document.getElementById(id);
 	el.addEventListener("input", () => {
+		presetSelect.value = matchingPreset();
 		downloadBtn.disabled = true;
 		downloadStepBtn.disabled = true;
 	});
@@ -277,6 +225,10 @@ document.querySelectorAll(".component input").forEach((el) => {
 	});
 });
 
-if (COMPONENTS[location.hash.slice(1)]) componentSelect.value = location.hash.slice(1);
-// Start from the server's defaults (the model's), then show the default model.
-selectComponent();
+// Start from the server's defaults (the model's), then show the default plug.
+loadDefaults(API)
+	.then((defaults) => {
+		setupPresets(defaults.presets);
+		onGenerate();
+	})
+	.catch((exc) => setStatus(exc.message, true));

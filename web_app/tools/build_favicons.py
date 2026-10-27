@@ -1,6 +1,7 @@
 """Build the favicons of the web pages from the icons on the overview page.
 
-Each generator card in web_app/static/index.html has an inline SVG icon. This script
+Each generator card on an overview page (web_app/static/index.html, and pneumatic.html for
+the pneumatic components) has an inline SVG icon. This script
 turns those into favicons that stay readable at browser-tab size (16-32 px): the
 drawing is put on a dark rounded tile in the site's colours, with thicker lines and
 less transparent fills. The overview page itself gets a simple cube.
@@ -28,6 +29,7 @@ from pathlib import Path
 from PIL import Image
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
+OVERVIEW_PAGES = ["index.html", "pneumatic.html"]  # the first card for a page sets its icon
 ICONS = STATIC / "icons"
 TILE = "#1a1d21"  # page background
 ACCENT = "#5a8cd2"
@@ -55,11 +57,13 @@ def _bolder(svg_inner: str) -> str:
 
 
 def card_icons() -> dict[str, str]:
-    """page name -> favicon SVG, from the generator cards on the overview page."""
-    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    """page name -> favicon SVG, from the generator cards on the overview pages."""
+    html = "".join((STATIC / page).read_text(encoding="utf-8") for page in OVERVIEW_PAGES)
     icons = {}
     for m in re.finditer(r'<a class="card" href="([a-z0-9-]+)\.html">\s*(<svg class="icon"[^>]*>.*?</svg>)', html, re.S):
         page, svg = m.group(1), m.group(2)
+        if page in icons:
+            continue
         view_box = re.search(r'viewBox="([^"]+)"', svg).group(1)
         inner = svg[svg.index(">") + 1: svg.rindex("</svg>")]
         icons[page] = (
