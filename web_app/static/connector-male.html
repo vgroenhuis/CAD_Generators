@@ -21,6 +21,9 @@
 	.controls input { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; }
 	.controls button { margin-top: 16px; width: 100%; padding: 8px; border-radius: 4px; border: none; cursor: pointer; font-size: 14px; }
 	#generate-btn { background: #5a8cd2; color: white; }
+	#animate-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
+	#animate-btn:hover { background: #4a4f55; }
+	.controls input[type="range"] { padding: 0; accent-color: #5a8cd2; }
 	#generate-btn:hover { background: #4a7cc2; }
 	#download-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
 	#download-step-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
@@ -75,6 +78,20 @@
 			<input type="text" inputmode="decimal" autocomplete="off" id="pitch">
 			<div class="hint">Must match the female part (8 mm for the published ones).</div>
 			<label class="check" for="clips"><input type="checkbox" id="clips"> Add a clip set (one clip with notch)</label>
+
+			<div class="view-section">
+				<h3>View</h3>
+				<div class="radio-row">
+					<label for="view_print"><input type="radio" name="view" id="view_print" checked> Print layout</label>
+					<label for="view_assembled"><input type="radio" name="view" id="view_assembled"> Assembled</label>
+				</div>
+				<div id="opening-controls" hidden>
+					<label for="opening">Clip opening: <span id="opening-value">0</span>&deg;</label>
+					<input type="range" id="opening" min="0" max="45" step="0.5" value="0">
+					<button id="animate-btn" type="button">Animate</button>
+					<div class="hint">With tubes glued in. The clips open until they touch the plate's bevel; the slanted slot keeps them clear of the tubes. Downloads are always the print layout.</div>
+				</div>
+			</div>
 			<div class="fixed-info">Shown and saved in print orientation: the male part on its mating face (glue crosses up), the clips lying flat (6 mm high). Glue the tubes in so they stick out about 4 mm on the mating face. Insert each clip sideways onto its tab, then turn it 90&deg;; the notched clip makes the connector close only one way round.</div>
 
 			<button id="generate-btn">Generate</button>

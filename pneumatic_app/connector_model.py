@@ -19,6 +19,13 @@
     turned into print orientation: the male part on its mating face, the clips on their flat
     side, all with z up from z = 0.
 
+    build_assembly() shows the connector as used: tubes glued in, the clips on their tabs (the
+    neck through the clip's window against its rounded nose, the head in its pocket). Each clip
+    turns about a hinge line across the neck's centre, where the neck enters the clip (of the
+    lines tried, the one where the turning clip overlaps the tab least: the real clip also
+    slides a little); assembly_info() gives the hinge lines and the largest opening angle
+    before a clip hits the plate or a tube.
+
     Can also be run standalone:  python connector_model.py --ports 4 --hole 3.1 --out male_4x.step
 """
 
@@ -28,6 +35,9 @@ import argparse
 import math
 from dataclasses import dataclass
 
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
 from build123d import (
     Box, Circle, Color, Compound, Cone, Cylinder, Line, Location, Part, Plane, Polygon, Pos, Rectangle, Rot,
     ThreePointArc, Wire, export_step, extrude, make_face,
@@ -104,12 +114,15 @@ def _tab(x_end: float, direction: int) -> Part:
     return neck + head
 
 
+def _plate_solid(length: float) -> Part:
+    return extrude(Plane.XY * _plate_profile(length), amount=_HALF_WIDTH, both=True)
+
+
 def build_male_native(p: ConnectorParams) -> Part:
     """Male part in the coordinates of Male_3.1mm_4x (first hole on the y axis)."""
     validate(p)
     length = plate_length(p)
-    plate = extrude(Plane.XY * _plate_profile(length), amount=_HALF_WIDTH, both=True)
-    plate += _tab(-_END, -1) + _tab(length - _END, 1)
+    plate = _plate_solid(length) + _tab(-_END, -1) + _tab(length - _END, 1)
     r = p.hole / 2
     thickness = _TOP - _BOTTOM
     arm, arm_w, depth = _CROSS
@@ -208,6 +221,113 @@ def build_print_layout(p: ConnectorParams) -> Compound:
             parts.append(clip)
             y -= 2 * _CLIP_HALF_WIDTH + CLIP_GAP
     return Compound(children=parts, label="pneumatic_connector_male")
+
+
+# --- Assembly (male part with tubes and both clips on their tabs) ---
+
+TUBE_OD = 3.0
+TUBE_COLOR = Color(0.75, 0.77, 0.8)
+TUBE_OUT = 4.0  # tube length beyond the mating face
+TUBE_BELOW = 12.0  # tube length shown beyond the glue face
+_WINDOW = 2.0  # clip thickness at the window (bottom face to pocket floor)
+_NOSE_X = _PIVOT[2][0] - _PIVOT[3]  # clip x of its rounded nose (15.25), against which the neck rests
+_NECK_SEAT = _NOSE_X - _NECK[1]  # clip x of the neck's mating-face side
+
+
+def _row_centre(p: ConnectorParams) -> float:
+    return (p.ports - 1) * p.pitch / 2
+
+
+def _left_clip_location() -> Location:
+    """Closed left clip in the male part's frame: clip x runs down along the tab (hook end up,
+    towards the female part), clip y runs outward along the neck, the head on the pocket floor."""
+    origin = (-_END - _NECK[0] + _WINDOW, _TOP + _NECK_SEAT, 0)
+    return Location(Plane(origin=origin, x_dir=(0, -1, 0), z_dir=(0, 0, -1)))
+
+
+def _left_pivot() -> tuple[float, float]:
+    """Hinge line of the left clip (along z) in the male part's frame: the neck's centre line,
+    at the clip's bottom face."""
+    return (-_END - _NECK[0] + _WINDOW, _TOP - _NECK[1] / 2)
+
+
+def _to_assembly(p: ConnectorParams):
+    """Male frame -> assembly frame: tubes vertical (z up), mating face at z = 0, row centred on x = 0."""
+    return Pos(-_row_centre(p), 0, -_TOP) * Rot(90, 0, 0)  # (x, y, z) -> (x, -z, y)
+
+
+def _assembly_parts(p: ConnectorParams, angle_left: float = 0.0, angle_right: float = 0.0) -> dict[str, Part]:
+    """Male part, tubes and clips in the male part's frame, the clips opened by the given angles."""
+    xc = _row_centre(p)
+    px, py = _left_pivot()
+    left = Pos(px, py, 0) * Rot(0, 0, angle_left) * Pos(-px, -py, 0) * _left_clip_location()
+    # The right clip is the left one turned half a turn about the row's centre line (y axis).
+    right = Pos(2 * xc, 0, 0) * Rot(0, 180, 0) * Pos(px, py, 0) * Rot(0, 0, angle_right) * Pos(-px, -py, 0) * _left_clip_location()
+    tube_len = TUBE_OUT + (_TOP - _BOTTOM) + TUBE_BELOW
+    tubes = [
+        Pos(i * p.pitch, _TOP + TUBE_OUT - tube_len / 2, 0) * Rot(90, 0, 0) * Cylinder(TUBE_OD / 2, tube_len)
+        for i in range(p.ports)
+    ]
+    return {
+        "male": build_male_native(p),
+        "tubes": Part(Compound(children=tubes).wrapped),
+        "clip_left": left * build_clip_native(False),
+        "clip_right": right * build_clip_native(True),
+    }
+
+
+def build_assembly(p: ConnectorParams) -> Compound:
+    """The connector as used, clips closed, in the assembly frame (see _to_assembly)."""
+    colors = {"male": MALE_COLOR, "tubes": TUBE_COLOR, "clip_left": CLIP_COLOR, "clip_right": CLIP_COLOR}
+    to_asm = _to_assembly(p)
+    children = []
+    for name, part in _assembly_parts(p).items():
+        part = Part((to_asm * part).wrapped)
+        part.label, part.color = name, colors[name]
+        children.append(part)
+    return Compound(children=children, label="pneumatic_connector_assembly")
+
+
+def _common_volume(a: Part, b: Part) -> float:
+    """Volume shared by two shapes. (OCP directly: build123d's intersect() returns None for
+    these located parts.)"""
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(BRepAlgoAPI_Common(a.wrapped, b.wrapped).Shape(), props)
+    return props.Mass()
+
+
+def max_opening(p: ConnectorParams, limit: float = 90.0, tolerance: float = 0.5) -> float:
+    """Largest opening angle (degrees) before the left clip hits the plate or a tube."""
+    parts = _assembly_parts(p)
+    obstacles = _plate_solid(plate_length(p)) + parts["tubes"]
+    px, py = _left_pivot()
+    clip = _left_clip_location() * build_clip_native(False)
+
+    def hits(angle: float) -> bool:
+        turned = Pos(px, py, 0) * Rot(0, 0, angle) * Pos(-px, -py, 0) * clip
+        return _common_volume(turned, obstacles) > 0.01
+
+    lo, hi = 0.0, limit
+    if not hits(hi):
+        return hi
+    while hi - lo > tolerance:
+        mid = (lo + hi) / 2
+        lo, hi = (lo, mid) if hits(mid) else (mid, hi)
+    return lo
+
+
+def assembly_info(p: ConnectorParams) -> dict:
+    """Hinge lines of the clips in the assembly frame (mm), and how far they open."""
+    px, py = _left_pivot()
+    to_asm = _to_assembly(p)
+    xc = _row_centre(p)
+    hinges = {}
+    # Opening turns the left clip about +z of the male frame (hook end outward), the right one about -z;
+    # (x, y, z) -> (x, -z, y) takes those directions into the assembly frame.
+    for name, x, (ax, ay, az) in (("clip_left", px, (0, 0, 1)), ("clip_right", 2 * xc - px, (0, 0, -1))):
+        pt = (to_asm * Pos(x, py, 0)).position
+        hinges[name] = {"point": [round(v, 4) for v in pt], "axis": [ax, -az, ay]}
+    return {"hinges": hinges, "max_angle": round(max_opening(p), 1)}
 
 
 def describe(p: ConnectorParams) -> str:

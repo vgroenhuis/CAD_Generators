@@ -11,6 +11,8 @@ made when the server starts.
 
 from dataclasses import asdict
 
+from functools import lru_cache
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from pneumatic_app.blind_plug_model import (
@@ -18,8 +20,8 @@ from pneumatic_app.blind_plug_model import (
 	describe as describe_blind_plug, total_length, validate as validate_blind_plug,
 )
 from pneumatic_app.connector_model import (
-	ConnectorParams, build_print_layout as build_connector_male, describe as describe_connector_male,
-	validate as validate_connector_male,
+	ConnectorParams, assembly_info as connector_assembly_info, build_assembly as build_connector_assembly,
+	build_print_layout as build_connector_male, describe as describe_connector_male, validate as validate_connector_male,
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
@@ -123,6 +125,21 @@ def _connector_male_filename(p: ConnectorParams, ext: str) -> str:
 	return f"connector_male_{p.ports}x_{p.hole:g}mm{clips}.{ext}"
 
 
+# The assembled connector (preview only): its own cache, keyed without the clips flag (always shown).
+connector_assembly_cache = ModelCache("connector_assembly", build_connector_assembly, size=6)
+
+
+def _assembly_key(p: ConnectorParams) -> tuple:
+	return (p.ports, p.pitch, p.hole)
+
+
+@lru_cache(maxsize=32)
+def _assembly_info(key: tuple) -> dict:
+	"""Hinge lines and opening limit (a collision search of about a second, so cached)."""
+	ports, pitch, hole = key
+	return connector_assembly_info(ConnectorParams(ports, pitch, hole))
+
+
 @router.get("/connector-male/defaults")
 def connector_male_defaults() -> dict:
 	return asdict(CONNECTOR_MALE_DEFAULT)
@@ -136,6 +153,19 @@ def connector_male_info(p: ConnectorParams = Depends(_connector_male_params)) ->
 @router.get("/connector-male/preview.glb")
 def connector_male_preview(p: ConnectorParams = Depends(_connector_male_params)):
 	return glb_response(_connector_male_file(p, "glb"))
+
+
+@router.get("/connector-male/assembly")
+def connector_male_assembly(p: ConnectorParams = Depends(_connector_male_params)) -> dict:
+	"""Hinge lines of the clips (assembly frame, mm, as in assembly.glb before its Z-up to Y-up
+	turn) and the largest opening angle (degrees), for animating the clips."""
+	return _assembly_info(_assembly_key(p))
+
+
+@router.get("/connector-male/assembly.glb")
+def connector_male_assembly_glb(p: ConnectorParams = Depends(_connector_male_params)):
+	key = _assembly_key(p)
+	return glb_response(connector_assembly_cache.file(key, p, "glb", CONNECTOR_MALE_FILES["glb"]))
 
 
 @router.get("/connector-male/export.3mf")
@@ -153,3 +183,6 @@ def warm() -> None:
 	warm_entry(
 		connector_male_cache, tuple(vars(CONNECTOR_MALE_DEFAULT).values()), CONNECTOR_MALE_DEFAULT, CONNECTOR_MALE_FILES,
 	)
+	key = _assembly_key(CONNECTOR_MALE_DEFAULT)
+	connector_assembly_cache.file(key, CONNECTOR_MALE_DEFAULT, "glb", CONNECTOR_MALE_FILES["glb"])
+	_assembly_info(key)

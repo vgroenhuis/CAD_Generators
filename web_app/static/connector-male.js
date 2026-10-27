@@ -8,6 +8,12 @@ const API = "api/pneumatic/connector-male";
 // Input ids = query parameter names.
 const NUMBER_FIELDS = ["ports", "hole", "pitch"];
 const clipsInput = document.getElementById("clips");
+const viewPrintInput = document.getElementById("view_print");
+const viewAssembledInput = document.getElementById("view_assembled");
+const openingControls = document.getElementById("opening-controls");
+const openingInput = document.getElementById("opening");
+const openingValue = document.getElementById("opening-value");
+const animateBtn = document.getElementById("animate-btn");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
 const downloadStepBtn = document.getElementById("download-step-btn");
@@ -38,6 +44,11 @@ fillLight.position.set(-1.5, -1, -1);
 scene.add(fillLight);
 
 let currentModel = null;
+// Assembled view (see setupHinges): clip hinges and the open/close animation.
+const ANIMATION_PERIOD = 3000;
+let hinges = []; // [{ node, start matrix, pivot (node's parent frame), axis }]
+let animating = false;
+let animationStart = 0;
 
 function resizeRenderer() {
 	const width = viewerContainer.clientWidth;
@@ -49,8 +60,13 @@ function resizeRenderer() {
 window.addEventListener("resize", resizeRenderer);
 resizeRenderer();
 
-function animate() {
+function animate(time) {
 	requestAnimationFrame(animate);
+	if (animating) {
+		// Open and close smoothly, one cycle every ANIMATION_PERIOD ms.
+		const phase = ((time - animationStart) % ANIMATION_PERIOD) / ANIMATION_PERIOD;
+		setOpening((Number(openingInput.max) * (1 - Math.cos(2 * Math.PI * phase))) / 2);
+	}
 	controls.update();
 	renderer.render(scene, camera);
 }
@@ -103,14 +119,16 @@ function buildQuery(params) {
 	return new URLSearchParams(Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])));
 }
 
-function fitCameraToObject(object) {
+// view: "print" (from above at an angle) or "assembled" (from the front, where the clips turn).
+function fitCameraToObject(object, view = "print") {
 	const box = new THREE.Box3().setFromObject(object);
 	const size = box.getSize(new THREE.Vector3());
 	const center = box.getCenter(new THREE.Vector3());
 	const maxDim = Math.max(size.x, size.y, size.z) || 1;
 	const distance = maxDim * 1.6;
 	controls.target.copy(center);
-	camera.position.set(center.x + distance * 0.5, center.y + distance * 0.9, center.z + distance * 0.8);
+	if (view === "assembled") camera.position.set(center.x + distance * 0.25, center.y + distance * 0.35, center.z + distance);
+	else camera.position.set(center.x + distance * 0.5, center.y + distance * 0.9, center.z + distance * 0.8);
 	camera.near = maxDim / 100;
 	camera.far = maxDim * 100;
 	camera.updateProjectionMatrix();
@@ -118,6 +136,56 @@ function fitCameraToObject(object) {
 }
 
 const gltfLoader = new GLTFLoader();
+
+// --- Assembled view: each clip turns about its hinge line (from api/.../assembly).
+
+
+function assembled() {
+	return viewAssembledInput.checked;
+}
+
+// The glTF's root node turns the CAD frame (Z up, mm -> m) into three.js's Y-up frame; the clip
+// nodes are its children, so the hinge lines are used in the root's (CAD) frame, in metres.
+function setupHinges(model, info) {
+	hinges = Object.entries(info.hinges).map(([name, hinge]) => {
+		const node = model.getObjectByName(name);
+		node.updateMatrix();
+		node.matrixAutoUpdate = false;
+		return {
+			node,
+			start: node.matrix.clone(),
+			pivot: new THREE.Vector3(...hinge.point).multiplyScalar(0.001),
+			axis: new THREE.Vector3(...hinge.axis).normalize(),
+		};
+	});
+	openingInput.max = String(info.max_angle);
+	setOpening(Math.min(Number(openingInput.value), info.max_angle));
+}
+
+function setOpening(degrees) {
+	openingInput.value = String(degrees);
+	openingValue.textContent = Number(degrees).toFixed(0);
+	const angle = THREE.MathUtils.degToRad(degrees);
+	for (const h of hinges) {
+		const turn = new THREE.Matrix4()
+			.makeTranslation(h.pivot.x, h.pivot.y, h.pivot.z)
+			.multiply(new THREE.Matrix4().makeRotationAxis(h.axis, angle))
+			.multiply(new THREE.Matrix4().makeTranslation(-h.pivot.x, -h.pivot.y, -h.pivot.z));
+		h.node.matrix.multiplyMatrices(turn, h.start);
+		h.node.matrixWorldNeedsUpdate = true;
+	}
+}
+
+function setAnimating(on) {
+	animating = on;
+	animateBtn.textContent = on ? "Stop" : "Animate";
+	if (on) {
+		// Continue from the current opening rather than jumping to closed.
+		const max = Number(openingInput.max) || 1;
+		const phase = Math.acos(1 - (2 * Number(openingInput.value)) / max) / (2 * Math.PI);
+		animationStart = performance.now() - phase * ANIMATION_PERIOD;
+	}
+}
 
 async function onGenerate() {
 	let params;
@@ -141,14 +209,26 @@ async function onGenerate() {
 		}
 		infoEl.textContent = (await infoResponse.json()).summary;
 
-		const response = await fetchWithProgress(`${API}/preview.glb?${query}`, setStatus);
+		const asm = assembled();
+		const response = await fetchWithProgress(`${API}/${asm ? "assembly.glb" : "preview.glb"}?${query}`, setStatus);
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
 		}
 		const buffer = await response.arrayBuffer();
 		const gltf = await new Promise((resolve, reject) => gltfLoader.parse(buffer, "", resolve, reject));
+		let assemblyInfo = null;
+		if (asm) {
+			setStatus("Finding how far the clips open...");
+			const infoResp = await fetch(`${API}/assembly?${query}`);
+			if (!infoResp.ok) {
+				setStatus(await friendlyErrorMessage(infoResp), true);
+				return;
+			}
+			assemblyInfo = await infoResp.json();
+		}
 		if (currentModel) scene.remove(currentModel);
+		hinges = [];
 		currentModel = gltf.scene;
 		currentModel.traverse((child) => {
 			if (child.isMesh) {
@@ -157,11 +237,14 @@ async function onGenerate() {
 			}
 		});
 		scene.add(currentModel);
-		fitCameraToObject(currentModel);
+		fitCameraToObject(currentModel, asm ? "assembled" : "print");
+		if (assemblyInfo) setupHinges(currentModel, assemblyInfo);
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
 		downloadStepBtn.disabled = false;
-		setStatus("Generated, in print orientation. Drag to rotate.");
+		setStatus(asm
+			? `Assembled, clips open up to ${assemblyInfo.max_angle}\u00b0. Drag to rotate.`
+			: "Generated, in print orientation. Drag to rotate.");
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
 	} finally {
@@ -190,6 +273,19 @@ generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
 clipsInput.addEventListener("change", onGenerate);
+function updateView() {
+	openingControls.hidden = !assembled();
+	clipsInput.disabled = assembled(); // the assembled view always shows both clips
+	if (!assembled()) setAnimating(false);
+	onGenerate();
+}
+viewPrintInput.addEventListener("change", updateView);
+viewAssembledInput.addEventListener("change", updateView);
+openingInput.addEventListener("input", () => {
+	setAnimating(false);
+	setOpening(Number(openingInput.value));
+});
+animateBtn.addEventListener("click", () => setAnimating(!animating));
 NUMBER_FIELDS.forEach((id) => {
 	const el = document.getElementById(id);
 	el.addEventListener("input", () => {
