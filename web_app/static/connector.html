@@ -75,10 +75,11 @@
 				<input type="text" inputmode="decimal" autocomplete="off" id="pitch"></div>
 			</div>
 
-			<h3>Part</h3>
+			<h3>Parts to print</h3>
 			<div class="radio-row">
-				<label for="part_male"><input type="radio" name="part" id="part_male"> Male + clips</label>
-				<label for="part_female"><input type="radio" name="part" id="part_female"> Female</label>
+				<label for="male"><input type="checkbox" id="male"> Male</label>
+				<label for="female"><input type="checkbox" id="female"> Female</label>
+				<label for="clips"><input type="checkbox" id="clips"> Clip set</label>
 			</div>
 			<div class="row">
 				<div><label for="hole">Male: hole &#8960; (mm)</label>
@@ -86,8 +87,7 @@
 				<div><label for="back_bore">Female: back &#8960; (mm)</label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="back_bore"></div>
 			</div>
-			<div class="hint">Female back socket: 4.05 for a 4 mm tube.</div>
-			<label class="check" for="clips"><input type="checkbox" id="clips"> Add a clip set (one clip with notch)</label>
+			<div class="hint">Female back socket: 4.05 for a 4 mm tube. The clip set is one plain clip and one with a notch.</div>
 			<div class="fixed-info" id="pause-note" hidden><strong>O-rings:</strong> pause the print at Z = 2.0 mm, before the first layer above it (it covers the grooves), press a 3x1 mm O-ring into each groove, and resume.</div>
 
 			<div class="view-section">
@@ -100,11 +100,11 @@
 					<label for="connection">Connection: <span id="connection-text"></span></label>
 					<input type="range" id="connection" min="0" max="100" step="0.5" value="100">
 					<button id="animate-btn" type="button">Animate</button>
-					<div class="hint">Both parts with their tubes and O-rings. Left half of the slider: the male part goes in (clips open); right half: the clips close over the female part. The notched clip sits at the end with the female part's ridge. Downloads are always the print layout of the selected part.</div>
+					<div class="hint">Both parts with their tubes and O-rings. Left half of the slider: the male part goes in (clips open); right half: the clips close over the female part. The notched clip sits at the end with the female part's ridge. The view shows all parts; downloads are the print layout of the ticked ones.</div>
 				</div>
 			</div>
 
-			<div class="fixed-info">Shown and saved in print orientation: the male part on its mating face (glue crosses up), the clips lying flat (6 mm high), the female part on its mating face. Glue the 3 mm tubes into the male part so they stick out about 4 mm, and the 4 mm tubes into the back of the female part. Insert each clip sideways onto its tab, then turn it 90&deg;.</div>
+			<div class="fixed-info">Shown and saved in print orientation: the male part on its mating face (glue crosses up), the clips lying flat (6 mm high), the female part on its mating face, side by side; in the 3MF and STEP files each is a separate body. Glue the 3 mm tubes into the male part so they stick out about 4 mm, and the 4 mm tubes into the back of the female part. Insert each clip sideways onto its tab, then turn it 90&deg;.</div>
 
 			<button id="generate-btn">Generate</button>
 			<button id="download-btn" disabled>Download 3MF (for slicing)</button>

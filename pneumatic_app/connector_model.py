@@ -35,7 +35,7 @@
     the one where the turning clip overlaps the tab least: the real clip also slides a little); assembly_info() gives the hinge lines, the largest opening angle before a
     clip hits the plate or a tube, and how far the male part moves out of the female part.
 
-    Can also be run standalone:  python connector_model.py --part female --ports 4 --out female_4x.step
+    Can also be run standalone:  python connector_model.py --parts male,female,clips --ports 4 --out connector_4x.step
 """
 
 from __future__ import annotations
@@ -73,11 +73,15 @@ class ConnectorParams:
     ports: int = 4
     pitch: float = 8.0  # hole centre distance; must match the female part
     hole: float = 3.1  # male part: hole diameter for a 3 mm tube (3.1 since August 2025, was 3.0)
-    clips: bool = True  # male part: add a clip set (one plain clip, one with notch)
+    clips: bool = True  # print a clip set (one plain clip, one with notch)
     back_bore: float = 4.05  # female part: socket at the back, for a 4 mm tube
+    male: bool = True  # print the male part
+    female: bool = True  # print the female part
 
 
 def validate(p: ConnectorParams) -> None:
+    if not (p.male or p.female or p.clips):
+        raise ValueError("Select at least one part: male, female or clip set.")
     if not 1 <= p.ports <= 8:
         raise ValueError("The number of ports must be between 1 and 8.")
     if not 2.0 <= p.hole <= 3.6:
@@ -291,27 +295,37 @@ def _clip_print(notch: bool) -> Part:
     return Rot(90, 0, 0) * build_clip_native(notch)  # (x, y, z) -> (x, -z, y): flat side down
 
 
-def build_print_layout(p: ConnectorParams, part: str = "male") -> Compound:
-    """In print orientation: the male part (and optionally a clip set beside it), or the female
-    part on its mating face."""
-    if part == "female":
-        female = Pos(-_row_centre(p), 0, 0) * Rot(90, 0, 0) * build_female_native(p)  # (x, y, z) -> (x, -z, y)
-        female = Part(female.wrapped)
+def build_print_layout(p: ConnectorParams) -> Compound:
+    """The selected parts in print orientation, side by side on the bed (CLIP_GAP apart, each
+    centred on x = 0): the female part on its mating face, the male part on its mating face,
+    and the two clips lying flat."""
+    parts = []
+    if p.female:
+        female = Part((Pos(-_row_centre(p), 0, 0) * Rot(90, 0, 0) * build_female_native(p)).wrapped)  # (x, y, z) -> (x, -z, y)
         female.label, female.color = "female", FEMALE_COLOR
-        return Compound(children=[female], label="pneumatic_connector_female")
-    male = _male_print(p)
-    male.label, male.color = "male", MALE_COLOR
-    parts = [male]
+        parts.append(female)
+    if p.male:
+        male = _male_print(p)
+        male.label, male.color = "male", MALE_COLOR
+        parts.append(male)
     if p.clips:
-        y = -_HALF_WIDTH - CLIP_GAP - _CLIP_HALF_WIDTH
         for notch in (False, True):
             clip = _clip_print(notch)
             bb = clip.bounding_box()
-            clip = Pos(-(bb.min.X + bb.max.X) / 2, y, 0) * clip
+            clip = Pos(-(bb.min.X + bb.max.X) / 2, 0, 0) * clip
             clip.label, clip.color = ("clip_notch" if notch else "clip"), CLIP_COLOR
             parts.append(clip)
-            y -= 2 * _CLIP_HALF_WIDTH + CLIP_GAP
-    return Compound(children=parts, label="pneumatic_connector_male")
+    # Stack the parts along -y, then centre the whole layout on y = 0.
+    placed, y = [], 0.0
+    for part in parts:
+        bb = part.bounding_box()
+        part = Pos(0, y - bb.max.Y, 0) * part
+        y -= bb.max.Y - bb.min.Y + CLIP_GAP
+        placed.append(part)
+    shift = -(y + CLIP_GAP) / 2
+    for part in placed:
+        part.position += (0, shift, 0)
+    return Compound(children=placed, label="pneumatic_connector")
 
 
 # --- Assembly (male part with tubes, clips on its tabs, female part with tubes and O-rings) ---
@@ -449,16 +463,22 @@ def assembly_info(p: ConnectorParams) -> dict:
     }
 
 
-def describe(p: ConnectorParams, part: str = "male") -> str:
-    if part == "female":
-        n = f"{p.ports} {'port' if p.ports == 1 else 'ports'}"
-        return (f"Female part, {n} {p.pitch:g} mm apart: 3 mm tube from the male part, \u2300{p.back_bore:g} mm "
-                f"socket at the back, {plate_length(p):g} x {2 * _HALF_WIDTH:g} x {_FEMALE_HEIGHT:g} mm. "
-                f"Needs {p.ports} O-ring{'s' if p.ports > 1 else ''} {_ORING[0]:g}x{_ORING[1]:g} mm: pause the print at "
-                f"Z = {ORING_PAUSE_Z:g} mm (before the first layer above it) and press them into the grooves.")
-    clips = " plus a clip set (one with notch)" if p.clips else ""
-    return (f"Male part, {p.ports} {'port' if p.ports == 1 else 'ports'} for 3 mm tube, ⌀{p.hole:g} mm holes "
-            f"{p.pitch:g} mm apart, {plate_length(p):g} x {2 * _HALF_WIDTH:g} mm{clips}.")
+def describe(p: ConnectorParams) -> str:
+    """One sentence per selected part."""
+    n = f"{p.ports} {'port' if p.ports == 1 else 'ports'} {p.pitch:g} mm apart"
+    out = []
+    if p.male:
+        out.append(f"Male part: {n}, \u2300{p.hole:g} mm holes for 3 mm tube, {plate_length(p):g} x {2 * _HALF_WIDTH:g} mm.")
+    if p.female:
+        out.append(
+            f"Female part: {n}, \u2300{p.back_bore:g} mm socket at the back, "
+            f"{plate_length(p):g} x {2 * _HALF_WIDTH:g} x {_FEMALE_HEIGHT:g} mm. Needs {p.ports} O-ring"
+            f"{'s' if p.ports > 1 else ''} {_ORING[0]:g}x{_ORING[1]:g} mm: pause the print at Z = {ORING_PAUSE_Z:g} mm "
+            "(before the first layer above it) and press them into the grooves."
+        )
+    if p.clips:
+        out.append("Clip set: one plain clip and one with a notch (it goes on the end with the female part's ridge).")
+    return " ".join(out)
 
 
 def main() -> None:
@@ -466,14 +486,16 @@ def main() -> None:
     ap.add_argument("--ports", type=int, default=4)
     ap.add_argument("--hole", type=float, default=3.1, help="hole diameter (mm)")
     ap.add_argument("--pitch", type=float, default=8.0, help="hole centre distance (mm)")
-    ap.add_argument("--no-clips", action="store_true", help="male part only")
-    ap.add_argument("--part", choices=["male", "female"], default="male")
+    ap.add_argument("--parts", default="male,female,clips", help="comma-separated: male, female, clips")
     ap.add_argument("--back-bore", type=float, default=4.05, help="female part: back socket diameter (mm)")
     ap.add_argument("--out", default="pneumatic_connector.step")
     a = ap.parse_args()
-    p = ConnectorParams(a.ports, a.pitch, a.hole, not a.no_clips, a.back_bore)
-    export_step(build_print_layout(p, a.part), a.out)
-    print(f"Wrote {a.out}: {describe(p, a.part)}")
+    parts = {s.strip() for s in a.parts.split(",") if s.strip()}
+    if parts - {"male", "female", "clips"}:
+        ap.error("--parts takes male, female and/or clips")
+    p = ConnectorParams(a.ports, a.pitch, a.hole, "clips" in parts, a.back_bore, "male" in parts, "female" in parts)
+    export_step(build_print_layout(p), a.out)
+    print(f"Wrote {a.out}: {describe(p)}")
 
 
 if __name__ == "__main__":

@@ -9,8 +9,8 @@ const API = "api/pneumatic/connector";
 // Input ids = query parameter names.
 const NUMBER_FIELDS = ["ports", "pitch", "hole", "back_bore"];
 const clipsInput = document.getElementById("clips");
-const partMaleInput = document.getElementById("part_male");
-const partFemaleInput = document.getElementById("part_female");
+const maleInput = document.getElementById("male");
+const femaleInput = document.getElementById("female");
 const viewPrintInput = document.getElementById("view_print");
 const viewAssembledInput = document.getElementById("view_assembled");
 const connectionControls = document.getElementById("connection-controls");
@@ -115,8 +115,10 @@ function readParams() {
 		}
 		params[id] = value;
 	}
+	params.male = maleInput.checked;
+	params.female = femaleInput.checked;
 	params.clips = clipsInput.checked;
-	params.part = partFemaleInput.checked ? "female" : "male";
+	if (!params.male && !params.female && !params.clips) throw new Error("Select at least one part: male, female or clip set.");
 	return params;
 }
 
@@ -269,7 +271,7 @@ async function onGenerate() {
 			}
 		});
 		scene.add(currentModel);
-		const cameraKind = asm ? "assembled" : `print-${params.part}`;
+		const cameraKind = asm ? "assembled" : "print";
 		if (cameraFittedTo !== cameraKind) {
 			fitCameraToObject(currentModel, asm ? "assembled" : "print");
 			cameraFittedTo = cameraKind;
@@ -308,15 +310,12 @@ async function onDownload(format) {
 generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
-clipsInput.addEventListener("change", onGenerate);
-// Fields of the part that is not selected are greyed out; the assembled view shows both parts.
+// A part's own field is greyed out when the part is not ticked (the assembled view shows all parts).
 function updateFields() {
-	const female = partFemaleInput.checked;
-	document.getElementById("hole").disabled = female;
-	clipsInput.disabled = female || assembled();
-	document.getElementById("back_bore").disabled = !female;
+	document.getElementById("hole").disabled = !maleInput.checked;
+	document.getElementById("back_bore").disabled = !femaleInput.checked;
+	document.getElementById("pause-note").hidden = !femaleInput.checked;
 	connectionControls.hidden = !assembled();
-	document.getElementById("pause-note").hidden = !female;
 }
 function updateView() {
 	updateFields();
@@ -325,8 +324,7 @@ function updateView() {
 }
 viewPrintInput.addEventListener("change", updateView);
 viewAssembledInput.addEventListener("change", updateView);
-partMaleInput.addEventListener("change", updateView);
-partFemaleInput.addEventListener("change", updateView);
+[maleInput, femaleInput, clipsInput].forEach((el) => el.addEventListener("change", updateView));
 connectionInput.addEventListener("input", () => {
 	setAnimating(false);
 	setConnection(Number(connectionInput.value));

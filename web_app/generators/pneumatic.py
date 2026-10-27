@@ -2,8 +2,8 @@
 defaults (and presets), a summary, glTF preview, 3MF and STEP.
 
   /blind-plug/...      blind plug for a push-in fitting (pneumatic_app/blind_plug_model.py)
-  /connector/...       male part (with clip set) and female part of the printable connector
-                       (pneumatic_app/connector_model.py), and the two assembled
+  /connector/...       male part, female part and clip set of the printable connector, any of them
+                       on one bed (pneumatic_app/connector_model.py), and the parts assembled
 
 All endpoints of a component take its parameters as query parameters. Built models and
 their files are cached (see web_app/model_cache.py); each component's default model is
@@ -98,10 +98,9 @@ def blind_plug_step(p: BlindPlugParams = Depends(_blind_plug_params)):
 
 # --- Connector: male part (with clips) and female part ---
 
-CONNECTOR_PARTS = ("male", "female")
-connector_cache = ModelCache("connector", lambda pp: build_connector(*pp), size=8)
+connector_cache = ModelCache("connector", build_connector, size=8)
 CONNECTOR_DEFAULT = ConnectorParams()
-CONNECTOR_FILES = {part: _files(f"pneumatic_connector_{part}") for part in CONNECTOR_PARTS}
+CONNECTOR_FILES = _files("pneumatic_connector")
 
 
 def _connector_params(
@@ -110,8 +109,10 @@ def _connector_params(
 	hole: float = Query(3.1, gt=0, le=10),
 	clips: bool = Query(True),
 	back_bore: float = Query(4.05, gt=0, le=10),
+	male: bool = Query(True),
+	female: bool = Query(True),
 ) -> ConnectorParams:
-	p = ConnectorParams(ports, pitch, hole, clips, back_bore)
+	p = ConnectorParams(ports, pitch, hole, clips, back_bore, male, female)
 	try:
 		validate_connector(p)
 	except ValueError as exc:
@@ -119,28 +120,20 @@ def _connector_params(
 	return p
 
 
-def _part(part: str = Query("male")) -> str:
-	if part not in CONNECTOR_PARTS:
-		raise HTTPException(status_code=400, detail="part must be 'male' or 'female'.")
-	return part
+def _connector_key(p: ConnectorParams) -> tuple:
+	"""Only what the selected parts depend on (e.g. the hole size only matters for the male part)."""
+	return (
+		p.ports, p.pitch, p.hole if p.male else None, p.back_bore if p.female else None, p.male, p.female, p.clips,
+	)
 
 
-def _connector_key(p: ConnectorParams, part: str) -> tuple:
-	"""Only what the part depends on, so e.g. the female part is shared across hole sizes."""
-	if part == "male":
-		return (part, p.ports, p.pitch, p.hole, p.clips)
-	return (part, p.ports, p.pitch, p.back_bore)
+def _connector_file(p: ConnectorParams, kind: str) -> bytes:
+	return connector_cache.file(_connector_key(p), p, kind, CONNECTOR_FILES[kind])
 
 
-def _connector_file(p: ConnectorParams, part: str, kind: str) -> bytes:
-	return connector_cache.file(_connector_key(p, part), (p, part), kind, CONNECTOR_FILES[part][kind])
-
-
-def _connector_filename(p: ConnectorParams, part: str, ext: str) -> str:
-	if part == "male":
-		clips = "_clips" if p.clips else ""
-		return f"connector_male_{p.ports}x_{p.hole:g}mm{clips}.{ext}"
-	return f"connector_female_{p.ports}x_3mm_{p.back_bore:g}mm.{ext}"
+def _connector_filename(p: ConnectorParams, ext: str) -> str:
+	parts = [name for name, on in (("male", p.male), ("female", p.female), ("clips", p.clips)) if on]
+	return f"connector_{p.ports}x_{'_'.join(parts)}.{ext}"
 
 
 # The assembled connector (preview only), keyed without the clips flag (both clips are always shown).
@@ -155,22 +148,22 @@ def _assembly_key(p: ConnectorParams) -> tuple:
 def _assembly_info(key: tuple) -> dict:
 	"""Hinge lines, opening limit and insertion (a collision search of a second or two, so cached)."""
 	ports, pitch, hole, back_bore = key
-	return connector_assembly_info(ConnectorParams(ports, pitch, hole, True, back_bore))
+	return connector_assembly_info(ConnectorParams(ports, pitch, hole, back_bore=back_bore))
 
 
 @router.get("/connector/defaults")
 def connector_defaults() -> dict:
-	return {**asdict(CONNECTOR_DEFAULT), "part_male": True, "part_female": False}
+	return asdict(CONNECTOR_DEFAULT)
 
 
 @router.get("/connector/info")
-def connector_info(p: ConnectorParams = Depends(_connector_params), part: str = Depends(_part)) -> dict:
-	return {"summary": describe_connector(p, part)}
+def connector_info(p: ConnectorParams = Depends(_connector_params)) -> dict:
+	return {"summary": describe_connector(p)}
 
 
 @router.get("/connector/preview.glb")
-def connector_preview(p: ConnectorParams = Depends(_connector_params), part: str = Depends(_part)):
-	return glb_response(_connector_file(p, part, "glb"))
+def connector_preview(p: ConnectorParams = Depends(_connector_params)):
+	return glb_response(_connector_file(p, "glb"))
 
 
 @router.get("/connector/assembly")
@@ -183,23 +176,22 @@ def connector_assembly(p: ConnectorParams = Depends(_connector_params)) -> dict:
 
 @router.get("/connector/assembly.glb")
 def connector_assembly_glb(p: ConnectorParams = Depends(_connector_params)):
-	return glb_response(connector_assembly_cache.file(_assembly_key(p), p, "glb", CONNECTOR_FILES["male"]["glb"]))
+	return glb_response(connector_assembly_cache.file(_assembly_key(p), p, "glb", CONNECTOR_FILES["glb"]))
 
 
 @router.get("/connector/export.3mf")
-def connector_3mf(p: ConnectorParams = Depends(_connector_params), part: str = Depends(_part)):
-	return download_response(_connector_file(p, part, "3mf"), _connector_filename(p, part, "3mf"))
+def connector_3mf(p: ConnectorParams = Depends(_connector_params)):
+	return download_response(_connector_file(p, "3mf"), _connector_filename(p, "3mf"))
 
 
 @router.get("/connector/export.step")
-def connector_step(p: ConnectorParams = Depends(_connector_params), part: str = Depends(_part)):
-	return download_response(_connector_file(p, part, "step"), _connector_filename(p, part, "step"))
+def connector_step(p: ConnectorParams = Depends(_connector_params)):
+	return download_response(_connector_file(p, "step"), _connector_filename(p, "step"))
 
 
 def warm() -> None:
 	warm_entry(blind_plug_cache, tuple(vars(BLIND_PLUG_DEFAULT).values()), BLIND_PLUG_DEFAULT, BLIND_PLUG_FILES)
-	for part in CONNECTOR_PARTS:
-		warm_entry(connector_cache, _connector_key(CONNECTOR_DEFAULT, part), (CONNECTOR_DEFAULT, part), CONNECTOR_FILES[part])
+	warm_entry(connector_cache, _connector_key(CONNECTOR_DEFAULT), CONNECTOR_DEFAULT, CONNECTOR_FILES)
 	key = _assembly_key(CONNECTOR_DEFAULT)
-	connector_assembly_cache.file(key, CONNECTOR_DEFAULT, "glb", CONNECTOR_FILES["male"]["glb"])
+	connector_assembly_cache.file(key, CONNECTOR_DEFAULT, "glb", CONNECTOR_FILES["glb"])
 	_assembly_info(key)
