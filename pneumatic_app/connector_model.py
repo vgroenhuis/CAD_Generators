@@ -1,5 +1,5 @@
 """
-    Male part and clips of the 3D printed pneumatic connectors
+    Male part, female part and clips of the 3D printed pneumatic connectors
     (https://www.printables.com/model/148215-pneumatic-connectors).
 
     Male part: a plate with a row of through holes for 3 mm tubes, which are glued in and stick
@@ -8,25 +8,34 @@
     which a clip hinges; the clips hook over the lip of the female part to hold the two together.
     The defaults reproduce Male_3.1mm_4x (August 2025): 4 ports 8 mm apart, 3.1 mm holes.
 
-    Clips (Clip_set_v3, August 2025, easier to open): the tab's neck snaps into a window in the
-    clip (a narrowing holds it), its head slides in a pocket above, and the far end has a hook
-    (45-degree chamfer) for the female part and a slanted slot that clears the tube when the clip
-    is fully open. A set is two clips, one
-    with a notch, so the connector can only be closed one way round.
+    Female part (Connector_Socket__4x_3mm_4mm, October 2026): a block with a socket per port. From
+    the mating face: a 3.5 mm entry for the male part's tube, a groove for a 3x1 mm O-ring
+    (5 mm outer diameter), a 45-degree overhang that covers the O-ring, a 45-degree stop where the
+    tube ends, a 2.8 mm passage, and at the back a socket for a 4 mm tube (4.05 mm, with a chamfer
+    and a glue cross). It is printed on its mating face; the print is paused at the top of the
+    grooves (ORING_PAUSE_Z) to put the O-rings in. Both ends have a lip that the clips' latches
+    catch; one end also has a ridge that only the notched clip clears, so the connector closes
+    one way round only.
+
+    Clips (as in the October 2026 assembly, a refinement of Clip_set_v3): the tab's neck snaps
+    into a window in the clip (a narrowing holds it), its head slides in a pocket above, and the
+    far end has a hook (45-degree chamfer) that closes over the female part and a slanted slot
+    that clears the tube when the clip is fully open. A set is two clips, one with a notch (and
+    its head pocket running through to the hook end) that clears the female part's ridge.
 
     Geometry is built in the coordinates of the original SolidWorks parts (male: holes along y,
     mating face at y = -0.15; clips: profile in the xy plane, bottom face at y = 0) and then
     turned into print orientation: the male part on its mating face, the clips on their flat
     side, all with z up from z = 0.
 
-    build_assembly() shows the connector as used: tubes glued in, the clips on their tabs (the
-    neck through the clip's window against its rounded nose, the head in its pocket). Each clip
-    turns about a hinge line across the neck's centre, where the neck enters the clip (of the
-    lines tried, the one where the turning clip overlaps the tab least: the real clip also
-    slides a little); assembly_info() gives the hinge lines and the largest opening angle
-    before a clip hits the plate or a tube.
+    build_assembly() shows the connector as used: male and female part with their tubes, the O-rings,
+    and the clips on the male part's tabs (the neck through the clip's window, the head in its
+    pocket), positioned as in the October 2026 assembly. Each clip turns about a hinge line along
+    the neck's edge on the glue-face side, where the neck enters the clip (of the lines tried,
+    the one where the turning clip overlaps the tab least: the real clip also slides a little); assembly_info() gives the hinge lines, the largest opening angle before a
+    clip hits the plate or a tube, and how far the male part moves out of the female part.
 
-    Can also be run standalone:  python connector_model.py --ports 4 --hole 3.1 --out male_4x.step
+    Can also be run standalone:  python connector_model.py --part female --ports 4 --out female_4x.step
 """
 
 from __future__ import annotations
@@ -39,8 +48,8 @@ from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from build123d import (
-    Box, Circle, Color, Compound, Cone, Cylinder, Line, Location, Part, Plane, Polygon, Pos, Rectangle, Rot,
-    ThreePointArc, Wire, export_step, extrude, make_face,
+    Axis, Box, Circle, Color, Compound, Cone, Cylinder, Line, Location, Part, Plane, Polygon, Pos, Rectangle,
+    Rot, ThreePointArc, Torus, Wire, export_step, extrude, make_face, revolve,
 )
 
 # --- Male part (coordinates of Male_3.1mm_4x: x along the row, y through the plate, z across) ---
@@ -63,8 +72,9 @@ _CROSS = (5.0, 1.0, 2.0)  # glue cross: arm length, arm width, depth from the gl
 class ConnectorParams:
     ports: int = 4
     pitch: float = 8.0  # hole centre distance; must match the female part
-    hole: float = 3.1  # hole diameter for a 3 mm tube (3.1 since August 2025, was 3.0)
-    clips: bool = True  # add a clip set (one plain clip, one with notch)
+    hole: float = 3.1  # male part: hole diameter for a 3 mm tube (3.1 since August 2025, was 3.0)
+    clips: bool = True  # male part: add a clip set (one plain clip, one with notch)
+    back_bore: float = 4.05  # female part: socket at the back, for a 4 mm tube
 
 
 def validate(p: ConnectorParams) -> None:
@@ -72,8 +82,10 @@ def validate(p: ConnectorParams) -> None:
         raise ValueError("The number of ports must be between 1 and 8.")
     if not 2.0 <= p.hole <= 3.6:
         raise ValueError("The hole diameter must be between 2.0 and 3.6 mm.")
-    if p.pitch < _CROSS[0] + 1.0 or p.pitch > 30:
-        raise ValueError(f"The pitch must be between {_CROSS[0] + 1.0:g} and 30 mm, so the glue crosses stay apart.")
+    if p.pitch < _FEMALE_CROSS[0] + 1.0 or p.pitch > 30:
+        raise ValueError(f"The pitch must be between {_FEMALE_CROSS[0] + 1.0:g} and 30 mm, so the glue crosses stay apart.")
+    if not 2 * _PASSAGE_R + 0.1 <= p.back_bore <= 4.6:
+        raise ValueError(f"The back socket diameter must be between {2 * _PASSAGE_R + 0.1:g} and 4.6 mm.")
 
 
 def plate_length(p: ConnectorParams) -> float:
@@ -145,27 +157,35 @@ def build_male_native(p: ConnectorParams) -> Part:
 _CLIP_PROFILE = [(5.1, 0), (23.25, 0), (23.25, 6), (20.25, 6), (20.25, 4), (1.6, 4), (1.6, 3.5)]
 _CLIP_HALF_WIDTH = 5.0
 _POCKET = (5.1, 15.75, 2.0, 2.62)  # head pocket: x range, from y up to the top, half width
-_SNAP = [(9.7, 0), (10.109, 0.7), (10.109, 1.3), (9.7, 2), (13.05, 2), (13.05, 0)]  # latch side of the window
-_SNAP_HALF = 2.15  # narrowing that the neck (half width 2.2) snaps past
-_PIVOT = (13.05, 2.3, (17.25, 1.0), 2.0)  # pivot part of the window: from x, half width, arc centre, radius
+# Window: the latch side (half width 2.15, a narrowing that the neck, half width 2.2, snaps past) and
+# beyond a diagonal step the pivot side (half width 2.3) ending in the clip's rounded nose.
+# (Clip_set_v3 had a straight step at x = 13.05.)
+_STEP = ((11.05, 2.0), (12.717, 0.0))  # the diagonal between the two
+_SNAP = [(9.7, 0), (10.109, 0.7), (10.109, 1.3), (9.7, 2), _STEP[0], _STEP[1]]  # latch side of the window
+_SNAP_HALF = 2.15
+_PIVOT = (2.3, (17.25, 1.0), 2.0)  # pivot side of the window: half width, nose arc centre, radius
 _TUBE_SLOT = (21.25, 2.5, (4.5, 6.0))  # tube clearance slot: centre of its rounded end at y = 0, radius, slant (dx per dy)
 _NOTCH = [(8.073, 0), (6.919, 2)]  # notch edge (30 degrees), notch half width 2.0
 _NOTCH_HALF = 2.0
 
 
 def build_clip_native(notch: bool) -> Part:
-    """One clip in the coordinates of Clip_set_v3, centred on z = 0."""
+    """One clip in the coordinates of Clip_set_v3, centred on z = 0. The notched clip's head
+    pocket runs on to the hook end, around the female part's ridge."""
     hw = _CLIP_HALF_WIDTH
     clip = extrude(Polygon(*_CLIP_PROFILE, align=None), amount=hw, both=True)
     cuts = []
     x0, x1, y0, ph = _POCKET
     cuts.append(Pos((x0 + x1) / 2, (y0 + 4.1) / 2, 0) * Box(x1 - x0, 4.1 - y0, 2 * ph))
-    # The latch side of the window, extended 0.1 beyond the bottom and the pocket for a clean cut.
-    (ax, _), *latch, (bx, _), (cx_, _), (dx_, _) = _SNAP
-    snap = [(ax, -0.1), (ax, 0), *latch, (bx, 2), (bx, 2.1), (cx_, 2.1), (dx_, -0.1)]
+    # The latch side of the window, extended 0.1 beyond the bottom and the pocket for a clean cut
+    # (along the diagonal step where it meets the pivot side).
+    (sx0, sy0), (sx1, sy1) = _STEP
+    k = (sx1 - sx0) / (sy1 - sy0)  # dx per dy along the diagonal
+    (ax, _), *latch, (bx, _), _, _ = _SNAP
+    snap = [(ax, -0.1), (ax, 0), *latch, (bx, 2), (bx, 2.1), (sx0 + 0.1 * k, 2.1), (sx1 - 0.1 * k, -0.1)]
     cuts.append(extrude(Polygon(*snap, align=None), amount=_SNAP_HALF, both=True))
-    px, phw, (cx, cy), cr = _PIVOT
-    pivot = Pos((px + cx) / 2, 1.0) * Rectangle(cx - px, 2.2) - Pos(cx, cy) * Circle(cr)
+    phw, (cx, cy), cr = _PIVOT
+    pivot = Polygon((sx1 - 0.1 * k, -0.1), (cx, -0.1), (cx, 2.1), (sx0 + 0.1 * k, 2.1), align=None) - Pos(cx, cy) * Circle(cr)
     cuts.append(extrude(pivot, amount=phw, both=True))
     cuts.append(_tube_slot())
     if notch:
@@ -173,6 +193,7 @@ def build_clip_native(notch: bool) -> Part:
         k = (bx - ax) / (by - ay)
         outline = [(0, -0.1), (ax - 0.1 * k, -0.1), (bx, by), (bx, 4.1), (0, 4.1)]
         cuts.append(extrude(Polygon(*outline, align=None), amount=_NOTCH_HALF, both=True))
+        cuts.append(Pos((x0 - 0.1) / 2, (y0 + 4.1) / 2, 0) * Box(x0 + 0.1, 4.1 - y0, 2 * ph))
     return Part(clip.cut(*cuts).clean().wrapped)
 
 
@@ -188,10 +209,74 @@ def _tube_slot() -> Part:
     return extrude(base * slot, amount=(y1 - y0) * n, dir=(sx / sy / n, 1 / n, 0))
 
 
+# --- Female part (coordinates of Connector_Socket__4x_3mm_4mm: mating face at y = 0, back at y = 10.25) ---
+
+_FEMALE_HEIGHT = 10.25
+_ORING = (3.0, 1.0)  # O-ring inner diameter and cross-section
+_GROOVE = (1.0, 2.5)  # O-ring groove: from y (to y + cross-section), radius
+_ENTRY_R = 1.75  # entry for the male part's 3 mm tube, and above the groove
+_STOP_Y = 3.8  # 45-degree stop where the male part's tube ends
+_PASSAGE_R = 1.4
+_BACK_Y = 4.8  # bottom of the back socket
+_BACK_CHAMFER = 0.4
+_FEMALE_CROSS = (6.0, 1.0, 2.0)  # glue cross on the back: arm length, arm width, depth
+# Lip at each end (outward = -x, from the end face), caught by the clips' latches; half width 2.
+_LIP = [(0, 0), (-1.5, 0), (-3, 2), (-3, 2.343), (-2.535, 2.747), (-1.006, 2.747), (0, 2.591)]
+_LIP_HALF = 2.0
+# Ridge at the left end only, which the notched clip's notch clears; half width 1.75.
+_RIDGE = [(0, 5.2), (-2, 6.355), (-2, 8.0), (0, 9.155)]
+_RIDGE_HALF = 1.75
+ORING_PAUSE_Z = _GROOVE[0] + _ORING[1]  # print height (mating face down) at which the O-rings go in
+
+
+def _socket_profile(back_r: float):
+    """Half profile (x = radius, y = height from the mating face) of one socket, for revolving."""
+    g0, gr = _GROOVE
+    g1 = g0 + _ORING[1]
+    cover = g1 + (gr - _ENTRY_R)  # the 45-degree overhang ends here
+    stop = _STOP_Y + (_ENTRY_R - _PASSAGE_R)
+    top = _FEMALE_HEIGHT
+    pts = [
+        (0, -0.1), (_ENTRY_R, -0.1), (_ENTRY_R, g0), (gr, g0), (gr, g1), (_ENTRY_R, cover), (_ENTRY_R, _STOP_Y),
+        (_PASSAGE_R, stop), (_PASSAGE_R, _BACK_Y), (back_r, _BACK_Y), (back_r, top - _BACK_CHAMFER),
+        (back_r + _BACK_CHAMFER + 0.1, top + 0.1), (0, top + 0.1),
+    ]
+    return Polygon(*pts, align=None)
+
+
+def _end_feature(points, half: float, x_end: float, direction: int) -> Part:
+    """A lip or ridge outline (outward = -x) at the end x_end, pointing in `direction` (-1 left, +1 right),
+    reaching 0.1 into the body so it fuses cleanly."""
+    inner = [(0.1, points[0][1]), *points, (0.1, points[-1][1])]
+    pts = [(x_end - direction * x, y) for x, y in inner]
+    return extrude(Polygon(*pts, align=None), amount=half, both=True)
+
+
+def build_female_native(p: ConnectorParams) -> Part:
+    """Female part in the coordinates of Connector_Socket__4x_3mm_4mm (first socket on the y axis)."""
+    validate(p)
+    length = plate_length(p)
+    x0, x1 = -_END, length - _END
+    body = Pos((x0 + x1) / 2, _FEMALE_HEIGHT / 2, 0) * Box(length, _FEMALE_HEIGHT, 2 * _HALF_WIDTH)
+    body += _end_feature(_LIP, _LIP_HALF, x0, -1) + _end_feature(_LIP, _LIP_HALF, x1, 1)
+    body += _end_feature(_RIDGE, _RIDGE_HALF, x0, -1)
+    socket = revolve(_socket_profile(p.back_bore / 2), Axis.Y)
+    arm, arm_w, depth = _FEMALE_CROSS
+    cuts = []
+    for i in range(p.ports):
+        x = i * p.pitch
+        cuts.append(Pos(x, 0, 0) * socket)
+        for size in ((arm, depth, arm_w), (arm_w, depth, arm)):
+            cuts.append(Pos(x, _FEMALE_HEIGHT - depth / 2 + 0.05, 0) * Box(size[0], size[1] + 0.1, size[2]))
+    return Part(body.cut(*cuts).clean().wrapped)
+
+
 # --- Print layout ---
 
 MALE_COLOR = Color(0.35, 0.75, 0.4)  # as in the published pictures
+FEMALE_COLOR = Color(0.75, 0.55, 0.4)
 CLIP_COLOR = Color(0.4, 0.4, 0.85)
+ORING_COLOR = Color(0.12, 0.12, 0.12)
 CLIP_GAP = 3.0  # mm between the parts on the bed
 
 
@@ -206,8 +291,14 @@ def _clip_print(notch: bool) -> Part:
     return Rot(90, 0, 0) * build_clip_native(notch)  # (x, y, z) -> (x, -z, y): flat side down
 
 
-def build_print_layout(p: ConnectorParams) -> Compound:
-    """Male part, and optionally a clip set beside it, in print orientation."""
+def build_print_layout(p: ConnectorParams, part: str = "male") -> Compound:
+    """In print orientation: the male part (and optionally a clip set beside it), or the female
+    part on its mating face."""
+    if part == "female":
+        female = Pos(-_row_centre(p), 0, 0) * Rot(90, 0, 0) * build_female_native(p)  # (x, y, z) -> (x, -z, y)
+        female = Part(female.wrapped)
+        female.label, female.color = "female", FEMALE_COLOR
+        return Compound(children=[female], label="pneumatic_connector_female")
     male = _male_print(p)
     male.label, male.color = "male", MALE_COLOR
     parts = [male]
@@ -223,16 +314,17 @@ def build_print_layout(p: ConnectorParams) -> Compound:
     return Compound(children=parts, label="pneumatic_connector_male")
 
 
-# --- Assembly (male part with tubes and both clips on their tabs) ---
+# --- Assembly (male part with tubes, clips on its tabs, female part with tubes and O-rings) ---
 
 TUBE_BORES = {3.0: 2.0, 4.0: 2.5}  # tube outer diameter -> inner diameter (mm)
-TUBE_OD = 3.0  # this connector's tube
+TUBE_OD = 3.0  # the male part's tube
+BACK_TUBE_OD = 4.0  # the tube in the female part's back socket
 TUBE_COLOR = Color(0.75, 0.77, 0.8)
 TUBE_OUT = 4.0  # tube length beyond the mating face
-TUBE_BELOW = 12.0  # tube length shown beyond the glue face
-_WINDOW = 2.0  # clip thickness at the window (bottom face to pocket floor)
-_NOSE_X = _PIVOT[2][0] - _PIVOT[3]  # clip x of its rounded nose (15.25), against which the neck rests
-_NECK_SEAT = _NOSE_X - _NECK[1]  # clip x of the neck's mating-face side
+TUBE_BELOW = 12.0  # tube length shown beyond the glue face / the female part's back
+INSERT_TRAVEL = 12.0  # how far the male part is pulled out of the female part in the animation
+_CLIP_CLEARANCE = 0.1  # closed clip's bottom face to the plate end (October 2026 assembly)
+_CLIP_SEAT = 13.25  # clip x at the male part's mating face (y = _TOP) when closed
 
 
 def _row_centre(p: ConnectorParams) -> float:
@@ -241,20 +333,40 @@ def _row_centre(p: ConnectorParams) -> float:
 
 def _left_clip_location() -> Location:
     """Closed left clip in the male part's frame: clip x runs down along the tab (hook end up,
-    towards the female part), clip y runs outward along the neck, the head on the pocket floor."""
-    origin = (-_END - _NECK[0] + _WINDOW, _TOP + _NECK_SEAT, 0)
+    over the female part), clip y runs outward along the neck."""
+    origin = (-_END - _CLIP_CLEARANCE, _TOP + _CLIP_SEAT, 0)
     return Location(Plane(origin=origin, x_dir=(0, -1, 0), z_dir=(0, 0, -1)))
 
 
 def _left_pivot() -> tuple[float, float]:
-    """Hinge line of the left clip (along z) in the male part's frame: the neck's centre line,
-    at the clip's bottom face."""
-    return (-_END - _NECK[0] + _WINDOW, _TOP - _NECK[1] / 2)
+    """Hinge line of the left clip (along z) in the male part's frame: the neck's edge on the
+    glue-face side, at the clip's bottom face."""
+    return (-_END - _CLIP_CLEARANCE, _TOP - _NECK[1])
 
 
 def _to_assembly(p: ConnectorParams):
     """Male frame -> assembly frame: tubes vertical (z up), mating face at z = 0, row centred on x = 0."""
     return Pos(-_row_centre(p), 0, -_TOP) * Rot(90, 0, 0)  # (x, y, z) -> (x, -z, y)
+
+
+def _tubes(p: ConnectorParams, od: float, y_from: float, y_to: float) -> Part:
+    length = y_to - y_from
+    tube = Cylinder(od / 2, length) - Cylinder(TUBE_BORES[od] / 2, length + 0.2)
+    return Part(Compound(children=[
+        Pos(i * p.pitch, (y_from + y_to) / 2, 0) * Rot(90, 0, 0) * tube for i in range(p.ports)
+    ]).wrapped)
+
+
+def _female_parts(p: ConnectorParams) -> dict[str, Part]:
+    """Female part, its tubes and the O-rings, in the male part's frame (connected)."""
+    oring_id, cs = _ORING
+    oring = Rot(90, 0, 0) * Torus((oring_id + cs) / 2, cs / 2)
+    y = _GROOVE[0] + cs / 2
+    return {
+        "female": build_female_native(p),
+        "female_tubes": _tubes(p, BACK_TUBE_OD, _BACK_Y, _FEMALE_HEIGHT + TUBE_BELOW),
+        "orings": Part(Compound(children=[Pos(i * p.pitch, y, 0) * oring for i in range(p.ports)]).wrapped),
+    }
 
 
 def _assembly_parts(p: ConnectorParams, angle_left: float = 0.0, angle_right: float = 0.0) -> dict[str, Part]:
@@ -264,26 +376,27 @@ def _assembly_parts(p: ConnectorParams, angle_left: float = 0.0, angle_right: fl
     left = Pos(px, py, 0) * Rot(0, 0, angle_left) * Pos(-px, -py, 0) * _left_clip_location()
     # The right clip is the left one turned half a turn about the row's centre line (y axis).
     right = Pos(2 * xc, 0, 0) * Rot(0, 180, 0) * Pos(px, py, 0) * Rot(0, 0, angle_right) * Pos(-px, -py, 0) * _left_clip_location()
-    tube_len = TUBE_OUT + (_TOP - _BOTTOM) + TUBE_BELOW
-    tubes = [
-        Pos(i * p.pitch, _TOP + TUBE_OUT - tube_len / 2, 0) * Rot(90, 0, 0)
-        * (Cylinder(TUBE_OD / 2, tube_len) - Cylinder(TUBE_BORES[TUBE_OD] / 2, tube_len + 0.2))
-        for i in range(p.ports)
-    ]
+    # The notched clip goes on the left, the end with the female part's ridge.
     return {
         "male": build_male_native(p),
-        "tubes": Part(Compound(children=tubes).wrapped),
-        "clip_left": left * build_clip_native(False),
-        "clip_right": right * build_clip_native(True),
+        "tubes": _tubes(p, TUBE_OD, _BOTTOM - TUBE_BELOW, _TOP + TUBE_OUT),
+        "clip_left": left * build_clip_native(True),
+        "clip_right": right * build_clip_native(False),
     }
 
 
+MOVING_PARTS = ("male", "tubes", "clip_left", "clip_right")  # what moves when the male part is pulled out
+
+
 def build_assembly(p: ConnectorParams) -> Compound:
-    """The connector as used, clips closed, in the assembly frame (see _to_assembly)."""
-    colors = {"male": MALE_COLOR, "tubes": TUBE_COLOR, "clip_left": CLIP_COLOR, "clip_right": CLIP_COLOR}
+    """The connected connector, clips closed, in the assembly frame (see _to_assembly)."""
+    colors = {
+        "male": MALE_COLOR, "tubes": TUBE_COLOR, "clip_left": CLIP_COLOR, "clip_right": CLIP_COLOR,
+        "female": FEMALE_COLOR, "female_tubes": TUBE_COLOR, "orings": ORING_COLOR,
+    }
     to_asm = _to_assembly(p)
     children = []
-    for name, part in _assembly_parts(p).items():
+    for name, part in {**_assembly_parts(p), **_female_parts(p)}.items():
         part = Part((to_asm * part).wrapped)
         part.label, part.color = name, colors[name]
         children.append(part)
@@ -303,7 +416,7 @@ def max_opening(p: ConnectorParams, limit: float = 90.0, tolerance: float = 0.5)
     parts = _assembly_parts(p)
     obstacles = _plate_solid(plate_length(p)) + parts["tubes"]
     px, py = _left_pivot()
-    clip = _left_clip_location() * build_clip_native(False)
+    clip = _left_clip_location() * build_clip_native(True)
 
     def hits(angle: float) -> bool:
         turned = Pos(px, py, 0) * Rot(0, 0, angle) * Pos(-px, -py, 0) * clip
@@ -329,10 +442,20 @@ def assembly_info(p: ConnectorParams) -> dict:
     for name, x, (ax, ay, az) in (("clip_left", px, (0, 0, 1)), ("clip_right", 2 * xc - px, (0, 0, -1))):
         pt = (to_asm * Pos(x, py, 0)).position
         hinges[name] = {"point": [round(v, 4) for v in pt], "axis": [ax, -az, ay]}
-    return {"hinges": hinges, "max_angle": round(max_opening(p), 1)}
+    # Pulling the male part out moves it along -y of the male frame: -z in the assembly frame.
+    return {
+        "hinges": hinges, "max_angle": round(max_opening(p), 1),
+        "insert": {"parts": list(MOVING_PARTS), "direction": [0, 0, -1], "travel": INSERT_TRAVEL},
+    }
 
 
-def describe(p: ConnectorParams) -> str:
+def describe(p: ConnectorParams, part: str = "male") -> str:
+    if part == "female":
+        n = f"{p.ports} {'port' if p.ports == 1 else 'ports'}"
+        return (f"Female part, {n} {p.pitch:g} mm apart: 3 mm tube from the male part, \u2300{p.back_bore:g} mm "
+                f"socket at the back, {plate_length(p):g} x {2 * _HALF_WIDTH:g} x {_FEMALE_HEIGHT:g} mm. "
+                f"Needs {p.ports} O-ring{'s' if p.ports > 1 else ''} {_ORING[0]:g}x{_ORING[1]:g} mm: pause the print at "
+                f"Z = {ORING_PAUSE_Z:g} mm (before the first layer above it) and press them into the grooves.")
     clips = " plus a clip set (one with notch)" if p.clips else ""
     return (f"Male part, {p.ports} {'port' if p.ports == 1 else 'ports'} for 3 mm tube, ⌀{p.hole:g} mm holes "
             f"{p.pitch:g} mm apart, {plate_length(p):g} x {2 * _HALF_WIDTH:g} mm{clips}.")
@@ -344,11 +467,13 @@ def main() -> None:
     ap.add_argument("--hole", type=float, default=3.1, help="hole diameter (mm)")
     ap.add_argument("--pitch", type=float, default=8.0, help="hole centre distance (mm)")
     ap.add_argument("--no-clips", action="store_true", help="male part only")
-    ap.add_argument("--out", default="pneumatic_connector_male.step")
+    ap.add_argument("--part", choices=["male", "female"], default="male")
+    ap.add_argument("--back-bore", type=float, default=4.05, help="female part: back socket diameter (mm)")
+    ap.add_argument("--out", default="pneumatic_connector.step")
     a = ap.parse_args()
-    p = ConnectorParams(a.ports, a.pitch, a.hole, not a.no_clips)
-    export_step(build_print_layout(p), a.out)
-    print(f"Wrote {a.out}: {describe(p)}")
+    p = ConnectorParams(a.ports, a.pitch, a.hole, not a.no_clips, a.back_bore)
+    export_step(build_print_layout(p, a.part), a.out)
+    print(f"Wrote {a.out}: {describe(p, a.part)}")
 
 
 if __name__ == "__main__":

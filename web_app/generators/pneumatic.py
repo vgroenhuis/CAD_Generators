@@ -2,7 +2,8 @@
 defaults (and presets), a summary, glTF preview, 3MF and STEP.
 
   /blind-plug/...      blind plug for a push-in fitting (pneumatic_app/blind_plug_model.py)
-  /connector-male/...  male part and clip set of the printable connector (pneumatic_app/connector_model.py)
+  /connector/...       male part (with clip set) and female part of the printable connector
+                       (pneumatic_app/connector_model.py), and the two assembled
 
 All endpoints of a component take its parameters as query parameters. Built models and
 their files are cached (see web_app/model_cache.py); each component's default model is
@@ -21,7 +22,7 @@ from pneumatic_app.blind_plug_model import (
 )
 from pneumatic_app.connector_model import (
 	ConnectorParams, assembly_info as connector_assembly_info, build_assembly as build_connector_assembly,
-	build_print_layout as build_connector_male, describe as describe_connector_male, validate as validate_connector_male,
+	build_print_layout as build_connector, describe as describe_connector, validate as validate_connector,
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
@@ -95,94 +96,110 @@ def blind_plug_step(p: BlindPlugParams = Depends(_blind_plug_params)):
 	return download_response(_blind_plug_file(p, "step"), _blind_plug_filename(p, "step"))
 
 
-# --- Connector, male part and clips ---
+# --- Connector: male part (with clips) and female part ---
 
-connector_male_cache = ModelCache("connector_male", build_connector_male, size=6)
-CONNECTOR_MALE_DEFAULT = ConnectorParams()
-CONNECTOR_MALE_FILES = _files("pneumatic_connector_male")
+CONNECTOR_PARTS = ("male", "female")
+connector_cache = ModelCache("connector", lambda pp: build_connector(*pp), size=8)
+CONNECTOR_DEFAULT = ConnectorParams()
+CONNECTOR_FILES = {part: _files(f"pneumatic_connector_{part}") for part in CONNECTOR_PARTS}
 
 
-def _connector_male_params(
-	ports: int = Query(..., ge=1, le=100),  # validate() gives the friendly limit
+def _connector_params(
+	ports: int = Query(..., ge=1, le=100),  # validate() gives the friendly limits
 	pitch: float = Query(..., gt=0, le=30),
-	hole: float = Query(..., gt=0, le=10),
+	hole: float = Query(3.1, gt=0, le=10),
 	clips: bool = Query(True),
+	back_bore: float = Query(4.05, gt=0, le=10),
 ) -> ConnectorParams:
-	p = ConnectorParams(ports, pitch, hole, clips)
+	p = ConnectorParams(ports, pitch, hole, clips, back_bore)
 	try:
-		validate_connector_male(p)
+		validate_connector(p)
 	except ValueError as exc:
 		raise HTTPException(status_code=400, detail=str(exc))
 	return p
 
 
-def _connector_male_file(p: ConnectorParams, kind: str) -> bytes:
-	return connector_male_cache.file(tuple(vars(p).values()), p, kind, CONNECTOR_MALE_FILES[kind])
+def _part(part: str = Query("male")) -> str:
+	if part not in CONNECTOR_PARTS:
+		raise HTTPException(status_code=400, detail="part must be 'male' or 'female'.")
+	return part
 
 
-def _connector_male_filename(p: ConnectorParams, ext: str) -> str:
-	clips = "_clips" if p.clips else ""
-	return f"connector_male_{p.ports}x_{p.hole:g}mm{clips}.{ext}"
+def _connector_key(p: ConnectorParams, part: str) -> tuple:
+	"""Only what the part depends on, so e.g. the female part is shared across hole sizes."""
+	if part == "male":
+		return (part, p.ports, p.pitch, p.hole, p.clips)
+	return (part, p.ports, p.pitch, p.back_bore)
 
 
-# The assembled connector (preview only): its own cache, keyed without the clips flag (always shown).
+def _connector_file(p: ConnectorParams, part: str, kind: str) -> bytes:
+	return connector_cache.file(_connector_key(p, part), (p, part), kind, CONNECTOR_FILES[part][kind])
+
+
+def _connector_filename(p: ConnectorParams, part: str, ext: str) -> str:
+	if part == "male":
+		clips = "_clips" if p.clips else ""
+		return f"connector_male_{p.ports}x_{p.hole:g}mm{clips}.{ext}"
+	return f"connector_female_{p.ports}x_3mm_{p.back_bore:g}mm.{ext}"
+
+
+# The assembled connector (preview only), keyed without the clips flag (both clips are always shown).
 connector_assembly_cache = ModelCache("connector_assembly", build_connector_assembly, size=6)
 
 
 def _assembly_key(p: ConnectorParams) -> tuple:
-	return (p.ports, p.pitch, p.hole)
+	return (p.ports, p.pitch, p.hole, p.back_bore)
 
 
 @lru_cache(maxsize=32)
 def _assembly_info(key: tuple) -> dict:
-	"""Hinge lines and opening limit (a collision search of about a second, so cached)."""
-	ports, pitch, hole = key
-	return connector_assembly_info(ConnectorParams(ports, pitch, hole))
+	"""Hinge lines, opening limit and insertion (a collision search of a second or two, so cached)."""
+	ports, pitch, hole, back_bore = key
+	return connector_assembly_info(ConnectorParams(ports, pitch, hole, True, back_bore))
 
 
-@router.get("/connector-male/defaults")
-def connector_male_defaults() -> dict:
-	return asdict(CONNECTOR_MALE_DEFAULT)
+@router.get("/connector/defaults")
+def connector_defaults() -> dict:
+	return {**asdict(CONNECTOR_DEFAULT), "part_male": True, "part_female": False}
 
 
-@router.get("/connector-male/info")
-def connector_male_info(p: ConnectorParams = Depends(_connector_male_params)) -> dict:
-	return {"summary": describe_connector_male(p)}
+@router.get("/connector/info")
+def connector_info(p: ConnectorParams = Depends(_connector_params), part: str = Depends(_part)) -> dict:
+	return {"summary": describe_connector(p, part)}
 
 
-@router.get("/connector-male/preview.glb")
-def connector_male_preview(p: ConnectorParams = Depends(_connector_male_params)):
-	return glb_response(_connector_male_file(p, "glb"))
+@router.get("/connector/preview.glb")
+def connector_preview(p: ConnectorParams = Depends(_connector_params), part: str = Depends(_part)):
+	return glb_response(_connector_file(p, part, "glb"))
 
 
-@router.get("/connector-male/assembly")
-def connector_male_assembly(p: ConnectorParams = Depends(_connector_male_params)) -> dict:
-	"""Hinge lines of the clips (assembly frame, mm, as in assembly.glb before its Z-up to Y-up
-	turn) and the largest opening angle (degrees), for animating the clips."""
+@router.get("/connector/assembly")
+def connector_assembly(p: ConnectorParams = Depends(_connector_params)) -> dict:
+	"""For animating assembly.glb: the clips' hinge lines (assembly frame, mm, as in the glTF
+	before its Z-up to Y-up turn), their largest opening angle (degrees), and which nodes move,
+	in which direction and how far, when the male part is pulled out of the female part."""
 	return _assembly_info(_assembly_key(p))
 
 
-@router.get("/connector-male/assembly.glb")
-def connector_male_assembly_glb(p: ConnectorParams = Depends(_connector_male_params)):
-	key = _assembly_key(p)
-	return glb_response(connector_assembly_cache.file(key, p, "glb", CONNECTOR_MALE_FILES["glb"]))
+@router.get("/connector/assembly.glb")
+def connector_assembly_glb(p: ConnectorParams = Depends(_connector_params)):
+	return glb_response(connector_assembly_cache.file(_assembly_key(p), p, "glb", CONNECTOR_FILES["male"]["glb"]))
 
 
-@router.get("/connector-male/export.3mf")
-def connector_male_3mf(p: ConnectorParams = Depends(_connector_male_params)):
-	return download_response(_connector_male_file(p, "3mf"), _connector_male_filename(p, "3mf"))
+@router.get("/connector/export.3mf")
+def connector_3mf(p: ConnectorParams = Depends(_connector_params), part: str = Depends(_part)):
+	return download_response(_connector_file(p, part, "3mf"), _connector_filename(p, part, "3mf"))
 
 
-@router.get("/connector-male/export.step")
-def connector_male_step(p: ConnectorParams = Depends(_connector_male_params)):
-	return download_response(_connector_male_file(p, "step"), _connector_male_filename(p, "step"))
+@router.get("/connector/export.step")
+def connector_step(p: ConnectorParams = Depends(_connector_params), part: str = Depends(_part)):
+	return download_response(_connector_file(p, part, "step"), _connector_filename(p, part, "step"))
 
 
 def warm() -> None:
 	warm_entry(blind_plug_cache, tuple(vars(BLIND_PLUG_DEFAULT).values()), BLIND_PLUG_DEFAULT, BLIND_PLUG_FILES)
-	warm_entry(
-		connector_male_cache, tuple(vars(CONNECTOR_MALE_DEFAULT).values()), CONNECTOR_MALE_DEFAULT, CONNECTOR_MALE_FILES,
-	)
-	key = _assembly_key(CONNECTOR_MALE_DEFAULT)
-	connector_assembly_cache.file(key, CONNECTOR_MALE_DEFAULT, "glb", CONNECTOR_MALE_FILES["glb"])
+	for part in CONNECTOR_PARTS:
+		warm_entry(connector_cache, _connector_key(CONNECTOR_DEFAULT, part), (CONNECTOR_DEFAULT, part), CONNECTOR_FILES[part])
+	key = _assembly_key(CONNECTOR_DEFAULT)
+	connector_assembly_cache.file(key, CONNECTOR_DEFAULT, "glb", CONNECTOR_FILES["male"]["glb"])
 	_assembly_info(key)

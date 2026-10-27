@@ -4,15 +4,17 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { downloadWithProgress, fetchWithProgress } from "./progress.js";
 import { loadDefaults } from "./defaults.js";
 
-const API = "api/pneumatic/connector-male";
+const API = "api/pneumatic/connector";
 // Input ids = query parameter names.
-const NUMBER_FIELDS = ["ports", "hole", "pitch"];
+const NUMBER_FIELDS = ["ports", "pitch", "hole", "back_bore"];
 const clipsInput = document.getElementById("clips");
+const partMaleInput = document.getElementById("part_male");
+const partFemaleInput = document.getElementById("part_female");
 const viewPrintInput = document.getElementById("view_print");
 const viewAssembledInput = document.getElementById("view_assembled");
-const openingControls = document.getElementById("opening-controls");
-const openingInput = document.getElementById("opening");
-const openingValue = document.getElementById("opening-value");
+const connectionControls = document.getElementById("connection-controls");
+const connectionInput = document.getElementById("connection");
+const connectionText = document.getElementById("connection-text");
 const animateBtn = document.getElementById("animate-btn");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
@@ -44,9 +46,10 @@ fillLight.position.set(-1.5, -1, -1);
 scene.add(fillLight);
 
 let currentModel = null;
-// Assembled view (see setupHinges): clip hinges and the open/close animation.
-const ANIMATION_PERIOD = 3000;
-let hinges = []; // [{ node, start matrix, pivot (node's parent frame), axis }]
+// Assembled view (see setupAssembly): the male part's nodes, the clip hinges and the animation.
+const ANIMATION_PERIOD = 8000;
+let moving = []; // [{ node, start matrix, hinge: { pivot, axis } (clips only) }]
+let assemblyInfo = null;
 let animating = false;
 let animationStart = 0;
 
@@ -62,11 +65,7 @@ resizeRenderer();
 
 function animate(time) {
 	requestAnimationFrame(animate);
-	if (animating) {
-		// Open and close smoothly, one cycle every ANIMATION_PERIOD ms.
-		const phase = ((time - animationStart) % ANIMATION_PERIOD) / ANIMATION_PERIOD;
-		setOpening((Number(openingInput.max) * (1 - Math.cos(2 * Math.PI * phase))) / 2);
-	}
+	if (animating) setConnection(animationConnection((time - animationStart) % ANIMATION_PERIOD));
 	controls.update();
 	renderer.render(scene, camera);
 }
@@ -112,6 +111,7 @@ function readParams() {
 		params[id] = value;
 	}
 	params.clips = clipsInput.checked;
+	params.part = partFemaleInput.checked ? "female" : "male";
 	return params;
 }
 
@@ -137,54 +137,77 @@ function fitCameraToObject(object, view = "print") {
 
 const gltfLoader = new GLTFLoader();
 
-// --- Assembled view: each clip turns about its hinge line (from api/.../assembly).
-
+// --- Assembled view. One "connection" value from 0 to 100 drives it: from 0 (male part pulled
+// out, clips open) to 50 the male part goes in, from 50 to 100 the clips close.
 
 function assembled() {
 	return viewAssembledInput.checked;
 }
 
-// The glTF's root node turns the CAD frame (Z up, mm -> m) into three.js's Y-up frame; the clip
-// nodes are its children, so the hinge lines are used in the root's (CAD) frame, in metres.
-function setupHinges(model, info) {
-	hinges = Object.entries(info.hinges).map(([name, hinge]) => {
+// The glTF's root node turns the CAD frame (Z up, mm -> m) into three.js's Y-up frame; the moving
+// nodes are its children, so the hinge lines and the insertion are used in the root's (CAD)
+// frame, in metres.
+function setupAssembly(model, info) {
+	assemblyInfo = info;
+	moving = info.insert.parts.map((name) => {
 		const node = model.getObjectByName(name);
 		node.updateMatrix();
 		node.matrixAutoUpdate = false;
+		const hinge = info.hinges[name];
 		return {
 			node,
 			start: node.matrix.clone(),
-			pivot: new THREE.Vector3(...hinge.point).multiplyScalar(0.001),
-			axis: new THREE.Vector3(...hinge.axis).normalize(),
+			hinge: hinge && {
+				pivot: new THREE.Vector3(...hinge.point).multiplyScalar(0.001),
+				axis: new THREE.Vector3(...hinge.axis).normalize(),
+			},
 		};
 	});
-	openingInput.max = String(info.max_angle);
-	setOpening(Math.min(Number(openingInput.value), info.max_angle));
+	setConnection(Number(connectionInput.value));
 }
 
-function setOpening(degrees) {
-	openingInput.value = String(degrees);
-	openingValue.textContent = Number(degrees).toFixed(0);
-	const angle = THREE.MathUtils.degToRad(degrees);
-	for (const h of hinges) {
-		const turn = new THREE.Matrix4()
-			.makeTranslation(h.pivot.x, h.pivot.y, h.pivot.z)
-			.multiply(new THREE.Matrix4().makeRotationAxis(h.axis, angle))
-			.multiply(new THREE.Matrix4().makeTranslation(-h.pivot.x, -h.pivot.y, -h.pivot.z));
-		h.node.matrix.multiplyMatrices(turn, h.start);
-		h.node.matrixWorldNeedsUpdate = true;
+function setConnection(value) {
+	connectionInput.value = String(value);
+	if (!assemblyInfo) return;
+	const { travel, direction } = assemblyInfo.insert;
+	const out = travel * Math.max(0, 1 - value / 50); // mm the male part is pulled out
+	const opening = assemblyInfo.max_angle * Math.min(1, 2 - value / 50); // degrees
+	connectionText.textContent = value < 50
+		? `male part ${out.toFixed(1)} mm out, clips open`
+		: value < 100 ? `inserted, clips ${opening.toFixed(0)}\u00b0 open` : "connected, clips closed";
+	const shift = new THREE.Matrix4().makeTranslation(
+		...direction.map((d) => (d * out) / 1000),
+	);
+	const angle = THREE.MathUtils.degToRad(opening);
+	for (const m of moving) {
+		const transform = shift.clone();
+		if (m.hinge) {
+			const { pivot, axis } = m.hinge;
+			transform
+				.multiply(new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z))
+				.multiply(new THREE.Matrix4().makeRotationAxis(axis, angle))
+				.multiply(new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z));
+		}
+		m.node.matrix.multiplyMatrices(transform, m.start);
+		m.node.matrixWorldNeedsUpdate = true;
 	}
+}
+
+// One animation cycle: connect (40%), hold, disconnect (40%), hold; eased in and out.
+function animationConnection(t) {
+	const phase = t / ANIMATION_PERIOD;
+	const ease = (x) => x * x * (3 - 2 * x);
+	if (phase < 0.4) return 100 * ease(phase / 0.4);
+	if (phase < 0.5) return 100;
+	if (phase < 0.9) return 100 * (1 - ease((phase - 0.5) / 0.4));
+	return 0;
 }
 
 function setAnimating(on) {
 	animating = on;
 	animateBtn.textContent = on ? "Stop" : "Animate";
-	if (on) {
-		// Continue from the current opening rather than jumping to closed.
-		const max = Number(openingInput.max) || 1;
-		const phase = Math.acos(1 - (2 * Number(openingInput.value)) / max) / (2 * Math.PI);
-		animationStart = performance.now() - phase * ANIMATION_PERIOD;
-	}
+	// Start disconnecting from where the slider is (connected) or connecting (otherwise).
+	if (on) animationStart = performance.now() - (Number(connectionInput.value) >= 100 ? 0.5 : 0) * ANIMATION_PERIOD;
 }
 
 async function onGenerate() {
@@ -217,7 +240,7 @@ async function onGenerate() {
 		}
 		const buffer = await response.arrayBuffer();
 		const gltf = await new Promise((resolve, reject) => gltfLoader.parse(buffer, "", resolve, reject));
-		let assemblyInfo = null;
+		let info = null;
 		if (asm) {
 			setStatus("Finding how far the clips open...");
 			const infoResp = await fetch(`${API}/assembly?${query}`);
@@ -225,10 +248,11 @@ async function onGenerate() {
 				setStatus(await friendlyErrorMessage(infoResp), true);
 				return;
 			}
-			assemblyInfo = await infoResp.json();
+			info = await infoResp.json();
 		}
 		if (currentModel) scene.remove(currentModel);
-		hinges = [];
+		moving = [];
+		assemblyInfo = null;
 		currentModel = gltf.scene;
 		currentModel.traverse((child) => {
 			if (child.isMesh) {
@@ -238,12 +262,12 @@ async function onGenerate() {
 		});
 		scene.add(currentModel);
 		fitCameraToObject(currentModel, asm ? "assembled" : "print");
-		if (assemblyInfo) setupHinges(currentModel, assemblyInfo);
+		if (info) setupAssembly(currentModel, info);
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
 		downloadStepBtn.disabled = false;
 		setStatus(asm
-			? `Assembled, clips open up to ${assemblyInfo.max_angle}\u00b0. Drag to rotate.`
+			? `Assembled; the clips open up to ${info.max_angle}\u00b0. Drag to rotate.`
 			: "Generated, in print orientation. Drag to rotate.");
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
@@ -273,17 +297,27 @@ generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
 clipsInput.addEventListener("change", onGenerate);
+// Fields of the part that is not selected are greyed out; the assembled view shows both parts.
+function updateFields() {
+	const female = partFemaleInput.checked;
+	document.getElementById("hole").disabled = female;
+	clipsInput.disabled = female || assembled();
+	document.getElementById("back_bore").disabled = !female;
+	connectionControls.hidden = !assembled();
+	document.getElementById("pause-note").hidden = !female;
+}
 function updateView() {
-	openingControls.hidden = !assembled();
-	clipsInput.disabled = assembled(); // the assembled view always shows both clips
+	updateFields();
 	if (!assembled()) setAnimating(false);
 	onGenerate();
 }
 viewPrintInput.addEventListener("change", updateView);
 viewAssembledInput.addEventListener("change", updateView);
-openingInput.addEventListener("input", () => {
+partMaleInput.addEventListener("change", updateView);
+partFemaleInput.addEventListener("change", updateView);
+connectionInput.addEventListener("input", () => {
 	setAnimating(false);
-	setOpening(Number(openingInput.value));
+	setConnection(Number(connectionInput.value));
 });
 animateBtn.addEventListener("click", () => setAnimating(!animating));
 NUMBER_FIELDS.forEach((id) => {
@@ -299,5 +333,8 @@ NUMBER_FIELDS.forEach((id) => {
 
 // Start from the server's defaults (the model's), then show the default connector.
 loadDefaults(API)
-	.then(() => onGenerate())
+	.then(() => {
+		updateFields();
+		onGenerate();
+	})
 	.catch((exc) => setStatus(exc.message, true));
