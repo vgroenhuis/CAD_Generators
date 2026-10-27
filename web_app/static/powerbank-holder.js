@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { downloadWithProgress, fetchWithProgress } from "./progress.js";
 import { loadDefaults } from "./defaults.js";
+import { showViewerError } from "./error-banner.js";
 
 const widthInput = document.getElementById("width");
 const heightInput = document.getElementById("height");
@@ -42,6 +43,8 @@ fillLight.position.set(-1.5, -1, -1);
 scene.add(fillLight);
 
 let currentModel = null;
+// The camera is fitted to the first model only; re-generating keeps it, so changes are easy to compare.
+let cameraFitted = false;
 
 function resizeRenderer() {
 	const width = viewerContainer.clientWidth;
@@ -63,6 +66,7 @@ animate();
 function setStatus(text, isError) {
 	statusEl.textContent = text;
 	statusEl.classList.toggle("error", Boolean(isError));
+	showViewerError(isError ? text : "");
 }
 
 async function friendlyErrorMessage(response) {
@@ -112,6 +116,9 @@ function fitCameraToObject(object) {
 
 const gltfLoader = new GLTFLoader();
 
+canvas.title = "Drag to rotate, scroll to zoom, double-click to fit the model in view.";
+canvas.addEventListener("dblclick", () => currentModel && fitCameraToObject(currentModel));
+
 function buildQuery(params) {
 	return new URLSearchParams({
 		width: params.width,
@@ -159,7 +166,10 @@ async function onGenerate() {
 			}
 		});
 		scene.add(currentModel);
-		fitCameraToObject(currentModel);
+		if (!cameraFitted) {
+			fitCameraToObject(currentModel);
+			cameraFitted = true;
+		}
 		placeholderEl.style.display = "none";
 
 		downloadBtn.disabled = false;

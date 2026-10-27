@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { downloadWithProgress, fetchWithProgress } from "./progress.js";
 import { loadDefaults } from "./defaults.js";
+import { showViewerError } from "./error-banner.js";
 
 const API = "api/pneumatic/connector";
 // Input ids = query parameter names.
@@ -46,6 +47,9 @@ fillLight.position.set(-1.5, -1, -1);
 scene.add(fillLight);
 
 let currentModel = null;
+// Which kind of model the camera was last fitted to (print layout of a part, or the assembly);
+// re-generating the same kind keeps the camera, so changes are easy to compare.
+let cameraFittedTo = null;
 // Assembled view (see setupAssembly): the male part's nodes, the clip hinges and the animation.
 const ANIMATION_PERIOD = 8000;
 let moving = []; // [{ node, start matrix, hinge: { pivot, axis } (clips only) }]
@@ -74,6 +78,7 @@ animate();
 function setStatus(text, isError) {
 	statusEl.textContent = text;
 	statusEl.classList.toggle("error", Boolean(isError));
+	showViewerError(isError ? text : "");
 }
 
 async function friendlyErrorMessage(response) {
@@ -136,6 +141,9 @@ function fitCameraToObject(object, view = "print") {
 }
 
 const gltfLoader = new GLTFLoader();
+
+canvas.title = "Drag to rotate, scroll to zoom, double-click to fit the model in view.";
+canvas.addEventListener("dblclick", () => currentModel && fitCameraToObject(currentModel, assembled() ? "assembled" : "print"));
 
 // --- Assembled view. One "connection" value from 0 to 100 drives it: from 0 (male part pulled
 // out, clips open) to 50 the male part goes in, from 50 to 100 the clips close.
@@ -261,7 +269,11 @@ async function onGenerate() {
 			}
 		});
 		scene.add(currentModel);
-		fitCameraToObject(currentModel, asm ? "assembled" : "print");
+		const cameraKind = asm ? "assembled" : `print-${params.part}`;
+		if (cameraFittedTo !== cameraKind) {
+			fitCameraToObject(currentModel, asm ? "assembled" : "print");
+			cameraFittedTo = cameraKind;
+		}
 		if (info) setupAssembly(currentModel, info);
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
