@@ -1,6 +1,6 @@
 """
     Geometry construction for a two-colour cube with an AprilTag (tag16h5) on five faces and a
-    label on the bottom face, which the camera never sees.
+    label on the bottom face, which the camera never sees, or (bottom_tag=True) a tag on all six faces.
 
     The cube is split into two solids that together fill the cube exactly:
       * "white": the cube with the black tag cells cut out as shallow pockets
@@ -11,10 +11,12 @@
     With five different tags, the first four go on the side faces in counterclockwise order as seen
     from above (+X, +Y, -X, -Y) and the fifth on the top face (+Z). Tags are upright as seen from
     outside: on the four side faces the tag's top edge points to +Z, on the top face to +Y.
+    With bottom_tag=True a sixth tag goes on the bottom face (-Z), its top edge pointing to -Y.
     The bottom label is inlaid in black, flush with the face, and reads correctly from below. By
     default it is the tag id (same tag on all faces), "World frame" for the world-frame cube
-    (ids 25-29), or the five ids ("0,1,2,3,4"); long labels are split over two lines when that
-    gives a larger font.
+    (ids 25-29), or with five different tags the four side ids along the matching bottom edges
+    (each reading upright with that edge nearest) and the top id in the centre. A label given as
+    text is centred; long labels are split over two lines when that gives a larger font.
     Optionally, short red (+X) and green (+Y) arrows lying on the floor beside the cube show the world frame.
 
     With several tag ids and the same tag on all faces, one cube per id is generated in the
@@ -117,9 +119,17 @@ _FACE_PLANES = [
     ((0, 0, 1), (1, 0, 0)),    # +Z (top)
 ]
 _FACE_PLACEMENTS = [Location(Plane(origin=(0, 0, 0), x_dir=right, z_dir=normal)) for normal, right in _FACE_PLANES]
-FACE_NAMES = ["+X", "+Y", "-X", "-Y", "+Z (top)"]
-# The bottom face (-Z) carries the label; its top edge points to -Y, as if unfolded from the -Y face.
+FACE_NAMES = ["+X", "+Y", "-X", "-Y", "+Z (top)", "-Z (bottom)"]
+# The bottom face (-Z) carries the label, or a sixth tag; its top edge points to -Y, as if unfolded
+# from the -Y face. Seen from below, +X is then on the right, -Y at the top.
 _BOTTOM_PLACEMENT = Location(Plane(origin=(0, 0, 0), x_dir=(1, 0, 0), z_dir=(0, 0, -1)))
+_TAG_FACES = 5  # without a tag on the bottom
+# Text rotation (degrees, in the bottom face seen from below) of each side face's id along the
+# matching bottom edge, so it reads upright with that edge nearest: +X right, +Y bottom, -X left,
+# -Y top.
+_EDGE_ROTATIONS = (90, 0, 270, 180)
+_EDGE_FONT = 0.2  # font size of the ids along the edges and in the centre, x cube size
+_EDGE_MARGIN = 0.06  # gap between the cube edge and the ids along it, x cube size
 
 WORLD_FRAME_IDS = (25, 26, 27, 28, 29)  # +X, +Y, -X, -Y, +Z
 WORLD_FRAME_LABEL = "World frame"
@@ -128,30 +138,41 @@ _LABEL_MAX_FONT = 0.3  # largest font size, x cube size
 _LINE_PITCH = 1.25  # baseline-to-baseline distance, x font size
 
 
+DEFAULT_DEPTH = 0.7  # mm, depth of the black inlay
 GRID_SPACING = 2.0  # mm between neighbouring cubes when several cubes are generated
 MAX_CUBES = 64
 
 
-def parse_tag_ids(text: str, per_face: bool | None = None) -> list[int]:
+def face_count(bottom_tag: bool = False) -> int:
+    """Number of faces carrying a tag: five, or six with a tag on the bottom."""
+    return _TAG_FACES + 1 if bottom_tag else _TAG_FACES
+
+
+def _faces_text(n_faces: int) -> str:
+    return "four sides counterclockwise from +X, then the top" + (" and the bottom" if n_faces > _TAG_FACES else "")
+
+
+def parse_tag_ids(text: str, per_face: bool | None = None, bottom_tag: bool = False) -> list[int]:
     """Parse '3' or '0,1,2,3,4' into a list of tag ids.
 
-    per_face=True requires exactly five ids (four side faces counterclockwise from +X, then the
-    top). per_face=False accepts one or more ids (the same tag on all faces of each cube, one
-    cube per id). None accepts either a single id or five per-face ids.
+    per_face=True requires exactly one id per tag face (four side faces counterclockwise from
+    +X, then the top, and with bottom_tag the bottom). per_face=False accepts one or more ids
+    (the same tag on all faces of each cube, one cube per id). None accepts either a single id
+    or one id per tag face.
     """
     try:
         ids = [int(part) for part in text.replace(";", ",").split(",") if part.strip()]
     except ValueError as exc:
         raise ValueError("Tag IDs must be integers, separated by commas.") from exc
-    n_faces = len(_FACE_PLANES)
+    n_faces = face_count(bottom_tag)
     if per_face is False and not ids:
         raise ValueError("Enter at least one tag ID.")
     if per_face is False and len(ids) > MAX_CUBES:
         raise ValueError(f"At most {MAX_CUBES} cubes can be generated at once.")
     if per_face is True and len(ids) != n_faces:
-        raise ValueError(f"Enter {n_faces} comma-separated tag IDs: four sides counterclockwise from +X, then the top.")
+        raise ValueError(f"Enter {n_faces} comma-separated tag IDs: {_faces_text(n_faces)}.")
     if per_face is None and len(ids) not in (1, n_faces):
-        raise ValueError(f"Enter one tag ID (used on all faces) or {n_faces} IDs (four sides, then the top).")
+        raise ValueError(f"Enter one tag ID (used on all faces) or {n_faces} IDs ({_faces_text(n_faces)}).")
     bad = [i for i in ids if not 0 <= i < len(TAG16H5_CODES)]
     if bad:
         raise ValueError(f"Tag IDs must be between 0 and {len(TAG16H5_CODES) - 1}.")
@@ -200,13 +221,14 @@ def _axis_arrows(size: float, extent: float | None = None) -> list[Part]:
     return [red, green]
 
 
-def default_label(ids: list[int]) -> str:
-    """Bottom label for a cube with these tag ids (one id, or one per face)."""
+def default_label(ids: list[int]) -> str | None:
+    """Bottom label for a cube with these five tag ids (or one id): the id, "World frame", or
+    None for different tags, whose ids go along the bottom edges (see _edge_label_cells)."""
     if tuple(ids) == WORLD_FRAME_IDS:
         return WORLD_FRAME_LABEL
     if len(set(ids)) == 1:
         return str(ids[0])
-    return ",".join(map(str, ids))
+    return None
 
 
 def _label_line_options(text: str) -> list[list[str]]:
@@ -265,6 +287,30 @@ def _label_cells(text: str, size: float, depth: float) -> list[Part]:
     return parts
 
 
+def _edge_label_cells(ids: list[int], size: float, depth: float) -> list[Part]:
+    """The five tag ids as `depth` deep solids for the bottom face (built as the +Z face viewed
+    from outside, then placed by _BOTTOM_PLACEMENT): each side id along its own edge, reading
+    upright with that edge nearest, and the top id in the centre."""
+    font = _EDGE_FONT * size
+    if font < min_font_size():
+        raise ValueError(
+            f"The cube is too small for the tag IDs along the bottom edges (lines at least {MIN_STROKE:g} mm); "
+            f"use a cube of at least {min_font_size() / _EDGE_FONT:.0f} mm or enter a label."
+        )
+    parts = []
+    for i, tag_id in enumerate(ids[:_TAG_FACES]):
+        text = printable_text(str(tag_id), font)
+        box = text.bounding_box()
+        # Centre the digits on the origin, then move them to their spot (edge band or centre).
+        solid = extrude(text, amount=depth)
+        solid = Pos(-box.center().X, -box.center().Y, 0) * solid
+        if i < len(_EDGE_ROTATIONS):
+            offset = size / 2 - _EDGE_MARGIN * size - box.size.Y / 2
+            solid = Rot(0, 0, _EDGE_ROTATIONS[i]) * Pos(0, -offset, 0) * solid
+        parts.append(Part((Pos(0, 0, size / 2 - depth) * solid).wrapped))
+    return parts
+
+
 def _check_dimensions(size: float, depth: float) -> None:
     if size <= 0:
         raise ValueError("Cube size must be greater than 0.")
@@ -272,18 +318,22 @@ def _check_dimensions(size: float, depth: float) -> None:
         raise ValueError("Tag depth must be positive and smaller than half the cube size.")
 
 
-def _build_cube_bodies(ids: list[int], size: float, depth: float, label: str = "") -> tuple[Part, Part]:
-    """White and black solids of one cube centred on the origin; ids has one tag id per tag
-    face, and a non-empty label is inlaid in the bottom face."""
+def _build_cube_bodies(ids: list[int], size: float, depth: float, label: str | None = "") -> tuple[Part, Part]:
+    """White and black solids of one cube centred on the origin. ids has one tag id per tag
+    face (five, or six with a tag on the bottom face). With five, a non-empty label is inlaid in
+    the bottom face; label None puts the ids along the bottom edges instead."""
     face_parts = []
     cells_by_id: dict[int, list[Part]] = {}
-    for tag_id, placement in zip(ids, _FACE_PLACEMENTS):
+    for tag_id, placement in zip(ids, _FACE_PLACEMENTS + [_BOTTOM_PLACEMENT]):
         if tag_id not in cells_by_id:
             cells_by_id[tag_id] = _face_cells(tag_id, size, depth)
         for b in cells_by_id[tag_id]:
             face_parts.append(placement * b)
-    if label.strip():
-        face_parts += [_BOTTOM_PLACEMENT * b for b in _label_cells(label.strip(), size, depth)]
+    if len(ids) == _TAG_FACES:
+        if label is None:
+            face_parts += [_BOTTOM_PLACEMENT * b for b in _edge_label_cells(ids, size, depth)]
+        elif label.strip():
+            face_parts += [_BOTTOM_PLACEMENT * b for b in _label_cells(label.strip(), size, depth)]
 
     black = Part(face_parts[0].fuse(*face_parts[1:]).clean().wrapped)
     white = Part(Box(size, size, size).cut(black).clean().wrapped)
@@ -307,21 +357,24 @@ def _label_bodies(white, black) -> None:
 
 
 def build_apriltag_cube(
-    tag_ids: int | list[int], size: float, depth: float = 1.0, axes: bool = False, label: str | None = None
+    tag_ids: int | list[int], size: float, depth: float = DEFAULT_DEPTH, axes: bool = False,
+    label: str | None = None, bottom_tag: bool = False,
 ) -> Compound:
     """Build a compound with two bodies (labels 'white' and 'black').
 
-    tag_ids is either one id (same tag on all faces) or five ids in FACE_NAMES order.
-    label is the bottom label: None for default_label(ids), "" for none.
+    tag_ids is either one id (same tag on all faces) or one id per tag face in FACE_NAMES order:
+    five, or six with bottom_tag=True (a tag instead of the label on the bottom face).
+    label is the bottom label: None for the default (see default_label), "" for none.
     With axes=True, two extra bodies 'red' (+X) and 'green' (+Y) are added on the floor beside the cube.
     """
     ids = [tag_ids] if isinstance(tag_ids, int) else list(tag_ids)
+    n_faces = face_count(bottom_tag)
     if len(ids) == 1:
-        ids = ids * len(_FACE_PLANES)
-    if len(ids) != len(_FACE_PLANES):
-        raise ValueError(f"Provide one tag ID or {len(_FACE_PLANES)} (four sides, then the top).")
+        ids = ids * n_faces
+    if len(ids) != n_faces:
+        raise ValueError(f"Provide one tag ID or {n_faces} ({_faces_text(n_faces)}).")
     _check_dimensions(size, depth)
-    if label is None:
+    if label is None and not bottom_tag:
         label = default_label(ids)
 
     white, black = _build_cube_bodies(ids, size, depth, label)
@@ -340,16 +393,17 @@ def grid_dimension(count: int) -> int:
 
 
 def build_apriltag_cube_grid(
-    tag_ids: list[int], size: float, depth: float = 1.0, axes: bool = False, spacing: float = GRID_SPACING,
-    labels: bool = True,
+    tag_ids: list[int], size: float, depth: float = DEFAULT_DEPTH, axes: bool = False, spacing: float = GRID_SPACING,
+    labels: bool = True, bottom_tag: bool = False,
 ) -> Compound:
-    """One cube per tag id (same tag on all five tag faces), in the smallest square grid.
+    """One cube per tag id (same tag on all tag faces), in the smallest square grid.
 
     Cubes are `spacing` mm apart, filled row by row starting at the top-left (looking down
     +Z with +X right and +Y up), and the grid is centred on the origin. All white parts form
     one body 'white' and all black parts one body 'black', so a slicer can assign each filament
-    once for every cube. With labels=True each cube's bottom face carries its tag id. With a
-    single id this is the same as build_apriltag_cube.
+    once for every cube. With labels=True each cube's bottom face carries its tag id; with
+    bottom_tag=True it carries the tag instead. With a single id this is the same as
+    build_apriltag_cube.
     """
     ids = list(tag_ids)
     if not ids:
@@ -357,7 +411,7 @@ def build_apriltag_cube_grid(
     if len(ids) > MAX_CUBES:
         raise ValueError(f"At most {MAX_CUBES} cubes can be generated at once.")
     if len(ids) == 1:
-        return build_apriltag_cube(ids[0], size, depth, axes, None if labels else "")
+        return build_apriltag_cube(ids[0], size, depth, axes, None if labels else "", bottom_tag)
     _check_dimensions(size, depth)
 
     n = grid_dimension(len(ids))
@@ -369,7 +423,7 @@ def build_apriltag_cube_grid(
     for index, tag_id in enumerate(ids):
         if tag_id not in bodies_by_id:
             bodies_by_id[tag_id] = _build_cube_bodies(
-                [tag_id] * len(_FACE_PLANES), size, depth, str(tag_id) if labels else ""
+                [tag_id] * face_count(bottom_tag), size, depth, str(tag_id) if labels else ""
             )
         row, col = divmod(index, n)
         shift = Pos(-extent / 2 + size / 2 + col * pitch, extent / 2 - size / 2 - row * pitch, 0)
@@ -390,13 +444,14 @@ def export_apriltag_cube(cube: Compound, path: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description="AprilTag tag16h5 two-colour cube (STEP)")
     ap.add_argument("--id", default="0", help="tag16h5 id 0-29, or 5 comma-separated ids: +X, +Y, -X, -Y (sides, "
-                    "counterclockwise from above), then +Z (top)")
+                    "counterclockwise from above), then +Z (top); 6 with --bottom-tag (then -Z)")
+    ap.add_argument("--bottom-tag", action="store_true", help="a tag on the bottom face too, instead of the label")
     ap.add_argument("--world-frame", action="store_true", help=f"world-frame cube: ids {','.join(map(str, WORLD_FRAME_IDS))}, "
                     f"label '{WORLD_FRAME_LABEL}' and axes; used instead of --id")
-    ap.add_argument("--label", help="bottom label (default: the tag id(s), or 'World frame'); '|' is a line break, "
-                    "empty for none")
+    ap.add_argument("--label", help="bottom label (default: the tag id, 'World frame', or five different ids along "
+                    "the edges); '|' is a line break, empty for none")
     ap.add_argument("--size", type=float, default=40.0, help="cube edge length (mm)")
-    ap.add_argument("--depth", type=float, default=1.0, help="black layer depth (mm)")
+    ap.add_argument("--depth", type=float, default=DEFAULT_DEPTH, help="black layer depth (mm)")
     ap.add_argument("--cubes", help="comma-separated tag ids: one cube (same tag on all faces) per id, in a square grid "
                     f"{GRID_SPACING:g} mm apart; used instead of --id")
     ap.add_argument("--axes", action="store_true", help="add red (+X) and green (+Y) world-frame arrows on the floor beside the cube(s)")
@@ -406,9 +461,10 @@ def main() -> None:
         cube = build_apriltag_cube(list(WORLD_FRAME_IDS), a.size, a.depth, True, a.label)
     elif a.cubes:
         cube = build_apriltag_cube_grid(parse_tag_ids(a.cubes, per_face=False), a.size, a.depth, a.axes,
-                                        labels=a.label != "")
+                                        labels=a.label != "", bottom_tag=a.bottom_tag)
     else:
-        cube = build_apriltag_cube(parse_tag_ids(a.id), a.size, a.depth, a.axes, a.label)
+        cube = build_apriltag_cube(parse_tag_ids(a.id, bottom_tag=a.bottom_tag), a.size, a.depth, a.axes, a.label,
+                                   a.bottom_tag)
     export_apriltag_cube(cube, a.out)
     print(f"Wrote {a.out}")
 

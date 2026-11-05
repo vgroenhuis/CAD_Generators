@@ -13,6 +13,8 @@ const bottomLabelInput = document.getElementById("bottom_label");
 const labelInput = document.getElementById("label");
 const labelHint = document.getElementById("label-hint");
 const labelHintText = labelHint.textContent;
+const facesTitle = document.getElementById("faces-title");
+const facesHint = document.getElementById("faces-hint");
 const sizeInput = document.getElementById("size");
 const tagSizeInput = document.getElementById("tag_size");
 const depthInput = document.getElementById("depth");
@@ -91,7 +93,14 @@ function parseNumber(text) {
 	return /^\d*\.?\d+$|^\d+\.$/.test(trimmed) ? parseFloat(trimmed) : NaN;
 }
 
-const FACE_COUNT = 5;
+// Tag faces: the four sides and the top, plus the bottom when it carries a tag instead of the label.
+function faceCount() {
+	return bottomLabelInput.checked ? 5 : 6;
+}
+function facesText() {
+	return "the four sides counterclockwise as seen from above (+X, +Y, -X, -Y), then the top (+Z)" +
+		(faceCount() === 6 ? " and the bottom (-Z)" : "");
+}
 // Set from the server's defaults (see loadDefaults below).
 let worldFrameIds = [25, 26, 27, 28, 29];
 let worldFrameLabel = "World frame";
@@ -100,11 +109,13 @@ function tagMode() {
 	return document.querySelector('input[name="tag_mode"]:checked')?.value || "same";
 }
 
-// The label used when the label field is empty; mirrors default_label() in apriltag_cube_model.py.
+// The label used when the label field is empty; mirrors default_label() in apriltag_cube_model.py
+// (different tags: each side's ID along its bottom edge, the top ID in the centre).
+const EDGE_LABEL = "IDs along the edges";
 function defaultLabel(ids) {
 	if (ids.join(",") === worldFrameIds.join(",")) return worldFrameLabel;
 	if (new Set(ids).size === 1) return String(ids[0]);
-	return ids.join(",");
+	return EDGE_LABEL;
 }
 
 function currentIds() {
@@ -121,7 +132,30 @@ function updateMode() {
 	tagIdsInput.disabled = mode !== "faces";
 	axesInput.disabled = mode === "world";
 	if (mode === "world") axesInput.checked = true;
+	// The world-frame cube stands on the floor: its bottom face always carries the label.
+	bottomLabelInput.disabled = mode === "world";
+	if (mode === "world") setBottomLabel(true);
 	updateLabel();
+}
+
+// Switching between label and bottom tag: the "different tags" field gains or loses the bottom ID.
+function setBottomLabel(on) {
+	if (bottomLabelInput.checked !== on) bottomLabelInput.checked = on;
+	const n = faceCount();
+	facesTitle.textContent = n === 6 ? "Six different tags" : "Five different tags";
+	facesHint.textContent = `${n === 6 ? "Six" : "Five"} comma-separated IDs: ${facesText()}.`;
+	const parts = tagIdsInput.value.split(/[,;]/).map((s) => s.trim()).filter((s) => s !== "");
+	if (parts.every((s) => /^\d+$/.test(s))) {
+		const ids = parts.map(Number);
+		if (n === 6 && ids.length === 5) {
+			const unused = [...Array(30).keys()].find((id) => !ids.includes(id));
+			ids.push(unused);
+		} else if (n === 5 && ids.length === 6) {
+			ids.pop();
+		}
+		tagIdsInput.value = ids.join(",");
+	}
+	tagIdsInput.placeholder = [...Array(n).keys()].join(",");
 }
 
 // In a grid every cube is labelled with its own ID, so the label text applies to single cubes only.
@@ -129,22 +163,26 @@ function updateLabel() {
 	const ids = currentIds();
 	const grid = tagMode() === "same" && ids && ids.length > 1;
 	labelInput.disabled = !bottomLabelInput.checked || grid;
-	labelInput.placeholder = ids && !grid ? defaultLabel(ids) : "";
-	labelHint.textContent = grid ? "Each cube in the grid is labelled with its tag ID." : labelHintText;
+	labelInput.placeholder = ids && !grid && bottomLabelInput.checked ? defaultLabel(ids) : "";
+	if (!bottomLabelInput.checked) {
+		labelHint.textContent = "The bottom face carries a tag as well. Tick to use it for a label with the ID(s) instead.";
+	} else {
+		labelHint.textContent = grid ? "Each cube in the grid is labelled with its tag ID." : labelHintText;
+	}
 }
 
 const MAX_CUBES = 64;
 
-// perFace false: one or more IDs, one cube each (same tag on all faces); true: five IDs for
-// a single cube, the four sides counterclockwise from +X, then the top.
+// perFace false: one or more IDs, one cube each (same tag on all faces); true: one ID per tag
+// face of a single cube (see faceCount).
 function parseTagIds(text, perFace) {
 	const parts = text.split(/[,;]/).map((s) => s.trim()).filter((s) => s !== "");
 	if (!parts.every((s) => /^\d+$/.test(s))) {
 		throw new Error("Tag IDs must be integers, separated by commas.");
 	}
 	const ids = parts.map(Number);
-	if (perFace && ids.length !== FACE_COUNT) {
-		throw new Error("Enter 5 comma-separated tag IDs: four sides counterclockwise from +X, then the top.");
+	if (perFace && ids.length !== faceCount()) {
+		throw new Error(`Enter ${faceCount()} comma-separated tag IDs: ${facesText()}.`);
 	}
 	if (!perFace && ids.length === 0) throw new Error("Enter at least one tag ID.");
 	if (!perFace && ids.length > MAX_CUBES) throw new Error(`At most ${MAX_CUBES} cubes can be generated at once.`);
@@ -272,9 +310,15 @@ async function onGenerate() {
 		if (!params.perFace && params.tagIds.length > 1) {
 			const n = Math.ceil(Math.sqrt(params.tagIds.length));
 			what = `${params.tagIds.length} cubes in a ${n}x${n} grid: tag16h5 ids ${idsText}`;
+			if (!params.bottomLabel) what += ", tags on the bottoms too";
 		} else {
 			what = `cube: tag16h5 ${params.tagIds.length === 1 ? "id" : "ids"} ${idsText}`;
-			if (params.bottomLabel) what += `, label "${params.label || defaultLabel(params.tagIds)}"`;
+			if (!params.bottomLabel) {
+				what += ", tag on the bottom too";
+			} else {
+				const label = params.label || defaultLabel(params.tagIds);
+				what += label === EDGE_LABEL ? ", bottom: IDs along the edges" : `, label "${label}"`;
+			}
 		}
 		setStatus(`Generated ${what}, ${params.size} mm, black depth ${params.depth} mm`);
 	} catch (exc) {
@@ -311,6 +355,7 @@ modeInputs.forEach((el) => el.addEventListener("change", () => {
 updateMode();
 axesInput.addEventListener("change", onGenerate);
 bottomLabelInput.addEventListener("change", () => {
+	setBottomLabel(bottomLabelInput.checked);
 	updateLabel();
 	onGenerate();
 });
@@ -326,6 +371,7 @@ loadDefaults("api/apriltag-cube")
 	.then((defaults) => {
 		worldFrameIds = defaults.world_frame_ids.split(",").map(Number);
 		worldFrameLabel = defaults.world_frame_label;
+		setBottomLabel(bottomLabelInput.checked);
 		updateMode();
 		syncTagSizeFromCube();
 		onGenerate();

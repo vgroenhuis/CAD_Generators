@@ -5,7 +5,8 @@ Inputs:
 - Either one tag ID (same tag on all faces), five tag IDs (comma-separated: the four sides
   counterclockwise as seen from above, +X, +Y, -X, -Y, then the top), or the world-frame cube
   (IDs 25-29 with the axes). AprilTag family tag16h5, IDs 0-29.
-- Optional label on the bottom face (default: the tag ID(s), or "World frame")
+- Bottom face: a label (default: the tag ID, "World frame", or with five different tags each
+  side's ID along its edge and the top ID in the centre), or a tag (then six different tags)
 - Cube size (mm)
 - Black layer depth (mm)
 - Optional red (+X) / green (+Y) world-frame arrows on the floor beside the cube
@@ -51,7 +52,7 @@ _DEFAULTS = {
 	"bottom_label": True,
 	"label": "",
 	"size": "40",
-	"depth": "1",
+	"depth": "0.7",
 	"axes": False,
 }
 
@@ -137,16 +138,14 @@ class AprilTagCubeApp:
 			f"{_GRID_SPACING:g} mm apart.",
 			foreground="gray",
 		).grid(row=0, column=2, sticky=tk.W, padx=(12, 0))
-		ttk.Radiobutton(
+		self.faces_radio = ttk.Radiobutton(
 			tags, text="Five different tags", value="faces", variable=self.mode_var, command=self._update_mode
-		).grid(row=1, column=0, sticky=tk.W, padx=(0, 16), pady=2)
+		)
+		self.faces_radio.grid(row=1, column=0, sticky=tk.W, padx=(0, 16), pady=2)
 		self.ids_entry = ttk.Entry(tags, textvariable=self.ids_var, width=24)
 		self.ids_entry.grid(row=1, column=1, sticky=tk.W, pady=2)
-		ttk.Label(
-			tags,
-			text="Four sides counterclockwise as seen from above (+X, +Y, -X, -Y), then the top.",
-			foreground="gray",
-		).grid(row=1, column=2, sticky=tk.W, padx=(12, 0))
+		self.faces_hint = ttk.Label(tags, foreground="gray")
+		self.faces_hint.grid(row=1, column=2, sticky=tk.W, padx=(12, 0))
 		ttk.Radiobutton(
 			tags, text="World frame cube", value="world", variable=self.mode_var, command=self._update_mode
 		).grid(row=2, column=0, sticky=tk.W, padx=(0, 16), pady=2)
@@ -155,14 +154,16 @@ class AprilTagCubeApp:
 			text="Tags 25 (+X), 26 (+Y), 27 (-X), 28 (-Y), 29 (top), label 'World frame', red/green axes on the floor.",
 			foreground="gray",
 		).grid(row=2, column=1, columnspan=2, sticky=tk.W)
-		ttk.Checkbutton(
+		self.bottom_label_check = ttk.Checkbutton(
 			tags, text="Label on bottom face", variable=self.bottom_label_var, command=self._update_mode
-		).grid(row=3, column=0, sticky=tk.W, padx=(0, 16), pady=2)
+		)
+		self.bottom_label_check.grid(row=3, column=0, sticky=tk.W, padx=(0, 16), pady=2)
 		self.label_entry = ttk.Entry(tags, textvariable=self.label_var, width=24)
 		self.label_entry.grid(row=3, column=1, sticky=tk.W, pady=2)
 		ttk.Label(
 			tags,
-			text="Empty: the tag ID(s) or 'World frame'; in a grid, each cube's ID. | forces a line break.",
+			text="Empty: the tag ID, 'World frame', or the IDs along the edges. | forces a line break.\n"
+			"Unticked: a tag on the bottom face as well.",
 			foreground="gray",
 		).grid(row=3, column=2, sticky=tk.W, padx=(12, 0))
 		for entry in (self.id_entry, self.ids_entry, self.label_entry):
@@ -233,7 +234,16 @@ class AprilTagCubeApp:
 		mode = self.mode_var.get()
 		self.id_entry.configure(state=tk.NORMAL if mode == "same" else tk.DISABLED)
 		self.ids_entry.configure(state=tk.NORMAL if mode == "faces" else tk.DISABLED)
+		if mode == "world":
+			self.bottom_label_var.set(True)  # the world-frame cube stands on the floor
+		self.bottom_label_check.configure(state=tk.DISABLED if mode == "world" else tk.NORMAL)
 		self.label_entry.configure(state=tk.NORMAL if self.bottom_label_var.get() else tk.DISABLED)
+		six = not self.bottom_label_var.get()
+		self.faces_radio.configure(text="Six different tags" if six else "Five different tags")
+		self.faces_hint.configure(
+			text="Four sides counterclockwise as seen from above (+X, +Y, -X, -Y), then the top"
+			+ (" and the bottom." if six else ".")
+		)
 		if mode == "world":
 			self.axes_var.set(True)
 		self.axes_check.configure(state=tk.DISABLED if mode == "world" else tk.NORMAL)
@@ -244,7 +254,7 @@ class AprilTagCubeApp:
 		if mode == "world":
 			return list(_WORLD_FRAME_IDS)
 		if mode == "faces":
-			return parse_tag_ids(self.ids_var.get(), per_face=True)
+			return parse_tag_ids(self.ids_var.get(), per_face=True, bottom_tag=not self.bottom_label_var.get())
 		return parse_tag_ids(self.id_var.get(), per_face=False)
 
 	def _parse_inputs(self) -> tuple[list[int], float, float]:
@@ -263,9 +273,13 @@ class AprilTagCubeApp:
 			use_label = self.bottom_label_var.get()
 			label = (self.label_var.get().strip() or None) if use_label else ""
 			if grid:
-				self.current_cube = build_apriltag_cube_grid(tag_ids, size, depth, axes=self.axes_var.get(), labels=use_label)
+				self.current_cube = build_apriltag_cube_grid(
+					tag_ids, size, depth, axes=self.axes_var.get(), bottom_tag=not use_label
+				)
 			else:
-				self.current_cube = build_apriltag_cube(tag_ids, size, depth, axes=self.axes_var.get(), label=label)
+				self.current_cube = build_apriltag_cube(
+					tag_ids, size, depth, axes=self.axes_var.get(), label=label, bottom_tag=not use_label
+				)
 			_save_params(
 				{
 					"tag_mode": self.mode_var.get(),
@@ -287,8 +301,11 @@ class AprilTagCubeApp:
 				what = f"{len(tag_ids)} cubes in a {n}x{n} grid: tag16h5 ids {ids_text}"
 			else:
 				what = f"cube: tag16h5 {'id' if len(tag_ids) == 1 else 'ids'} {ids_text}"
-				if use_label:
-					what += f", label '{label or default_label(tag_ids)}'"
+				if not use_label:
+					what += ", tag on the bottom too"
+				else:
+					text = label or default_label(tag_ids)
+					what += f", label '{text}'" if text else ", bottom: IDs along the edges"
 			self.status_var.set(f"Generated {what}, {size:g} mm, black depth {depth:g} mm")
 		except Exception as exc:
 			messagebox.showerror("Generate Failed", str(exc))
