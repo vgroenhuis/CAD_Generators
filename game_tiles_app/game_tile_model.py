@@ -691,7 +691,8 @@ def _spiral_arms(radius: float, y0: float = 0.0) -> list[Sketch]:
 
 def _portal_upright(c: Ctx) -> Design:
     """A standing ring, cut flat at the floor, with an opening down to the floor that a game
-    piece can walk through; a thin white glow lines the opening."""
+    piece can walk through; a thin white glow lines the opening. The round top of the opening
+    needs supports when printed (or bridges with a little sag)."""
     radius = 0.85 * c.inr  # outside of the ring
     cz = 0.8 * radius  # centre of the ring above the floor
     r_in = 0.6 * radius  # the opening: round, with straight sides down to the floor
@@ -699,13 +700,9 @@ def _portal_upright(c: Ctx) -> Design:
     t_ring = max(4.0, 5 * c.k)
 
     def opening(r):
-        """Round-topped opening of radius r down to the floor, pointed at the top at 45
-        degrees so its roof prints without supports."""
-        a = np.linspace(-math.pi / 4, math.pi / 4, 12)  # the round part, from the floor up to 45 degrees
-        right = [(r, 0.0)] + [(r * math.cos(t), cz + r * math.sin(t)) for t in np.linspace(0, math.pi / 4, 8)]
-        apex = (0.0, cz + r * math.sqrt(2))
-        left = [(-x, z) for x, z in reversed(right)]
-        return right + [apex] + left
+        """Round-topped opening of radius r with straight sides down to the floor (its roof
+        needs supports or bridges with a little sag)."""
+        return [(r, 0.0)] + [(r * math.cos(t), cz + r * math.sin(t)) for t in np.linspace(0, math.pi, 48)] + [(-r, 0.0)]
 
     def slab(sketch, thickness):
         return extrude(Plane.XZ * sketch, amount=thickness / 2, both=True)
@@ -765,7 +762,7 @@ def _star_upright(c: Ctx) -> Design:
     # Inner corners at half the radius: then the undersides of the side points are no
     # steeper than 45 degrees, and the plinth fills the notch between the lower points.
     r_in = 0.5 * radius
-    sink = min(0.5, 0.8 * c.p.inlay_depth)  # the lower points reach this far into gold pads in the floor
+    sink = min(0.5, c.p.thickness - 1.0)  # the lower points reach this far into the floor, to anchor the star
     tip_z = -radius * math.cos(math.radians(36))  # lower points, relative to the centre
     cz = -tip_z - sink
     thick = max(4.0, 5 * c.k)
@@ -778,21 +775,21 @@ def _star_upright(c: Ctx) -> Design:
     except Exception:
         pass
     star = Part((half + mirror(half, Plane.XZ)).clean().wrapped)
-    # The plinth only fills the notch between the lower points and is thinner than the star,
-    # so the points stand out in front of it on both faces.
-    plinth_w = 0.55 * radius
-    plinth = extrude(Plane.XZ * _rect(-plinth_w, 0, plinth_w, cz - r_in), amount=0.275 * thick, both=True) - star
+    # A small, thin plinth low in the notch between the lower points (it braces them; the
+    # points stand out in front of it on both faces).
+    plinth_w = 0.5 * radius
+    plinth_t = max(1.2, 0.3 * thick)
+    plinth = extrude(Plane.XZ * _rect(-plinth_w, 0, plinth_w, 0.5 * (cz - r_in)), amount=plinth_t / 2, both=True) - star
     shift = Pos(0, c.cy, 0)
     tip_x = radius * math.sin(math.radians(36))
     pad = max(1.5, 0.12 * radius)
-    pads = _union([_rect(sx * tip_x - pad, c.cy - thick / 2, sx * tip_x + pad, c.cy + thick / 2) for sx in (-1, 1)])
     sparkles = [_star(x, y, rr, 0.32 * rr, 4, 0) for x, y, rr in
                 c.scatter(int(c.area / 400), 2.2 * max(1, c.k), 2.8 * max(1, c.k), 0.5,
                           avoid=[(x, c.cy, thick) for x in np.linspace(-tip_x - pad, tip_x + pad, 9)])]
     return Design("blue", [
         Layer("white", _union(sparkles), c.hgt(0.6)),
         Layer("blue", None, solids=[shift * plinth]),
-        Layer("gold", pads, solids=[shift * star]),
+        Layer("gold", None, solids=[shift * star]),
     ])
 
 
@@ -890,7 +887,10 @@ def _bodies(p: TileParams, seed: int) -> dict[str, list[Part]]:
     cuts = []
     for layer, region in zip(design.layers, regions):
         parts = bodies.setdefault(layer.color, [])
-        parts += [Pos(0, 0, top) * s for s in layer.solids]
+        placed = [Pos(0, 0, top) * s for s in layer.solids]
+        parts += placed
+        if layer.color != design.base:  # solids reaching below the top (e.g. sunk star points) get room in the base
+            cuts += [s for s in placed if s.bounding_box().min.Z < top - 1e-6]
         if region is None or not region.faces():
             continue
         h = layer.height
