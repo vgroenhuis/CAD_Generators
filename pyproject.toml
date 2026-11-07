@@ -78,4 +78,4 @@ py-modules = ["main_menu"]
 cad_common = ["fonts/*"]
 
 [tool.setuptools.packages.find]
-include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "apriltag_cube_app*", "calibration_plate_app*", "sanding_rack_app*", "orifice_app*", "cable_clip_app*", "cad_common*", "sandbox*", "web_app*"]
+include = ["ring_app*", "pneumatic_cylinder_app*", "powerbank_holder_app*", "apriltag_cube_app*", "calibration_plate_app*", "sanding_rack_app*", "orifice_app*", "cable_clip_app*", "game_tiles_app*", "pneumatic_app*", "cad_common*", "sandbox*", "web_app*"]
