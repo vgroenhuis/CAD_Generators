@@ -690,9 +690,9 @@ def _spiral_arms(radius: float, y0: float = 0.0) -> list[Sketch]:
 
 
 def _portal_upright(c: Ctx) -> Design:
-    """A standing ring, cut flat at the floor, with an opening down to the floor that a game
-    piece can walk through; a thin white glow lines the opening. The round top of the opening
-    needs supports when printed (or bridges with a little sag)."""
+    """A standing arch of even width around an opening down to the floor that a game piece can
+    walk through; a thin white glow lines the opening. The round top of the opening needs
+    supports when printed (or bridges with a little sag)."""
     radius = 0.85 * c.inr  # outside of the ring
     cz = 0.8 * radius  # centre of the ring above the floor
     r_in = 0.6 * radius  # the opening: round, with straight sides down to the floor
@@ -707,16 +707,12 @@ def _portal_upright(c: Ctx) -> Design:
     def slab(sketch, thickness):
         return extrude(Plane.XZ * sketch, amount=thickness / 2, both=True)
 
-    outer = _sk(_circle(0, cz, radius, 96) & _rect(-radius, 0, radius, cz + radius))  # cut flat at the floor
-    # Feet under the ring's outer bottom edges, where its underside gets steeper than 45 degrees.
-    foot_x = radius * math.sin(math.radians(45))
-    feet = _rect(-foot_x, 0, foot_x, cz - radius * math.cos(math.radians(45)))
-    ring = slab(_sk(_union([outer, feet]) - _poly(opening(r_in + lining))), t_ring)
+    # The outside follows the opening (round top, straight sides), so the band is equally wide all round.
+    ring = slab(_sk(_poly(opening(radius)) - _poly(opening(r_in + lining))), t_ring)
     glow = slab(_sk(_poly(opening(r_in + lining)) - _poly(opening(r_in))), t_ring)
     shift = Pos(0, c.cy, 0)
-    half = radius * math.sqrt(1 - (cz / radius) ** 2)  # half the width of the ring at the floor
-    footprint = _sk(_rect(-max(half, foot_x), c.cy - t_ring / 2, max(half, foot_x), c.cy + t_ring / 2)
-                    - _rect(-r_in, c.cy - t_ring, r_in, c.cy + t_ring))
+    footprint = _sk(_rect(-radius, c.cy - t_ring / 2, radius, c.cy + t_ring / 2)
+                    - _rect(-r_in - lining, c.cy - t_ring, r_in + lining, c.cy + t_ring))
     swirl = _union(_spiral_arms(0.9 * r_in, 0.0))
     swirl = Pos(0, c.cy, 0) * swirl if swirl is not None else None
     return Design("dark_purple", [
@@ -823,7 +819,7 @@ TILE_TYPES = {
     "arrow": TileType("Arrow", "Objects", _arrow, "raised direction or conveyor arrow, pointing to +Y"),
     "portal": TileType("Portal (flat)", "Objects", _portal, "raised swirling teleporter"),
     "portal_upright": TileType("Portal (upright)", "Objects", _portal_upright,
-                               "standing ring that a game piece can walk through, with a glowing lining and a swirl on the floor"),
+                               "standing arch that a game piece can walk through, with a glowing lining and a swirl on the floor"),
     "star": TileType("Star (flat)", "Objects", _star_tile, "raised gold star, for a bonus or goal"),
     "star_upright": TileType("Star (upright)", "Objects", _star_upright, "gem-bevelled gold star standing on its two lower points"),
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
