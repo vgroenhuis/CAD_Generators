@@ -465,14 +465,26 @@ def _arch(width: float, top: float, n: int = 24) -> list[tuple[float, float]]:
     return [(r, 0.0)] + [(r * math.cos(t), top - r + r * math.sin(t)) for t in a] + [(-r, 0.0)]
 
 
+def _half_width(c: Ctx, y0: float, y1: float) -> float:
+    """Half the width of the tile over the whole band y0..y1 (the tile is symmetric in x)."""
+    pts = outline_points(c.p)
+    nxt = np.roll(pts, -1, axis=0)
+    half = []
+    for y in np.linspace(y0, y1, 5):
+        xs = [x0 + (y - ya) * (x1 - x0) / (yb - ya) for (x0, ya), (x1, yb) in zip(pts, nxt) if (ya - y) * (yb - y) <= 0 and ya != yb]
+        half.append(max(xs))
+    return min(half)
+
+
 def _door_upright(c: Ctx) -> Design:
-    """A door standing upright in an arched frame, in a stone wall across the full width of the
-    tile (so a game piece cannot walk around it), on a flagstone floor."""
-    w, fw = 1.3 * c.inr, max(2.0, 2.6 * c.k)  # outer width of the frame, width of its posts
-    height = 1.9 * c.inr
+    """A door standing upright in an arched frame as wide as the tile (so a game piece cannot
+    walk around it), on a flagstone floor."""
     t_frame = max(4.0, 5 * c.k)
     t_leaf = 0.7 * t_frame
+    w = 2 * _half_width(c, c.cy - t_frame / 2, c.cy + t_frame / 2)  # outer width of the frame
+    fw = max(2.0, 2.6 * c.k)  # width of its posts and arch
     leaf_w = w - 2 * fw
+    height = max(1.9 * c.inr, w / 2 + 0.6 * c.inr)  # top of the frame; the door has straight sides below the arch
 
     def slab(points, thickness):
         return extrude(Plane.XZ * Polygon(*points, align=None), amount=thickness / 2, both=True)
@@ -481,10 +493,11 @@ def _door_upright(c: Ctx) -> Design:
     frame = slab(_arch(w, height), t_frame) - slab(leaf_outline, t_frame + 1)
     leaf = slab(leaf_outline, t_leaf)
     groove = max(1.0, c.k)
-    for i in (1, 2, 3):  # plank seams on both faces
+    planks = max(3, round(leaf_w / (6 * max(1, c.k))))
+    for i in range(1, planks):  # plank seams on both faces
         for side in (-1, 1):
-            leaf = leaf - Pos(-leaf_w / 2 + i * leaf_w / 4, side * t_leaf / 2, height / 2) * Box(groove, 1.0, height)
-    kx, kz = 0.28 * leaf_w, 0.42 * height
+            leaf = leaf - Pos(-leaf_w / 2 + i * leaf_w / planks, side * t_leaf / 2, height / 2) * Box(groove, 1.0, height)
+    kx, kz = 0.3 * leaf_w, 0.42 * height
     kr = max(1.2, 1.5 * c.k)
     knob = Pos(kx, 0, kz) * Rot(90, 0, 0) * Cylinder(kr, t_leaf + 2 * kr)  # through the door: a knob on both sides
     hole_r = max(0.7, 0.7 * c.k)
@@ -495,20 +508,12 @@ def _door_upright(c: Ctx) -> Design:
     leaf = leaf - knob - keyhole
     shift = Pos(0, c.cy, 0)
     footprint = _rect(-w / 2, c.cy - t_frame / 2, w / 2, c.cy + t_frame / 2)
-    # The wall: slightly thinner than the frame, a little higher than the arch, cut off at the
-    # tile's edge; in the floor's colour (one filament fewer).
-    t_wall = 0.8 * t_frame
-    wall_h = height + max(2.0, 3 * c.k)
-    wall = slab([(-c.w, 0), (c.w, 0), (c.w, wall_h), (-c.w, wall_h)], t_wall) - slab(_arch(w, height), t_wall + 1)
-    wall = shift * wall & extrude(c.outline, amount=wall_h + 1)
-    wall_footprint = _rect(-c.w, c.cy - t_wall / 2, c.w, c.cy + t_wall / 2)  # keeps the floor joints from under the wall
     pitch, joint = 10 * c.k, c.line(1.0)
     flags = [_rect(-c.w, y - joint / 2, c.w, y + joint / 2) for y in np.arange(-c.h, c.h, pitch)]
     for j, y in enumerate(np.arange(-c.h, c.h, pitch)):
         flags += [_rect(x - joint / 2, y, x + joint / 2, y + pitch) for x in np.arange(-c.w, c.w, pitch) + (pitch / 2 if j % 2 else 0)]
     return Design("grey", [
         Layer("grey", _union(flags), height=-0.6),
-        Layer("grey", wall_footprint, solids=[Part(wall.wrapped)]),
         Layer("dark_brown", footprint, solids=[shift * frame]),
         Layer("wood", None, solids=[shift * leaf]),
         Layer("gold", None, solids=[shift * knob]),
@@ -685,34 +690,42 @@ def _spiral_arms(radius: float, y0: float = 0.0) -> list[Sketch]:
 
 
 def _portal_upright(c: Ctx) -> Design:
-    """A ring standing on a plinth, filled with a disc that has the swirl in relief on both faces."""
+    """A standing ring, cut flat at the floor, with an opening down to the floor that a game
+    piece can walk through; a thin white glow lines the opening."""
     radius = 0.85 * c.inr  # outside of the ring
-    ring_w = max(2.0, 0.14 * radius)
-    inner = radius - ring_w
-    plinth_h = max(2.0, 2.5 * c.k)
-    cz = plinth_h + radius  # centre of the ring
-    t_ring, t_disc = max(4.0, 5 * c.k), max(2.0, 2.4 * c.k)
-    relief = c.hgt(0.8)
+    cz = 0.8 * radius  # centre of the ring above the floor
+    r_in = 0.6 * radius  # the opening: round, with straight sides down to the floor
+    lining = max(1.0, 0.08 * radius)
+    t_ring = max(4.0, 5 * c.k)
+
+    def opening(r):
+        """Round-topped opening of radius r down to the floor, pointed at the top at 45
+        degrees so its roof prints without supports."""
+        a = np.linspace(-math.pi / 4, math.pi / 4, 12)  # the round part, from the floor up to 45 degrees
+        right = [(r, 0.0)] + [(r * math.cos(t), cz + r * math.sin(t)) for t in np.linspace(0, math.pi / 4, 8)]
+        apex = (0.0, cz + r * math.sqrt(2))
+        left = [(-x, z) for x, z in reversed(right)]
+        return right + [apex] + left
 
     def slab(sketch, thickness):
         return extrude(Plane.XZ * sketch, amount=thickness / 2, both=True)
 
-    ring = slab(_sk(_circle(0, cz, radius, 96) - _circle(0, cz, inner, 96)), t_ring)
-    # The plinth reaches out to where the ring's underside gets steeper than 45 degrees, so
-    # the ring prints without supports.
-    half = 0.75 * radius
-    plinth = slab(_sk(_rect(-half, 0, half, cz - 0.66 * radius) - _circle(0, cz, inner, 96)), t_ring)
-    arms = slab(_union(_spiral_arms(inner - 0.2, cz)), t_disc + 2 * relief) & slab(_circle(0, cz, inner, 96), t_disc + 4)
-    centre = Pos(0, 0, cz) * Rot(90, 0, 0) * Cylinder(0.16 * inner, t_disc + 2 * relief + 1.0)
-    disc = slab(_circle(0, cz, inner, 96), t_disc) - arms - centre
-    arms = arms - centre
+    outer = _sk(_circle(0, cz, radius, 96) & _rect(-radius, 0, radius, cz + radius))  # cut flat at the floor
+    # Feet under the ring's outer bottom edges, where its underside gets steeper than 45 degrees.
+    foot_x = radius * math.sin(math.radians(45))
+    feet = _rect(-foot_x, 0, foot_x, cz - radius * math.cos(math.radians(45)))
+    ring = slab(_sk(_union([outer, feet]) - _poly(opening(r_in + lining))), t_ring)
+    glow = slab(_sk(_poly(opening(r_in + lining)) - _poly(opening(r_in))), t_ring)
     shift = Pos(0, c.cy, 0)
-    violet = Part((shift * (ring + plinth + arms)).clean().wrapped)
-    footprint = _rect(-half, c.cy - t_ring / 2, half, c.cy + t_ring / 2)
+    half = radius * math.sqrt(1 - (cz / radius) ** 2)  # half the width of the ring at the floor
+    footprint = _sk(_rect(-max(half, foot_x), c.cy - t_ring / 2, max(half, foot_x), c.cy + t_ring / 2)
+                    - _rect(-r_in, c.cy - t_ring, r_in, c.cy + t_ring))
+    swirl = _union(_spiral_arms(0.9 * r_in, 0.0))
+    swirl = Pos(0, c.cy, 0) * swirl if swirl is not None else None
     return Design("dark_purple", [
-        Layer("violet", footprint, solids=[violet]),
-        Layer("dark_purple", None, solids=[shift * disc]),
-        Layer("white", None, solids=[shift * centre]),
+        Layer("violet", swirl, c.hgt(0.4)),  # a small swirl on the floor in the opening
+        Layer("violet", footprint, solids=[shift * ring]),
+        Layer("white", None, solids=[shift * glow]),
     ])
 
 
@@ -746,12 +759,15 @@ def _star_tile(c: Ctx) -> Design:
 
 
 def _star_upright(c: Ctx) -> Design:
-    """A star standing on its two lower points in a plinth, bevelled on both faces like a gem."""
+    """A star standing on its two lower points, bevelled on both faces like a gem, with a thin
+    plinth in the notch between those points."""
     radius = 0.85 * c.inr
     # Inner corners at half the radius: then the undersides of the side points are no
     # steeper than 45 degrees, and the plinth fills the notch between the lower points.
     r_in = 0.5 * radius
-    cz = 0.81 * radius + max(1.5, 2 * c.k)
+    sink = min(0.5, 0.8 * c.p.inlay_depth)  # the lower points reach this far into gold pads in the floor
+    tip_z = -radius * math.cos(math.radians(36))  # lower points, relative to the centre
+    cz = -tip_z - sink
     thick = max(4.0, 5 * c.k)
     face = Plane.XZ * _star(0, cz, radius, r_in)
     half = extrude(face, amount=thick / 2)
@@ -762,17 +778,21 @@ def _star_upright(c: Ctx) -> Design:
     except Exception:
         pass
     star = Part((half + mirror(half, Plane.XZ)).clean().wrapped)
-    plinth_w = 0.7 * radius
-    plinth = extrude(Plane.XZ * _rect(-plinth_w, 0, plinth_w, cz - r_in), amount=thick / 2 + 1, both=True) - star
+    # The plinth only fills the notch between the lower points and is thinner than the star,
+    # so the points stand out in front of it on both faces.
+    plinth_w = 0.55 * radius
+    plinth = extrude(Plane.XZ * _rect(-plinth_w, 0, plinth_w, cz - r_in), amount=0.275 * thick, both=True) - star
     shift = Pos(0, c.cy, 0)
-    footprint = _rect(-plinth_w, c.cy - thick / 2 - 1, plinth_w, c.cy + thick / 2 + 1)
+    tip_x = radius * math.sin(math.radians(36))
+    pad = max(1.5, 0.12 * radius)
+    pads = _union([_rect(sx * tip_x - pad, c.cy - thick / 2, sx * tip_x + pad, c.cy + thick / 2) for sx in (-1, 1)])
     sparkles = [_star(x, y, rr, 0.32 * rr, 4, 0) for x, y, rr in
                 c.scatter(int(c.area / 400), 2.2 * max(1, c.k), 2.8 * max(1, c.k), 0.5,
-                          avoid=[(x, c.cy, thick) for x in np.linspace(-plinth_w, plinth_w, 9)])]
+                          avoid=[(x, c.cy, thick) for x in np.linspace(-tip_x - pad, tip_x + pad, 9)])]
     return Design("blue", [
         Layer("white", _union(sparkles), c.hgt(0.6)),
-        Layer("blue", footprint, solids=[shift * plinth]),
-        Layer("gold", None, solids=[shift * star]),
+        Layer("blue", None, solids=[shift * plinth]),
+        Layer("gold", pads, solids=[shift * star]),
     ])
 
 
@@ -800,15 +820,15 @@ TILE_TYPES = {
     "spikes": TileType("Spikes", "Objects", _spikes, "a trap of raised steel spikes"),
     "door": TileType("Door (flat)", "Objects", _door, "trapdoor: raised planks and braces in a frame, gold handle and keyhole"),
     "door_upright": TileType("Door (upright)", "Objects", _door_upright,
-                             "door in an arched frame, in a stone wall across the whole tile; gold knob on both sides"),
+                             "plank door in an arched frame as wide as the tile; gold knob on both sides"),
     "button": TileType("Button", "Objects", _button, "raised red push button in a hazard ring"),
     "pit": TileType("Pit", "Objects", _pit, "sunken black hole with a raised, cracked rim"),
     "arrow": TileType("Arrow", "Objects", _arrow, "raised direction or conveyor arrow, pointing to +Y"),
     "portal": TileType("Portal (flat)", "Objects", _portal, "raised swirling teleporter"),
     "portal_upright": TileType("Portal (upright)", "Objects", _portal_upright,
-                               "standing ring with a swirl on both sides, on a plinth"),
+                               "standing ring that a game piece can walk through, with a glowing lining and a swirl on the floor"),
     "star": TileType("Star (flat)", "Objects", _star_tile, "raised gold star, for a bonus or goal"),
-    "star_upright": TileType("Star (upright)", "Objects", _star_upright, "gold star standing in a plinth, bevelled like a gem"),
+    "star_upright": TileType("Star (upright)", "Objects", _star_upright, "gem-bevelled gold star standing on its two lower points"),
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
 }
 
