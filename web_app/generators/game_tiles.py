@@ -34,7 +34,7 @@ def _params(
 	shape: str = Query(..., max_length=20),
 	size: float = Query(..., gt=0, le=1000),
 	length: float = Query(60.0, gt=0, le=1000),
-	thickness: float = Query(..., gt=0, le=100),
+	thickness: float = Query(..., gt=0),  # no upper limit: a tile can be a block or cube
 	inlay_depth: float = Query(..., gt=0, le=100),
 	count: int = Query(1, ge=1, le=MAX_COUNT),
 	seed: int = Query(1, ge=0, le=1_000_000),

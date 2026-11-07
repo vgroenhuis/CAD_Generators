@@ -1,12 +1,14 @@
 """
-    Multicolour game tiles: a flat tile whose top face shows a pattern (earth, water, bricks,
-    a door, a button, ...) in several colours, for multimaterial printing.
+    Multicolour game tiles: a tile whose top face shows a pattern in relief (earth, water,
+    bricks, a door, a button, ...) in several colours, for multimaterial printing.
 
     Each colour is a separate body (named after the colour), so a slicer can assign one
-    filament to each. The base body is the whole tile; the other colours are inlays of
-    `inlay_depth` in its top face, flush with it, or raised above it (spikes, the button, the
-    door handle, the star), or sunk below it (mortar joints, plank seams, the pit). The tile is
-    printed as shown: flat on its bottom face, pattern up, without supports.
+    filament to each. The base body is the whole tile; the other colours are set `inlay_depth`
+    into its top face and most stand out above it, some with sloping sides (stones, waves,
+    rocks); grass blades, flames and the upright door are upright plates; mortar joints, seams,
+    cracks and the pit are sunk. Asphalt (a road) stays flat. The tile is printed as shown:
+    flat on its bottom face, pattern up, without supports. Its thickness has no upper limit,
+    so it can also be a block or cube.
 
     Shapes: square (side = size), rectangle (size x length), hexagon (flat sides top and
     bottom, size across the flats), triangle (equilateral, side = size, pointing up) and
@@ -27,7 +29,9 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
-from build123d import Axis, Color, Compound, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, offset, revolve
+from build123d import (
+    Axis, Box, Color, Compound, Cylinder, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, offset, revolve,
+)
 
 GRID_SPACING = 3.0  # mm between tiles in the print file
 MAX_COUNT = 36
@@ -217,6 +221,10 @@ class Ctx:
         self._normals = np.column_stack([edge[:, 1], -edge[:, 0]]) / np.linalg.norm(edge, axis=1)[:, None]
         self._limits = np.einsum("ij,ij->i", self._normals, pts)
 
+    def hgt(self, height: float) -> float:
+        """A relief height for a 40 mm tile, scaled with the tile (at least 0.4 mm)."""
+        return max(0.4, height * self.k)
+
     def line(self, width: float) -> float:
         """A line width scaled with the tile, but never narrower than MIN_LINE."""
         return max(MIN_LINE, width * self.k)
@@ -258,14 +266,16 @@ class Ctx:
 class Layer:
     """One coloured region of the top face.
 
-    height: 0 = inlay flush with the top, > 0 raised that far above it, < 0 sunk that far
-    below it. A layer with the base colour only sinks the base (a groove). `solids` are extra
-    3D shapes in that colour standing on the top face (z = 0 there), e.g. spikes.
+    height: 0 = inlay flush with the top, > 0 raised that far above it (with sloping sides
+    when `taper` > 0, in degrees), < 0 sunk that far below it. A layer with the base colour
+    sinks or raises the base itself (a groove, raised cobbles). `solids` are extra 3D shapes in
+    that colour standing on the top face (z = 0 there), e.g. spikes, grass blades, flames.
     """
     color: str
     region: Sketch | None
     height: float = 0.0
     solids: list = field(default_factory=list)
+    taper: float = 0.0
 
 
 @dataclass
@@ -274,12 +284,29 @@ class Design:
     layers: list[Layer]  # in drawing order: later layers cover earlier ones
 
 
+def _fin(profile, thickness: float, angle_deg: float, x: float, y: float) -> Part:
+    """Upright plate: `profile` (u, z) points in a vertical plane, `thickness` thick, turned
+    angle_deg about the z axis and standing at (x, y)."""
+    face = Plane.XZ * Polygon(*[(float(u), float(z)) for u, z in profile], align=None)
+    plate = extrude(face, amount=thickness / 2, both=True)
+    return Pos(x, y, 0) * Rot(0, 0, angle_deg) * plate
+
+
+def _fuse(parts: list) -> Part:
+    return Part(parts[0].fuse(*parts[1:]).clean().wrapped) if len(parts) > 1 else parts[0]
+
+
+def _rect(x0, y0, x1, y1) -> Sketch:
+    return _poly([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+
+
 # --- Patterns: one function per tile type ---
 
 def _earth(c: Ctx) -> Design:
     clods = [_blob(x, y, r, c.rng) for x, y, r in c.scatter(int(c.area / 80), 1.3 * c.k, 3.2 * c.k, 0.8)]
     stones = [_blob(x, y, r, c.rng, 7, 0.2) for x, y, r in c.scatter(int(c.area / 220), 0.8 * c.k, 1.6 * c.k, 0.8)]
-    return Design("brown", [Layer("dark_brown", _union(clods)), Layer("grey", _union(stones))])
+    return Design("brown", [Layer("dark_brown", _union(clods), c.hgt(1.0), taper=25),
+                            Layer("grey", _union(stones), c.hgt(1.5), taper=20)])
 
 
 def _sand(c: Ctx) -> Design:
@@ -291,17 +318,17 @@ def _sand(c: Ctx) -> Design:
         y = y0 + 1.4 * c.k * np.sin(2 * math.pi * x / wavelength + j * 1.3)
         ripples.append(_stroke(np.column_stack([x, y]), c.line(1.2)))
     dots = [_circle(x, y, r) for x, y, r in c.scatter(int(c.area / 140), 0.6, 0.9 * max(1, c.k), 1.0)]
-    return Design("sand", [Layer("tan", _union(ripples + dots))])
+    return Design("sand", [Layer("tan", _union(ripples), c.hgt(0.6)),
+                           Layer("tan", _union(dots), c.hgt(0.5), taper=30)])
 
 
 def _asphalt(c: Ctx) -> Design:
     width = max(1.2, 0.05 * c.s)
     dash = c.h / 4  # dashes of a quarter tile with equal gaps, centred on y = 0: they continue on the next tile
-    line = [_poly([(-width / 2, y - dash / 2), (width / 2, y - dash / 2), (width / 2, y + dash / 2), (-width / 2, y + dash / 2)])
-            for y in (-c.h / 2, 0, c.h / 2)]
+    line = [_rect(-width / 2, y - dash / 2, width / 2, y + dash / 2) for y in (-c.h / 2, 0, c.h / 2)]
     gravel = [_circle(x, y, r) for x, y, r in c.scatter(int(c.area / 30), 0.55, 0.8, 0.8,
                                                          avoid=[(0, y, width) for y in np.linspace(-c.h / 2, c.h / 2, 40)])]
-    return Design("asphalt", [Layer("grey", _union(gravel)), Layer("white", _union(line))])
+    return Design("asphalt", [Layer("grey", _union(gravel)), Layer("white", _union(line))])  # a flat road
 
 
 def _wave(x, y, length, amplitude, width) -> Sketch:
@@ -318,7 +345,8 @@ def _water(c: Ctx) -> Design:
             waves.append(_wave(x, y, length, 1.1 * c.k, c.line(1.5)))
             if c.rng.random() < 0.35 and c.inside(x + length * 0.28, y + 2.2 * c.k, 1.5):
                 foam.append(_circle(x + length * 0.28, y + 2.2 * c.k, max(0.6, 0.7 * c.k)))
-    return Design("blue", [Layer("light_blue", _union(waves)), Layer("white", _union(foam))])
+    return Design("blue", [Layer("light_blue", _union(waves), c.hgt(0.8), taper=15),
+                           Layer("white", _union(foam), c.hgt(1.0), taper=25)])
 
 
 def _rain(c: Ctx) -> Design:
@@ -331,24 +359,37 @@ def _rain(c: Ctx) -> Design:
         if c.rng.random() < 0.6 and c.inside(xs, ys, 2.6 * c.k):
             d = _rotate(np.array([[0.0, -2.2 * c.k], [0.0, 2.2 * c.k]]), 20) + (xs, ys)
             streaks.append(_polyline(d, MIN_LINE))
-    return Design("slate", [Layer("white", _union(streaks)), Layer("light_blue", _union(drops))])
+    return Design("slate", [Layer("white", _union(streaks), c.hgt(0.6)),
+                            Layer("light_blue", _union(drops), c.hgt(1.2), taper=15)])
 
 
-def _flame(x, y, r, bend) -> np.ndarray:
-    pts = _teardrop(0, 0, r, 2.8 * r, 90)
-    lift = np.clip(pts[:, 1] / (2.8 * r), 0, 1)
-    pts[:, 0] += bend * r * 0.6 * lift ** 2
-    return pts + (x, y)
+def _flame_profile(r: float, bend: float) -> np.ndarray:
+    """Side view of a flame standing on z = 0: the upper part of a drop, bent sideways towards
+    the tip, flat at the bottom."""
+    pts = _teardrop(0, 0, r, 2.8 * r, 90)  # tip first, then down the left side and up the right
+    tip, rest = pts[:1], pts[1:]
+    upper = rest[rest[:, 1] > 0.02 * r]
+    left, right = upper[upper[:, 0] < 0], upper[upper[:, 0] >= 0]
+    out = np.vstack([tip, left, [[-r, 0.0], [r, 0.0]], right])
+    out[:, 0] += bend * r * 0.6 * np.clip(out[:, 1] / (2.8 * r), 0, 1) ** 2
+    return out
 
 
 def _fire(c: Ctx) -> Design:
-    outer, inner = [], []
-    for x, y, r in c.scatter(max(1, int(c.area / 260)), 3.2 * c.k, 4.6 * c.k, 1.5 * c.k):
-        bend = c.rng.choice((-1, 1)) * c.rng.uniform(0.4, 1.0)
-        outer.append(_poly(_flame(x, y, r, bend)))
-        inner.append(_poly(_flame(x, y - 0.3 * r, 0.5 * r, bend)))
-    embers = [_circle(x, y, r) for x, y, r in c.scatter(int(c.area / 160), 0.6, 0.9, 1.0)]
-    return Design("dark_red", [Layer("orange", _union(outer + embers)), Layer("yellow", _union(inner))])
+    """Flames as crossed upright plates: orange outside, a smaller yellow core crossing them."""
+    pads, oranges, yellows = [], [], []
+    thick = max(1.2, 1.6 * c.k)
+    for x, y, r in c.scatter(max(1, int(c.area / 260)), 3.0 * c.k, 4.4 * c.k, 1.5 * c.k):
+        a0 = c.rng.uniform(0, 90)
+        outer = [_fin(_flame_profile(r, c.rng.uniform(-1, 1)), thick, a0 + 90 * i, x, y) for i in range(2)]
+        inner = [_fin(_flame_profile(0.62 * r, c.rng.uniform(-0.6, 0.6)), thick * 2.2, a0 + 45 + 90 * i, x, y) for i in range(2)]
+        core = _fuse(inner)
+        oranges.append(Part((_fuse(outer) - core).wrapped))
+        yellows.append(core)
+        pads.append(_circle(x, y, r))
+    embers = [_circle(x, y, r) for x, y, r in c.scatter(int(c.area / 160), 0.6, 0.9, 1.0, avoid=[])]
+    return Design("dark_red", [Layer("orange", _union(pads), solids=oranges), Layer("yellow", None, solids=yellows),
+                               Layer("orange", _union(embers), c.hgt(0.8), taper=30)])
 
 
 def _bricks(c: Ctx) -> Design:
@@ -363,11 +404,10 @@ def _bricks(c: Ctx) -> Design:
         shift = brick_w / 2 if j % 2 else 0.0
         for i in range(-1, per_row + 1):
             x = -c.w / 2 + (i + 0.5) * brick_w + shift
-            b = _poly([(x - brick_w / 2 + mortar / 2, y - row_h / 2 + mortar / 2), (x + brick_w / 2 - mortar / 2, y - row_h / 2 + mortar / 2),
-                       (x + brick_w / 2 - mortar / 2, y + row_h / 2 - mortar / 2), (x - brick_w / 2 + mortar / 2, y + row_h / 2 - mortar / 2)])
+            b = _rect(x - brick_w / 2 + mortar / 2, y - row_h / 2 + mortar / 2, x + brick_w / 2 - mortar / 2, y + row_h / 2 - mortar / 2)
             (dark if c.rng.random() < 0.25 else bricks).append(b)
     joints = _sk(c.outline - _union(bricks + dark))
-    return Design("brick", [Layer("dark_brick", _union(dark)), Layer("light_grey", joints, height=-0.6)])
+    return Design("brick", [Layer("dark_brick", _union(dark)), Layer("light_grey", joints, height=-c.hgt(1.2))])
 
 
 def _spikes(c: Ctx) -> Design:
@@ -383,12 +423,13 @@ def _spikes(c: Ctx) -> Design:
             plate = a + 1.6
             if not all(c.inside(x + sx * plate / 2, y + sy * plate / 2, 0.5) for sx in (-1, 1) for sy in (-1, 1)):
                 continue
-            plates.append(_poly([(x - plate / 2, y - plate / 2), (x + plate / 2, y - plate / 2), (x + plate / 2, y + plate / 2), (x - plate / 2, y + plate / 2)]))
+            plates.append(_rect(x - plate / 2, y - plate / 2, x + plate / 2, y + plate / 2))
             spikes.append(Pos(x, y, 0) * extrude(Rectangle(a, a), amount=height, taper=taper))
     return Design("dark_grey", [Layer("steel", _union(plates), solids=spikes)])
 
 
 def _door(c: Ctx) -> Design:
+    """Door lying flat (a trapdoor): raised planks and braces in a frame."""
     frame = max(2.0, 3 * c.k)
     inner = _sk(offset(c.outline, -frame))
     planks, gap = 4, c.line(1.0)
@@ -396,23 +437,72 @@ def _door(c: Ctx) -> Design:
     strips = []
     for i in range(planks):
         x0 = -c.w / 2 + frame + i * plank_w
-        strips.append(_poly([(x0 + gap / 2, -c.h), (x0 + plank_w - gap / 2, -c.h), (x0 + plank_w - gap / 2, c.h), (x0 + gap / 2, c.h)]))
+        strips.append(_rect(x0 + gap / 2, -c.h, x0 + plank_w - gap / 2, c.h))
     brace_h = 0.1 * c.h
-    braces = [_poly([(-c.w, y - brace_h / 2), (c.w, y - brace_h / 2), (c.w, y + brace_h / 2), (-c.w, y + brace_h / 2)])
-              for y in (-0.27 * c.h, 0.27 * c.h)]
-    wood = _sk(inner & _union(strips))
-    wood = _sk(wood - _union(braces))
-    seams = _sk(inner - _union(strips) - _union(braces))
+    braces = _union([_rect(-c.w, y - brace_h / 2, c.w, y + brace_h / 2) for y in (-0.27 * c.h, 0.27 * c.h)])
+    wood = _sk(_sk(inner & _union(strips)) - braces)
+    seams = _sk(inner - _union(strips) - braces)
+    plank_h = c.hgt(0.6)
     hx = (c.w / 2 - frame) * 0.55
     r = 2.4 * c.k
-    knob_h = max(1.5, 2.2 * c.k)
+    knob_h = max(1.5, 2.2 * c.k) + plank_h
     knob = Pos(hx, 0, 0) * revolve(Plane.XZ * Polygon((0, 0), (r, 0), (r, knob_h - 0.6), (r - 0.6, knob_h), (0, knob_h), align=None), Axis.Z)
     keyhole = _union([_circle(hx, -5 * c.k, max(0.8, 0.9 * c.k)),
                       _poly([(hx - 0.5 * max(1, c.k), -5 * c.k), (hx + 0.5 * max(1, c.k), -5 * c.k),
                              (hx + 0.8 * max(1, c.k), -7.5 * c.k), (hx - 0.8 * max(1, c.k), -7.5 * c.k)])])
     return Design("dark_brown", [
-        Layer("wood", wood), Layer("dark_brown", seams, height=-0.6),
-        Layer("black", keyhole), Layer("gold", _circle(hx, 0, r), solids=[knob]),
+        Layer("wood", wood, plank_h), Layer("dark_brown", seams, height=-0.6),
+        Layer("dark_brown", _sk(inner & braces), c.hgt(1.4), taper=20),
+        Layer("black", keyhole, plank_h), Layer("gold", _circle(hx, 0, r), solids=[knob]),
+    ])
+
+
+def _arch(width: float, top: float, n: int = 24) -> list[tuple[float, float]]:
+    """Outline (u, z) of a round-topped opening `width` wide, from z = 0 up to `top`."""
+    r = width / 2
+    a = np.linspace(0, math.pi, n)
+    return [(r, 0.0)] + [(r * math.cos(t), top - r + r * math.sin(t)) for t in a] + [(-r, 0.0)]
+
+
+def _door_upright(c: Ctx) -> Design:
+    """A door standing upright in an arched frame on a flagstone floor."""
+    w, fw = 1.3 * c.inr, max(2.0, 2.6 * c.k)  # outer width of the frame, width of its posts
+    height = 1.9 * c.inr
+    t_frame = max(4.0, 5 * c.k)
+    t_leaf = 0.7 * t_frame
+    leaf_w = w - 2 * fw
+
+    def slab(points, thickness):
+        return extrude(Plane.XZ * Polygon(*points, align=None), amount=thickness / 2, both=True)
+
+    leaf_outline = _arch(leaf_w, height - fw)
+    frame = slab(_arch(w, height), t_frame) - slab(leaf_outline, t_frame + 1)
+    leaf = slab(leaf_outline, t_leaf)
+    groove = max(1.0, c.k)
+    for i in (1, 2, 3):  # plank seams on both faces
+        for side in (-1, 1):
+            leaf = leaf - Pos(-leaf_w / 2 + i * leaf_w / 4, side * t_leaf / 2, height / 2) * Box(groove, 1.0, height)
+    kx, kz = 0.28 * leaf_w, 0.42 * height
+    kr = max(1.2, 1.5 * c.k)
+    knob = Pos(kx, 0, kz) * Rot(90, 0, 0) * Cylinder(kr, t_leaf + 2 * kr)  # through the door: a knob on both sides
+    hole_r = max(0.7, 0.7 * c.k)
+    kz2 = kz - 3.5 * max(1, c.k)
+    keyhole_outline = [(kx + hole_r * math.cos(a), kz2 + hole_r * math.sin(a)) for a in np.linspace(-0.3, math.pi + 0.3, 16)]
+    keyhole_outline += [(kx - 0.9 * hole_r, kz2 - 2.6 * hole_r), (kx + 0.9 * hole_r, kz2 - 2.6 * hole_r)]
+    keyhole = slab(keyhole_outline, t_leaf)  # flush with both faces
+    leaf = leaf - knob - keyhole
+    shift = Pos(0, c.cy, 0)
+    footprint = _rect(-w / 2, c.cy - t_frame / 2, w / 2, c.cy + t_frame / 2)
+    pitch, joint = 10 * c.k, c.line(1.0)
+    flags = [_rect(-c.w, y - joint / 2, c.w, y + joint / 2) for y in np.arange(-c.h, c.h, pitch)]
+    for j, y in enumerate(np.arange(-c.h, c.h, pitch)):
+        flags += [_rect(x - joint / 2, y, x + joint / 2, y + pitch) for x in np.arange(-c.w, c.w, pitch) + (pitch / 2 if j % 2 else 0)]
+    return Design("grey", [
+        Layer("grey", _union(flags), height=-0.6),
+        Layer("dark_brown", footprint, solids=[shift * frame]),
+        Layer("wood", None, solids=[shift * leaf]),
+        Layer("gold", None, solids=[shift * knob]),
+        Layer("black", None, solids=[shift * keyhole]),
     ])
 
 
@@ -428,24 +518,38 @@ def _button(c: Ctx) -> Design:
     height = max(2.0, 3 * c.k)
     cham = min(1.0, height / 3)
     cap = revolve(Plane.XZ * Polygon((0, 0), (r_btn, 0), (r_btn, height - cham), (r_btn - cham, height), (0, height), align=None), Axis.Z)
-    return Design("grey", [Layer("yellow", ring), Layer("black", hazard),
+    ring_h = c.hgt(0.6)
+    return Design("grey", [Layer("yellow", ring, ring_h), Layer("black", hazard, ring_h),
                            Layer("red", _circle(0, y0, r_btn), solids=[Pos(0, y0, 0) * cap])])
 
 
 def _grass(c: Ctx) -> Design:
-    blades = []
-    for x, y, _ in c.scatter(int(c.area / 40), 2.0 * c.k, 2.0 * c.k, -1.0 * c.k):
-        for angle in (-28, 0, 28):
-            a = angle + c.rng.uniform(-10, 10)
-            length = c.rng.uniform(3.0, 4.6) * c.k
-            tri = _rotate(np.array([[-0.65, 0], [0.65, 0], [0, length]]), a) + (x, y - 1.5 * c.k)
-            blades.append(_poly(tri))
+    """Tufts of upright blades (three thin plates each), with a few flowers."""
+    flowers = c.scatter(max(1, int(c.area / 550)), 3 * c.k, 3 * c.k, 2.0)
+    pads, tufts = [], []
+    blade_w, blade_t = max(1.6, 1.8 * c.k), max(1.0, 1.0 * c.k)
+    for x, y, _ in c.scatter(int(c.area / 60), 2.2 * c.k, 2.2 * c.k, -0.6 * c.k, avoid=flowers):
+        # A fan of blades side by side along one direction, the outer ones leaning outwards.
+        a0 = c.rng.uniform(0, 180)
+        n = c.rng.randint(4, 5)
+        blades = []
+        for i in range(n):
+            t = i / (n - 1) * 2 - 1  # -1 .. 1 across the fan
+            hgt = c.rng.uniform(3.5, 6.0) * c.k * (1 - 0.25 * abs(t))
+            lean = (1.6 * t + c.rng.uniform(-0.4, 0.4)) * c.k
+            u = 0.9 * c.k * t
+            bx, by = x + u * math.cos(math.radians(a0)), y + u * math.sin(math.radians(a0))
+            twist = a0 + c.rng.uniform(-25, 25)
+            blades.append(_fin([(-blade_w / 2, 0), (blade_w / 2, 0), (lean, hgt)], blade_t, twist, bx, by))
+        tufts.append(_fuse(blades))
+        pads.append(_circle(x, y, 0.9 * c.k + blade_w / 2 + 0.2))
     petals, hearts = [], []
-    for x, y, _ in c.scatter(max(1, int(c.area / 550)), 3 * c.k, 3 * c.k, 2.0):
+    for x, y, _ in flowers:
         pr = max(0.8, 1.0 * c.k)
         petals += [_circle(x + 1.3 * pr * math.cos(a), y + 1.3 * pr * math.sin(a), pr) for a in np.radians(np.arange(5) * 72 + 90)]
         hearts.append(_circle(x, y, max(0.7, 0.8 * c.k)))
-    return Design("green", [Layer("dark_green", _union(blades)), Layer("white", _union(petals)), Layer("yellow", _union(hearts))])
+    return Design("green", [Layer("dark_green", _union(pads), solids=tufts),
+                            Layer("white", _union(petals), c.hgt(1.6)), Layer("yellow", _union(hearts), c.hgt(2.2), taper=25)])
 
 
 def _wood(c: Ctx) -> Design:
@@ -455,15 +559,15 @@ def _wood(c: Ctx) -> Design:
     seams, grain, nails = [], [], []
     for j in range(rows + 1):
         y = -c.h / 2 + j * pitch
-        seams.append(_poly([(-c.w, y - seam_w / 2), (c.w, y - seam_w / 2), (c.w, y + seam_w / 2), (-c.w, y + seam_w / 2)]))
+        seams.append(_rect(-c.w, y - seam_w / 2, c.w, y + seam_w / 2))
     for j in range(rows):
         y0 = -c.h / 2 + j * pitch
         joint = c.rng.uniform(-0.3, 0.3) * c.w
-        seams.append(_poly([(joint - seam_w / 2, y0), (joint + seam_w / 2, y0), (joint + seam_w / 2, y0 + pitch), (joint - seam_w / 2, y0 + pitch)]))
+        seams.append(_rect(joint - seam_w / 2, y0, joint + seam_w / 2, y0 + pitch))
         for dx in (-2.2 * c.k, 2.2 * c.k):
             for dy in (0.27, 0.73):
                 if c.inside(joint + dx, y0 + dy * pitch, 1.5):
-                    nails.append(_circle(joint + dx, y0 + dy * pitch, max(0.6, 0.65 * c.k)))
+                    nails.append(_circle(joint + dx, y0 + dy * pitch, max(0.7, 0.8 * c.k)))
         for _ in range(3):
             x0 = c.rng.uniform(-c.w / 2, c.w / 2 - 8 * c.k)
             length = c.rng.uniform(8, 18) * c.k
@@ -472,7 +576,9 @@ def _wood(c: Ctx) -> Design:
             ys = yy + 0.6 * c.k * np.sin((xs - x0) / length * 2 * math.pi * c.rng.uniform(0.5, 1.2))
             pts = np.column_stack([xs, ys])
             grain.append(_stroke(pts, np.maximum(0.5, 0.9 * np.sin(np.linspace(0, math.pi, 30)) ** 0.4)))
-    return Design("wood", [Layer("dark_wood", _union(grain + nails)), Layer("dark_wood", _union(seams), height=-0.5)])
+    return Design("wood", [Layer("dark_wood", _union(grain), height=-c.hgt(0.3)),
+                           Layer("dark_wood", _union(seams), height=-c.hgt(0.6)),
+                           Layer("dark_wood", _union(nails), c.hgt(0.5), taper=35)])
 
 
 def _stones(c: Ctx, spacing: float, gap: float) -> tuple[list[np.ndarray], list[np.ndarray]]:
@@ -489,7 +595,9 @@ def _cobblestone(c: Ctx) -> Design:
     for cell in cells:
         (light if c.rng.random() < 0.4 else grey).append(_poly(cell))
     joints = _sk(c.outline - _union(grey + light))
-    return Design("grey", [Layer("light_grey", _union(light)), Layer("dark_grey", joints, height=-0.6)])
+    bulge = c.hgt(0.8)
+    return Design("grey", [Layer("grey", _union(grey), bulge, taper=30), Layer("light_grey", _union(light), bulge, taper=30),
+                           Layer("dark_grey", joints, height=-c.hgt(0.4))])
 
 
 def _ice(c: Ctx) -> Design:
@@ -509,7 +617,7 @@ def _ice(c: Ctx) -> Design:
         cracks.append(_polyline(pts, MIN_LINE))
     shine = [_poly(_rotate(np.array([[-0.5, -2.5], [0.5, -2.5], [0.5, 2.5], [-0.5, 2.5]]) * max(1, c.k), 40) + (x, y))
              for x, y, _ in c.scatter(int(c.area / 400), 2.5 * c.k, 2.5 * c.k, 1.0)]
-    return Design("ice", [Layer("light_blue", _union(shine)), Layer("white", _union(cracks))])
+    return Design("ice", [Layer("light_blue", _union(shine), c.hgt(0.4)), Layer("white", _union(cracks), height=-c.hgt(0.6))])
 
 
 def _lava(c: Ctx) -> Design:
@@ -518,16 +626,17 @@ def _lava(c: Ctx) -> Design:
     corners = {(round(x, 1), round(y, 1)) for cell in full for x, y in cell}
     bubbles = [_circle(x, y, max(0.9, 1.1 * c.k)) for x, y in sorted(corners)
                if c.inside(x, y, 1.5) and c.rng.random() < 0.35]
-    return Design("orange", [Layer("dark_rock", rocks), Layer("yellow", _union(bubbles))])
+    return Design("orange", [Layer("dark_rock", rocks, c.hgt(1.5), taper=20),
+                             Layer("yellow", _union(bubbles), c.hgt(0.6), taper=30)])
 
 
 def _finish(c: Ctx) -> Design:
     nx, ny = max(2, round(c.w / (10 * c.k))), max(2, round(c.h / (10 * c.k)))
     cw, ch = c.w / nx, c.h / ny
-    squares = [_poly([(x, y), (x + cw, y), (x + cw, y + ch), (x, y + ch)])
+    squares = [_rect(x, y, x + cw, y + ch)
                for j in range(ny) for i in range(nx) if (i + j) % 2 == 0
                for x, y in [(-c.w / 2 + i * cw, -c.h / 2 + j * ch)]]
-    return Design("white", [Layer("black", _union(squares))])
+    return Design("white", [Layer("black", _union(squares), c.hgt(0.5))])
 
 
 def _arrow(c: Ctx) -> Design:
@@ -535,7 +644,7 @@ def _arrow(c: Ctx) -> Design:
     pts = [(-0.11 * s, -0.4 * s), (0.11 * s, -0.4 * s), (0.11 * s, 0.02 * s), (0.3 * s, 0.02 * s), (0, 0.4 * s),
            (-0.3 * s, 0.02 * s), (-0.11 * s, 0.02 * s)]
     pts = [(x, y + c.cy) for x, y in pts]
-    return Design("dark_grey", [Layer("yellow", _poly(pts))])
+    return Design("dark_grey", [Layer("yellow", _poly(pts), c.hgt(1.2), taper=10)])
 
 
 def _portal(c: Ctx) -> Design:
@@ -549,7 +658,8 @@ def _portal(c: Ctx) -> Design:
         pts = np.column_stack([r * np.cos(theta), y0 + r * np.sin(theta)])
         arms.append(_stroke(pts, np.maximum(MIN_LINE, (0.06 + 0.14 * t) * radius)))
     rim = _sk(_circle(0, y0, radius + max(1.5, 1.5 * c.k)) - _circle(0, y0, radius))
-    return Design("dark_purple", [Layer("violet", _union(arms + [rim])), Layer("white", _circle(0, y0, 0.14 * radius))])
+    return Design("dark_purple", [Layer("violet", _union(arms), c.hgt(1.0)), Layer("violet", rim, c.hgt(1.8)),
+                                  Layer("white", _circle(0, y0, 0.14 * radius), c.hgt(2.2), taper=30)])
 
 
 def _pit(c: Ctx) -> Design:
@@ -567,8 +677,9 @@ def _pit(c: Ctx) -> Design:
             pts.append((pts[-1][0] + step * math.cos(heading), pts[-1][1] + step * math.sin(heading)))
         if c.inside(*pts[-1], 1.0):
             cracks.append(_polyline(pts, MIN_LINE))
-    depth = min(1.5, c.p.thickness - c.p.inlay_depth - 1.0)
-    return Design("grey", [Layer("dark_grey", _union([rim] + cracks)),
+    depth = min(c.hgt(1.5), c.p.thickness - c.p.inlay_depth - 1.0)
+    return Design("grey", [Layer("dark_grey", rim, c.hgt(1.0), taper=30),
+                           Layer("dark_grey", _union(cracks), height=-c.hgt(0.5)),
                            Layer("black", _blob(0, y0, r, c.rng, 14, 0.06), height=-depth)])
 
 
@@ -577,7 +688,7 @@ def _star_tile(c: Ctx) -> Design:
     big = _star(0, y0, r, 0.42 * r)
     sparkles = [_star(x, y, rr, 0.32 * rr, 4, 0) for x, y, rr in
                 c.scatter(int(c.area / 400), 2.2 * max(1, c.k), 2.8 * max(1, c.k), 0.5, avoid=[(0, y0, r)])]
-    return Design("blue", [Layer("white", _union(sparkles)), Layer("gold", big, height=1.0)])
+    return Design("blue", [Layer("white", _union(sparkles), c.hgt(0.6)), Layer("gold", big, c.hgt(1.5), taper=15)])
 
 
 @dataclass
@@ -589,24 +700,26 @@ class TileType:
 
 
 TILE_TYPES = {
-    "earth": TileType("Earth", "Terrain", _earth, "brown soil with dark clods and grey stones"),
-    "sand": TileType("Sand", "Terrain", _sand, "sand with wind ripples and pebbles"),
-    "grass": TileType("Grass", "Terrain", _grass, "grass tufts with a few flowers"),
-    "asphalt": TileType("Asphalt", "Terrain", _asphalt, "road with gravel and a dashed centre line"),
-    "cobblestone": TileType("Cobblestone", "Terrain", _cobblestone, "irregular cobbles with sunken joints"),
-    "wood": TileType("Wooden floor", "Terrain", _wood, "planks with sunken seams, grain and nails"),
-    "bricks": TileType("Bricks", "Terrain", _bricks, "brick wall in running bond with sunken mortar joints"),
-    "water": TileType("Water", "Elements", _water, "waves with white foam"),
-    "rain": TileType("Rain", "Elements", _rain, "falling drops and streaks"),
-    "ice": TileType("Ice", "Elements", _ice, "cracked ice with shine"),
-    "fire": TileType("Fire", "Elements", _fire, "flames and embers"),
-    "lava": TileType("Lava", "Elements", _lava, "dark rock floating on glowing lava"),
+    "earth": TileType("Earth", "Terrain", _earth, "brown soil with raised clods and stones"),
+    "sand": TileType("Sand", "Terrain", _sand, "sand with raised wind ripples and pebbles"),
+    "grass": TileType("Grass", "Terrain", _grass, "tufts of upright grass blades with a few flowers"),
+    "asphalt": TileType("Asphalt", "Terrain", _asphalt, "flat road with gravel and a dashed centre line"),
+    "cobblestone": TileType("Cobblestone", "Terrain", _cobblestone, "raised irregular cobbles with sunken joints"),
+    "wood": TileType("Wooden floor", "Terrain", _wood, "planks with sunken seams and grain, raised nail heads"),
+    "bricks": TileType("Bricks", "Terrain", _bricks, "brick wall in running bond with deep mortar joints"),
+    "water": TileType("Water", "Elements", _water, "raised waves with white foam"),
+    "rain": TileType("Rain", "Elements", _rain, "raised drops and streaks"),
+    "ice": TileType("Ice", "Elements", _ice, "ice with sunken cracks and shine"),
+    "fire": TileType("Fire", "Elements", _fire, "standing flames (crossed plates) and embers"),
+    "lava": TileType("Lava", "Elements", _lava, "raised dark rock floating on glowing lava"),
     "spikes": TileType("Spikes", "Objects", _spikes, "a trap of raised steel spikes"),
-    "door": TileType("Door", "Objects", _door, "plank door in a frame, raised gold handle and keyhole"),
+    "door": TileType("Door (flat)", "Objects", _door, "trapdoor: raised planks and braces in a frame, gold handle and keyhole"),
+    "door_upright": TileType("Door (upright)", "Objects", _door_upright,
+                             "door standing in an arched frame, gold knob on both sides, flagstone floor"),
     "button": TileType("Button", "Objects", _button, "raised red push button in a hazard ring"),
-    "pit": TileType("Pit", "Objects", _pit, "sunken black hole with a cracked rim"),
-    "arrow": TileType("Arrow", "Objects", _arrow, "direction or conveyor arrow, pointing to +Y"),
-    "portal": TileType("Portal", "Objects", _portal, "swirling teleporter"),
+    "pit": TileType("Pit", "Objects", _pit, "sunken black hole with a raised, cracked rim"),
+    "arrow": TileType("Arrow", "Objects", _arrow, "raised direction or conveyor arrow, pointing to +Y"),
+    "portal": TileType("Portal", "Objects", _portal, "raised swirling teleporter"),
     "star": TileType("Star", "Objects", _star_tile, "raised gold star, for a bonus or goal"),
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
 }
@@ -623,12 +736,32 @@ def validate(p: TileParams) -> None:
         raise ValueError("Tile size must be between 15 and 200 mm.")
     if p.shape == "rectangle" and not 15 <= p.length <= 200:
         raise ValueError("Tile length must be between 15 and 200 mm.")
-    if not 1.5 <= p.thickness <= 20:
-        raise ValueError("Thickness must be between 1.5 and 20 mm.")
+    if p.thickness < 1.5:
+        raise ValueError("Thickness must be at least 1.5 mm.")
     if not 0.2 <= p.inlay_depth <= p.thickness - 1.0:
-        raise ValueError("Inlay depth must be at least 0.2 mm and leave at least 1 mm of base below it.")
+        raise ValueError("Colour depth must be at least 0.2 mm and leave at least 1 mm of base below it.")
     if not 1 <= p.count <= MAX_COUNT:
         raise ValueError(f"Number of tiles must be between 1 and {MAX_COUNT}.")
+
+
+def _raised(region: Sketch, height: float, taper: float) -> list[Part]:
+    """`region` extruded up by `height`, with sides sloping inwards by `taper` degrees where the
+    shape allows (a face too small for the slope keeps straight sides)."""
+    if taper <= 0:
+        return [extrude(region, amount=height)]
+    out = []
+    for face in region.faces():
+        straight = extrude(face, amount=height)
+        try:
+            sloped = extrude(face, amount=height, taper=taper)
+            # Sloped sides of long curvy bands can give faces that cannot be meshed (no 3MF/preview).
+            if sloped.is_valid and 0 < sloped.volume < straight.volume and sloped.tessellate(0.05, 0.3)[1]:
+                out.append(sloped)
+                continue
+        except Exception:
+            pass
+        out.append(straight)
+    return out
 
 
 def _bodies(p: TileParams, seed: int) -> dict[str, list[Part]]:
@@ -645,25 +778,36 @@ def _bodies(p: TileParams, seed: int) -> dict[str, list[Part]]:
         later = _union(regions[i + 1:])
         if regions[i] is not None and later is not None:
             regions[i] = _sk(regions[i] - later)
-    bodies: dict[str, list[Part]] = {}
+    bodies: dict[str, list[Part]] = {design.base: []}
     cuts = []
     for layer, region in zip(design.layers, regions):
+        parts = bodies.setdefault(layer.color, [])
+        parts += [Pos(0, 0, top) * s for s in layer.solids]
         if region is None or not region.faces():
             continue
-        if layer.color == design.base:  # a groove in the base
-            cuts.append(Pos(0, 0, top + layer.height) * extrude(region, amount=-layer.height))
+        h = layer.height
+        if h > 0:
+            parts += [Pos(0, 0, top) * s for s in _raised(region, h, layer.taper)]
+        if layer.color == design.base:
+            if h < 0:  # a groove in the base
+                cuts.append(Pos(0, 0, top + h) * extrude(region, amount=-h))
             continue
-        z0 = top - depth + min(layer.height, 0.0)
-        z1 = top + max(layer.height, 0.0) if layer.height >= 0 else top + layer.height
-        solid = Pos(0, 0, z0) * extrude(region, amount=z1 - z0)
+        z0 = top - depth + min(h, 0.0)  # inlays are `depth` thick, also when sunk
+        parts.append(Pos(0, 0, z0) * extrude(region, amount=depth))
         cuts.append(Pos(0, 0, z0) * extrude(region, amount=top - z0))
-        bodies.setdefault(layer.color, []).append(solid)
-        bodies[layer.color] += [Pos(0, 0, top) * s for s in layer.solids]
     base = extrude(c.outline, amount=top)
     if cuts:
         base = base - cuts  # (Solid.cut keeps only one solid when the result has several)
-    bodies.setdefault(design.base, []).insert(0, Part(base.wrapped))
-    return {design.base: bodies.pop(design.base), **bodies}  # base first
+    bodies[design.base].insert(0, Part(base.wrapped))
+    out = {}
+    for name, parts in bodies.items():
+        if not parts:
+            continue
+        try:  # one solid per colour where the pieces touch (inlay and the raised part on it)
+            out[name] = [_fuse(parts)]
+        except Exception:
+            out[name] = parts
+    return out
 
 
 def _layout(p: TileParams) -> list[tuple[float, float]]:
@@ -685,7 +829,7 @@ def colors_used(p: TileParams) -> list[str]:
     design = TILE_TYPES[p.tile_type].build(Ctx(p, p.seed))
     names = [design.base]
     for layer in design.layers:
-        if layer.color not in names and layer.region is not None:
+        if layer.color not in names and (layer.region is not None or layer.solids):
             names.append(layer.color)
     return names
 
