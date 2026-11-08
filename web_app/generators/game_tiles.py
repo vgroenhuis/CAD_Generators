@@ -12,8 +12,10 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from cad_common.mesh_export import meshes_of, meshes_to_3mf, meshes_to_glb
+from cad_common.mesh_fuzz import fuzz
 from game_tiles_app.game_tile_model import (
-	MAX_COUNT, PALETTE, SHAPES, TILE_TYPES, TileParams, build_tiles, colors_used, describe, validate,
+	MAX_COUNT, PALETTE, ROUGHNESS, SHAPES, TILE_TYPES, TileParams, build_tiles, colors_used, describe, validate,
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
@@ -53,8 +55,29 @@ def _key(p: TileParams) -> tuple:
 	return tuple(vars(p).values())
 
 
+def _makers(p: TileParams) -> dict:
+	"""How to make each file: types with a rough surface get their meshes roughened (3MF and
+	preview); the STEP file always has the exact, smooth geometry."""
+	rough = ROUGHNESS.get(p.tile_type)
+	if rough is None:
+		return FILES
+	amplitude, wavelength, mode = rough
+
+	def meshes(model, tolerance):
+		out = meshes_of(model, tolerance, 0.2)
+		for m in out:  # the same seed for every body, so touching bodies stay together
+			m.vertices, m.triangles = fuzz(m.vertices, m.triangles, amplitude, wavelength, mode, top=p.thickness, seed=p.seed)
+		return out
+
+	return {
+		"glb": lambda model: meshes_to_glb(meshes(model, 0.02)),
+		"3mf": lambda model: meshes_to_3mf("game_tile", meshes(model, 0.01)),
+		"step": step_bytes,
+	}
+
+
 def _file(p: TileParams, kind: str) -> bytes:
-	return cache.file(_key(p), p, kind, FILES[kind])
+	return cache.file(_key(p), p, kind, _makers(p)[kind])
 
 
 def _filename(p: TileParams, ext: str) -> str:
@@ -100,4 +123,4 @@ def export_step_route(p: TileParams = Depends(_params)):
 
 
 def warm() -> None:
-	warm_entry(cache, _key(DEFAULT), DEFAULT, FILES)
+	warm_entry(cache, _key(DEFAULT), DEFAULT, _makers(DEFAULT))

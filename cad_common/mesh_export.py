@@ -141,3 +141,100 @@ def to_3mf(objects: list[MeshObject], tolerance: float = 0.01, angular_tolerance
 def shape_to_3mf(shape, name: str, tolerance: float = 0.01) -> bytes:
     """One object made of the assembly's coloured bodies (see parts_of)."""
     return to_3mf([MeshObject(name, parts_of(shape, name))], tolerance)
+
+
+# --- Ready-made meshes (e.g. made rough with cad_common.mesh_fuzz) ---
+
+@dataclass
+class Mesh:
+    name: str
+    color: tuple[float, float, float] | None
+    vertices: np.ndarray  # n x 3, mm
+    triangles: np.ndarray  # m x 3
+
+
+def meshes_of(shape, tolerance: float = 0.01, angular_tolerance: float = 0.2) -> list[Mesh]:
+    """The coloured bodies of an assembly (see parts_of) as closed triangle meshes."""
+    out = []
+    for part in parts_of(shape):
+        v, t = _mesh(part.shape, tolerance, angular_tolerance)
+        if len(t):
+            out.append(Mesh(part.name, part.color, v, t))
+    return out
+
+
+def meshes_to_3mf(name: str, meshes: list[Mesh]) -> bytes:
+    """One object made of the meshes as coloured parts (like shape_to_3mf)."""
+    bases, resources, ids = [], [], []
+    for i, m in enumerate(meshes):
+        bases.append(f"<base name={quoteattr(m.name)} displaycolor=\"{_hex(m.color)}\"/>")
+        resources.append(f'<object id="{i + 2}" type="model" pid="1" pindex="{i}" name={quoteattr(m.name)}>'
+                         f"{_mesh_xml(m.vertices, m.triangles)}</object>")
+        ids.append(i + 2)
+    if not ids:
+        raise ValueError("Nothing to export.")
+    if len(ids) == 1:
+        item = ids[0]
+    else:
+        item = len(meshes) + 2
+        comps = "".join(f'<component objectid="{i}"/>' for i in ids)
+        resources.append(f'<object id="{item}" type="model" name={quoteattr(name)}><components>{comps}</components></object>')
+    model = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
+        f'<resources><basematerials id="1">{"".join(bases)}</basematerials>{"".join(resources)}</resources>'
+        f'<build><item objectid="{item}"/></build>'
+        "</model>"
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", _CONTENT_TYPES)
+        z.writestr("_rels/.rels", _RELS)
+        z.writestr("3D/3dmodel.model", model)
+    return buf.getvalue()
+
+
+def meshes_to_glb(meshes: list[Mesh]) -> bytes:
+    """A binary glTF of the meshes, one node per mesh named after it, with its colour; in metres
+    and Y-up like build123d's glTF export. No normals are stored: a viewer shades the
+    triangles flat, which suits rough surfaces."""
+    import json
+    import struct
+
+    bin_parts, views, accessors, gl_meshes, materials, nodes = [], [], [], [], [], []
+    offset = 0
+
+    def add(data: bytes, target: int) -> int:
+        nonlocal offset
+        pad = (-len(data)) % 4
+        bin_parts.append(data + b"\0" * pad)
+        views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(data), "target": target})
+        offset += len(data) + pad
+        return len(views) - 1
+
+    for i, m in enumerate(meshes):
+        v = np.asarray(m.vertices, dtype=np.float64)
+        pos = np.column_stack([v[:, 0], v[:, 2], -v[:, 1]]).astype(np.float32) / 1000.0  # Z-up mm -> Y-up m
+        idx = np.asarray(m.triangles, dtype=np.uint32).reshape(-1)
+        pv = add(pos.tobytes(), 34962)
+        iv = add(idx.tobytes(), 34963)
+        accessors.append({"bufferView": pv, "componentType": 5126, "count": len(pos), "type": "VEC3",
+                          "min": pos.min(axis=0).tolist(), "max": pos.max(axis=0).tolist()})
+        accessors.append({"bufferView": iv, "componentType": 5125, "count": len(idx), "type": "SCALAR"})
+        # glTF colours are linear: convert from sRGB (as build123d's glTF export does).
+        r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in (m.color or _DEFAULT_COLOR))
+        materials.append({"pbrMetallicRoughness": {"baseColorFactor": [r, g, b, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.7},
+                          "name": m.name})
+        gl_meshes.append({"primitives": [{"attributes": {"POSITION": len(accessors) - 2}, "indices": len(accessors) - 1,
+                                          "material": i}], "name": m.name})
+        nodes.append({"mesh": i, "name": m.name})
+    gltf = {"asset": {"version": "2.0", "generator": "cad_common.mesh_export"}, "scene": 0,
+            "scenes": [{"nodes": list(range(len(nodes)))}], "nodes": nodes, "meshes": gl_meshes,
+            "materials": materials, "accessors": accessors, "bufferViews": views,
+            "buffers": [{"byteLength": offset}]}
+    js = json.dumps(gltf, separators=(",", ":")).encode()
+    js += b" " * ((-len(js)) % 4)
+    binary = b"".join(bin_parts)
+    total = 12 + 8 + len(js) + 8 + len(binary)
+    return (struct.pack("<III", 0x46546C67, 2, total) + struct.pack("<II", len(js), 0x4E4F534A) + js
+            + struct.pack("<II", len(binary), 0x004E4942) + binary)

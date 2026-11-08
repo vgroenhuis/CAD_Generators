@@ -187,7 +187,9 @@ async function onGenerate() {
 		currentModel.traverse((child) => {
 			if (child.isMesh) {
 				const color = child.material && child.material.color ? child.material.color : new THREE.Color(0xdddddd);
-				child.material = new THREE.MeshStandardMaterial({ color, metalness: 0.0, roughness: 0.7 });
+				// Rough (fuzzy) tiles come without normals: shade their triangles flat.
+				const flatShading = !child.geometry.attributes.normal;
+				child.material = new THREE.MeshStandardMaterial({ color, metalness: 0.0, roughness: 0.7, flatShading });
 			}
 		});
 		scene.add(currentModel);
