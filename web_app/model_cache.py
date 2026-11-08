@@ -24,6 +24,7 @@ the model at all.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import threading
@@ -109,9 +110,52 @@ class DiskCache:
         except OSError:
             log.exception("disk cache: could not write %s", path)
 
+    def put_meta(self, name: str, key: Hashable, meta: dict) -> None:
+        """Store what an entry is (e.g. its parameters), once, next to its files, so that the
+        stored entries can be listed (see entries)."""
+        if not self.enabled:
+            return
+        path = self.path(name, key, "json")
+        if path.exists():
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps({"version": self.version, "created": time.time(), "meta": meta}))
+            os.replace(tmp, path)
+        except OSError:
+            log.exception("disk cache: could not write %s", path)
+
+    def entries(self, name: str) -> list[dict]:
+        """The stored entries of one cache made by the current code, most recently used first:
+        their meta data, which files are there (kind -> size in bytes) and when they were made
+        and last used."""
+        out = []
+        if not self.enabled:
+            return out
+        for meta_path in (self.root / name).glob("*.json"):
+            try:
+                record = json.loads(meta_path.read_text())
+            except (OSError, ValueError):
+                continue
+            if record.get("version") != self.version:
+                continue
+            files, used = {}, 0.0
+            for f in meta_path.parent.glob(meta_path.stem + ".*"):
+                kind = f.suffix[1:]
+                if kind in ("json", "tmp") or f.name.endswith(".tmp"):
+                    continue
+                st = f.stat()
+                files[kind] = st.st_size
+                used = max(used, st.st_mtime)
+            if files:
+                out.append({"id": meta_path.stem, "meta": record.get("meta", {}), "files": files,
+                            "created": record.get("created"), "used": used})
+        return sorted(out, key=lambda e: e["used"], reverse=True)
+
     def _prune(self) -> None:
         with self._lock:
-            files = [(f.stat().st_mtime, f.stat().st_size, f) for f in self.root.glob("*/*") if f.is_file()]
+            files = [(f.stat().st_mtime, f.stat().st_size, f) for f in self.root.glob("*/*") if f.is_file() and f.suffix != ".json"]
             total = sum(size for _, size, _ in files)
             for _, size, f in sorted(files):
                 if total <= self.limit:
@@ -121,6 +165,13 @@ class DiskCache:
                     total -= size
                 except OSError:
                     pass
+            # Drop the description of entries that have no files left.
+            for meta_path in self.root.glob("*/*.json"):
+                if not any(f.suffix != ".json" for f in meta_path.parent.glob(meta_path.stem + ".*")):
+                    try:
+                        meta_path.unlink()
+                    except OSError:
+                        pass
 
 
 disk = DiskCache()
@@ -140,9 +191,12 @@ class _Entry:
 
 
 class ModelCache:
-    def __init__(self, name: str, build: Callable[[Any], Any], size: int = 6) -> None:
+    def __init__(self, name: str, build: Callable[[Any], Any], size: int = 6,
+                 meta: Callable[[Any], dict] | None = None) -> None:
+        """meta(params) describes an entry for the list of stored entries (see DiskCache.entries)."""
         self.name = name
         self._build = build
+        self._meta = meta
         self._size = size
         self._entries: OrderedDict[Hashable, _Entry] = OrderedDict()
         self._pinned: set[Hashable] = set()
@@ -209,6 +263,8 @@ class ModelCache:
                 data = entry.files[kind] = make(model)
                 log.info("%s: wrote %s for %s in %.1f s", self.name, kind, _short(key), time.monotonic() - start)
                 disk.put(self.name, key, kind, data)
+                if self._meta is not None:
+                    disk.put_meta(self.name, key, self._meta(params))
             return data
 
 

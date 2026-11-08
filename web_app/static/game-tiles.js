@@ -279,6 +279,13 @@ async function setup() {
 	typeSelect.value = defaults.tile_type;
 	shapeSelect.value = defaults.shape;
 	for (const id of NUMBER_FIELDS) document.getElementById(id).value = String(defaults[id]);
+	// Settings in the address (e.g. from the list of stored tiles) override the defaults.
+	const fromUrl = new URLSearchParams(window.location.search);
+	if (fromUrl.has("tile_type") && tileTypes.some((t) => t.id === fromUrl.get("tile_type"))) typeSelect.value = fromUrl.get("tile_type");
+	if (fromUrl.has("shape") && defaults.shapes.includes(fromUrl.get("shape"))) shapeSelect.value = fromUrl.get("shape");
+	for (const id of NUMBER_FIELDS) {
+		if (fromUrl.has(id) && Number.isFinite(parseNumber(fromUrl.get(id)))) document.getElementById(id).value = fromUrl.get(id);
+	}
 	updateShape();
 	updateDescription();
 	onGenerate();

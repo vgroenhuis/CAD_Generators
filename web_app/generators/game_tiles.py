@@ -1,6 +1,6 @@
 """API routes for the Game Tiles generator (game_tiles_app/game_tile_model.py): defaults with
 the list of tile types and shapes, a summary with the colours (filaments) needed, glTF
-preview, 3MF and STEP.
+preview, 3MF and STEP, a thumbnail, and the list of stored tiles (/stored).
 
 All endpoints except /defaults take the tile parameters as query parameters: tile_type,
 shape, size, length (rectangle only), thickness, inlay_depth, count and seed. The files
@@ -9,23 +9,33 @@ web_app/model_cache.py); the default tile is made when the server starts.
 """
 
 import io
+import json
 import re
 import zipfile
 from dataclasses import asdict
+from functools import lru_cache
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import Response
 
 from cad_common.mesh_export import meshes_of, meshes_to_3mf, meshes_to_glb
 from cad_common.mesh_fuzz import fuzz
+from cad_common.thumbnail import render_png
 from game_tiles_app.game_tile_model import (
 	MAX_COUNT, PALETTE, ROUGHNESS, SHAPES, TILE_TYPES, TileParams, build_tiles, colors_used, describe, validate,
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
-from web_app.model_cache import ModelCache, warm as warm_entry
+from web_app.model_cache import ModelCache, disk, warm as warm_entry
 
 router = APIRouter()
 
-cache = ModelCache("game_tiles", build_tiles, size=8)
+
+def _meta(p: TileParams) -> dict:
+	"""What the list of stored tiles shows about a tile."""
+	return {"params": asdict(p), "title": TILE_TYPES[p.tile_type].title, "colours": colors_used(p)}
+
+
+cache = ModelCache("game_tiles", build_tiles, size=8, meta=_meta)
 DEFAULT = TileParams()
 FILES = {
 	"glb": lambda part: glb_bytes(part, linear_deflection=0.02, angular_deflection=0.2),
@@ -62,17 +72,20 @@ def _makers(p: TileParams) -> dict:
 	"""How to make each file: types with a rough surface get their meshes roughened (3MF and
 	preview); the STEP file always has the exact, smooth geometry."""
 	rough = ROUGHNESS.get(p.tile_type)
-	if rough is None:
-		return FILES
-	amplitude, wavelength, mode = rough
 
 	def meshes(model, tolerance):
 		out = meshes_of(model, tolerance, 0.2)
-		for m in out:  # the same seed for every body, so touching bodies stay together
-			m.vertices, m.triangles = fuzz(m.vertices, m.triangles, amplitude, wavelength, mode, top=p.thickness, seed=p.seed)
+		if rough is not None:
+			amplitude, wavelength, mode = rough
+			for m in out:  # the same seed for every body, so touching bodies stay together
+				m.vertices, m.triangles = fuzz(m.vertices, m.triangles, amplitude, wavelength, mode, top=p.thickness, seed=p.seed)
 		return out
 
+	png = lambda model: render_png(meshes(model, 0.05))  # noqa: E731
+	if rough is None:
+		return {**FILES, "png": png}
 	return {
+		"png": png,
 		"glb": lambda model: meshes_to_glb(meshes(model, 0.02)),
 		"3mf": lambda model: meshes_to_3mf("game_tile", meshes(model, 0.01)),
 		"step": step_bytes,
@@ -126,8 +139,67 @@ def mesh_stats(p: TileParams = Depends(_params)) -> dict:
 
 
 @router.get("/preview.glb")
-def preview(p: TileParams = Depends(_params)):
-	return glb_response(_file(p, "glb"))
+def preview(background: BackgroundTasks, p: TileParams = Depends(_params)):
+	data = _file(p, "glb")
+	background.add_task(_file, p, "png")  # the thumbnail for the list of stored tiles, after answering
+	return glb_response(data)
+
+
+@router.get("/thumbnail.png")
+def thumbnail(p: TileParams = Depends(_params)):
+	return Response(content=_file(p, "png"), media_type="image/png", headers={"Cache-Control": "max-age=3600"})
+
+
+@router.get("/palette")
+def palette() -> dict:
+	"""Colour name -> preview colour (#rrggbb), for the swatches in the list of stored tiles."""
+	return {name: _hex(rgb) for name, rgb in PALETTE.items()}
+
+
+@lru_cache(maxsize=1)
+def _colour_use() -> tuple:
+	"""Every colour any tile type uses (in any shape), with the types using it, as the base or
+	not. Building every pattern takes about a minute, so this is done once per code version
+	(when the server starts, see warm) and kept in the disk cache."""
+	stored = disk.get("game_tiles_colours", "all", "list")
+	if stored is not None:
+		return tuple(json.loads(stored))
+	use: dict[str, dict] = {}
+	for type_id, t in TILE_TYPES.items():
+		for shape in SHAPES:
+			for i, name in enumerate(colors_used(TileParams(tile_type=type_id, shape=shape))):
+				entry = use.setdefault(name, {"types": {}, "base": set()})
+				entry["types"][type_id] = t.title
+				if i == 0:
+					entry["base"].add(t.title)
+	order = list(PALETTE)
+	result = tuple(
+		{"name": name.replace("_", " "), "id": name, "hex": _hex(PALETTE[name]), "types": list(e["types"].values()),
+		 "base_of": sorted(e["base"])}
+		for name, e in sorted(use.items(), key=lambda kv: order.index(kv[0]))
+	)
+	disk.put("game_tiles_colours", "all", "list", json.dumps(result).encode())
+	return result
+
+
+@router.get("/colours")
+def colours() -> dict:
+	"""All filament colours the tile types use, with the types using each (see _colour_use)."""
+	return {"colours": list(_colour_use())}
+
+
+@router.get("/stored")
+def stored() -> dict:
+	"""The tiles stored on disk (made by the current code), most recently used first: their
+	parameters, title, colours, which files are ready (kind -> bytes) and when they were made
+	and last used (Unix time)."""
+	tiles = []
+	for e in disk.entries(cache.name):
+		meta = e["meta"]
+		if "params" not in meta:
+			continue
+		tiles.append({**meta, "files": e["files"], "created": e["created"], "used": e["used"]})
+	return {"enabled": disk.enabled, "tiles": tiles}
 
 
 @router.get("/export.3mf")
@@ -142,3 +214,4 @@ def export_step_route(p: TileParams = Depends(_params)):
 
 def warm() -> None:
 	warm_entry(cache, _key(DEFAULT), DEFAULT, _makers(DEFAULT))
+	_colour_use()
