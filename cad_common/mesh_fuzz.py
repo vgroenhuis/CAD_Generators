@@ -10,6 +10,7 @@ Modes:
   "surface"  heights only (z), fading out towards the bed (z = 0) so the bottom stays flat;
              side walls stay where they are, so tiles still fit side by side
   "object"   all directions, only above `top` (fading in over 2 mm), e.g. a worn statue on a tile
+  "both"     "surface" for the tile and "object" for what stands on it (a worn arch on a rough floor)
 """
 
 from __future__ import annotations
@@ -94,20 +95,26 @@ def subdivide(v: np.ndarray, t: np.ndarray, max_edge: float, active, max_iter: i
 def fuzz(v: np.ndarray, t: np.ndarray, amplitude: float, wavelength: float, mode: str = "surface",
          top: float = 0.0, seed: int = 1) -> tuple[np.ndarray, np.ndarray]:
     """The mesh (vertices in mm, triangles) with a rough surface; see the module docstring."""
-    if mode == "surface":
-        def weight(p):
-            return np.clip(p[:, 2] / 1.0, 0, 1)  # nothing at the bed, full from 1 mm up
-    else:
-        def weight(p):
-            return np.clip((p[:, 2] - top) / 2.0, 0, 1)  # nothing on the tile, full 2 mm above it
+    def surface_weight(p):
+        return np.clip(p[:, 2] / 1.0, 0, 1)  # nothing at the bed, full from 1 mm up
+
+    def object_weight(p):
+        return np.clip((p[:, 2] - top) / 2.0, 0, 1)  # nothing on the tile, full 2 mm above it
+
+    weight = surface_weight if mode in ("surface", "both") else object_weight
     v, t = subdivide(np.asarray(v, dtype=np.float64), np.asarray(t, dtype=np.int64), wavelength / 3,
                      lambda p: weight(p) > 0)
-    w = weight(v) * amplitude
     q = v / wavelength
-    if mode == "surface":
-        v = v.copy()
+    v = v.copy()
+    if mode in ("surface", "both"):
+        # Heights only; on whatever stands on the tile ("both") this fades out above the top,
+        # where the all-direction warp below takes over.
+        w = surface_weight(v) * amplitude
+        if mode == "both":
+            w = w * (1 - object_weight(v))
         v[:, 2] += w * fractal_noise(np.column_stack([q[:, 0], q[:, 1], np.zeros(len(q))]), seed)
-    else:
+    if mode in ("object", "both"):
+        w = object_weight(v) * amplitude
         d = np.column_stack([fractal_noise(q, seed + 10 * i) for i in range(3)])
         v = v + w[:, None] * d
     return v, t

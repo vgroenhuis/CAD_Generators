@@ -408,22 +408,16 @@ def _sand(c: Ctx) -> Design:
 
 
 def _asphalt(c: Ctx) -> Design:
-    """A flat road: gravel, a dashed centre line, solid edge lines, fine cracks and a tar patch."""
+    """A flat road: a dashed centre line, solid edge lines and fine cracks."""
     width = max(1.2, 0.05 * c.s)
     dash = c.h / 4  # dashes of a quarter tile with equal gaps, centred on y = 0: they continue on the next tile
     line = [_rect(-width / 2, y - dash / 2, width / 2, y + dash / 2) for y in (-c.h / 2, 0, c.h / 2)]
     edge_x = c.w / 2 - 3 * c.k
     edges = [_rect(sx * edge_x - width / 2, -c.h, sx * edge_x + width / 2, c.h) for sx in (-1, 1)]
-    keep_clear = [(x, y, width) for y in np.linspace(-c.h / 2, c.h / 2, 40) for x in (0, -edge_x, edge_x)]
-    gravel = [_circle(x, y, r) for x, y, r in c.scatter(int(c.area / 30), 0.55, 0.8, 0.8, avoid=keep_clear)]
     cracks = []
     for x, y, _ in c.scatter(max(1, int(c.area / 800)), 1.0, 1.0, 10 * c.k):
         cracks += _crack(c, x, y, c.rng.uniform(0, 360), c.rng.randint(3, 5), 3 * c.k, spread=30)
-    px, py, pr = (c.scatter(1, 3.5 * c.k, 4.5 * c.k, 1.0) or [(0.0, 0.0, 0.0)])[0]
-    patch = _poly(_rotate(np.array([[-pr, -0.7 * pr], [pr, -0.8 * pr], [1.1 * pr, 0.7 * pr], [-0.9 * pr, 0.8 * pr]]),
-                          c.rng.uniform(-20, 20)) + (px, py)) if pr else None
     return Design("asphalt", [Layer("asphalt", _union(cracks), height=-c.hgt(0.4)),
-                              Layer("grey", _union(gravel)), Layer("black", patch),
                               Layer("white", _union(line + edges))])  # a flat road
 
 
@@ -617,8 +611,10 @@ def _door(c: Ctx) -> Design:
     wood = _sk(_sk(inner & _union(strips)) - braces)
     seams = _sk(inner - _union(strips) - braces)
     plank_h, brace_top = c.hgt(0.6), c.hgt(1.4)
-    hx = (c.w / 2 - frame) * 0.55
     r = 2.4 * c.k
+    # The handle and keyhole halfway to the edge, where the tile is wide enough for them
+    # (a triangle narrows towards the top).
+    hx = min((c.w / 2 - frame) * 0.55, _half_width(c, -7.5 * c.k, r) - frame - r - 1.0)
     knob_h = max(1.5, 2.2 * c.k) + plank_h
     knob = Pos(hx, 0, 0) * revolve(Plane.XZ * Polygon((0, 0), (r, 0), (r, knob_h - 0.6), (r - 0.6, knob_h), (0, knob_h), align=None), Axis.Z)
     keyhole = _union([_circle(hx, -5 * c.k, max(0.8, 0.9 * c.k)),
@@ -743,7 +739,8 @@ def _grass(c: Ctx) -> Design:
     clover_xy = c.scatter(max(1, int(c.area / 700)), 3.5 * c.k, 3.5 * c.k, 1.0, avoid=flowers)
     pads, tufts = [], []
     blade_w, blade_t = max(1.6, 1.8 * c.k), max(1.0, 1.0 * c.k)
-    for x, y, _ in c.scatter(int(c.area / 60), 2.2 * c.k, 2.2 * c.k, -0.6 * c.k, avoid=flowers + clover_xy):
+    # The margin keeps the outer blades, which lean outwards, inside the tile.
+    for x, y, _ in c.scatter(int(c.area / 60), 2.2 * c.k, 2.2 * c.k, -0.6 * c.k, margin=2.0 * c.k, avoid=flowers + clover_xy):
         # A fan of blades side by side along one direction, the outer ones leaning outwards.
         a0 = c.rng.uniform(0, 180)
         n = c.rng.randint(4, 5)
@@ -827,25 +824,18 @@ def _stones(c: Ctx, spacing: float, gap: float) -> tuple[list[np.ndarray], list[
 
 
 def _cobblestone(c: Ctx) -> Design:
-    """Domed cobbles in two shades with sunk joints, moss growing in some of the joints."""
+    """Cobbles in two shades with sunk joints and moss growing in some of the joints. Each
+    stone has steeply sloping sides and a small top; the rough surface (see ROUGHNESS) makes
+    every stone uneven."""
     cells, _ = _stones(c, 8 * c.k, c.line(1.2))
-    grey, light, grey_top, light_top = [], [], [], []
+    grey, light = [], []
     for cell in cells:
-        centre = cell.mean(axis=0)
-        top = _poly(centre + 0.6 * (cell - centre))  # the middle of the stone stands higher: a dome
-        if c.rng.random() < 0.4:
-            light.append(_poly(cell))
-            light_top.append(top)
-        else:
-            grey.append(_poly(cell))
-            grey_top.append(top)
+        (light if c.rng.random() < 0.4 else grey).append(_poly(cell))
     joints = _sk(c.outline - _union(grey + light))
     moss = [_blob(x, y, r, c.rng, 10, 0.35) for x, y, r in c.scatter(max(1, int(c.area / 500)), 1.8 * c.k, 2.6 * c.k, 3.0)]
     moss = _sk(_union(moss) & joints) if moss else None
-    bulge = c.hgt(0.8)
-    return Design("grey", [Layer("grey", _union(grey), bulge, taper=30), Layer("light_grey", _union(light), bulge, taper=30),
-                           Layer("grey", _union(grey_top), bulge + c.hgt(0.4), taper=30),
-                           Layer("light_grey", _union(light_top), bulge + c.hgt(0.4), taper=30),
+    bulge = c.hgt(1.1)
+    return Design("grey", [Layer("grey", _union(grey), bulge, taper=40), Layer("light_grey", _union(light), bulge, taper=40),
                            Layer("dark_grey", joints, height=-c.hgt(0.4)),
                            Layer("green", moss, height=-c.hgt(0.2))])
 
@@ -894,7 +884,7 @@ def _lava(c: Ctx) -> Design:
         if size > 5 * c.k and c.rng.random() < 0.7:
             x, y = cell.mean(axis=0)
             crack = _union(_crack(c, x, y, c.rng.uniform(0, 360), 2, 0.3 * size, branch=0.3, spread=35))
-            crack = _sk(crack & _poly(centre_shrink(cell, 0.8))) if crack is not None else None
+            crack = _sk(crack & _poly(centre_shrink(cell, 0.8)) & region) if crack is not None else None  # inside the rock and the tile
             if crack is not None and crack.faces():
                 slot = Pos(0, 0, rock_h - groove) * extrude(crack, amount=groove + 1)
                 rock = Part((rock - slot).wrapped)
@@ -1002,7 +992,13 @@ def _portal_upright(c: Ctx) -> Design:
                     - _rect(-r_in - lining, c.cy - t_ring, r_in + lining, c.cy + t_ring))
     swirl = _union(_spiral_arms(0.9 * r_in, 0.0))
     swirl = Pos(0, c.cy, 0) * swirl if swirl is not None else None
+    # An old flagstone floor with sunk joints (made uneven by the rough surface, see ROUGHNESS).
+    pitch, joint = 9 * c.k, c.line(1.0)
+    flags = [_rect(-c.w, y - joint / 2, c.w, y + joint / 2) for y in np.arange(-c.h, c.h, pitch)]
+    for j, y in enumerate(np.arange(-c.h, c.h, pitch)):
+        flags += [_rect(x - joint / 2, y, x + joint / 2, y + pitch) for x in np.arange(-c.w, c.w, pitch) + (pitch / 2 if j % 2 else 0)]
     return Design("dark_purple", [
+        Layer("dark_purple", _union(flags), height=-c.hgt(0.6)),
         Layer("violet", swirl, c.hgt(0.4)),  # a small swirl on the floor in the opening
         Layer("violet", footprint, solids=[shift * ring]),
         Layer("white", None, solids=[shift * glow, shift * gems]),
@@ -1112,8 +1108,8 @@ TILE_TYPES = {
     "earth": TileType("Earth", "Terrain", _earth, "brown soil with raised clods and stones"),
     "sand": TileType("Sand", "Terrain", _sand, "sand with raised wind ripples and pebbles"),
     "grass": TileType("Grass", "Terrain", _grass, "tufts of upright grass blades with a few flowers"),
-    "asphalt": TileType("Asphalt", "Terrain", _asphalt, "flat road with gravel and a dashed centre line"),
-    "cobblestone": TileType("Cobblestone", "Terrain", _cobblestone, "raised irregular cobbles with sunken joints"),
+    "asphalt": TileType("Asphalt", "Terrain", _asphalt, "flat road with a dashed centre line, edge lines and fine cracks"),
+    "cobblestone": TileType("Cobblestone", "Terrain", _cobblestone, "uneven cobbles with sunken, mossy joints"),
     "wood": TileType("Wooden floor", "Terrain", _wood, "planks with sunken seams and grain, raised nail heads"),
     "bricks": TileType("Bricks", "Terrain", _bricks, "brick wall in running bond with deep mortar joints"),
     "water": TileType("Water", "Elements", _water, "raised waves with white foam"),
@@ -1145,14 +1141,14 @@ ROUGHNESS = {
     "earth": (0.35, 2.5, "surface"),
     "sand": (0.12, 3.0, "surface"),
     "grass": (0.2, 2.5, "surface"),
-    "cobblestone": (0.4, 2.5, "surface"),
+    "cobblestone": (0.45, 3.0, "surface"),
     "bricks": (0.12, 2.0, "surface"),
     "water": (0.15, 4.0, "surface"),
     "ice": (0.08, 3.0, "surface"),
     "lava": (0.25, 2.5, "surface"),
     "pit": (0.15, 2.5, "surface"),
     "portal": (0.15, 2.0, "surface"),
-    "portal_upright": (0.35, 2.0, "object"),
+    "portal_upright": (0.35, 2.0, "both"),
 }
 
 
