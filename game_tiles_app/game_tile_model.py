@@ -408,17 +408,13 @@ def _sand(c: Ctx) -> Design:
 
 
 def _asphalt(c: Ctx) -> Design:
-    """A flat road: a dashed centre line, solid edge lines and fine cracks."""
+    """A flat road: a dashed centre line and solid edge lines."""
     width = max(1.2, 0.05 * c.s)
     dash = c.h / 4  # dashes of a quarter tile with equal gaps, centred on y = 0: they continue on the next tile
     line = [_rect(-width / 2, y - dash / 2, width / 2, y + dash / 2) for y in (-c.h / 2, 0, c.h / 2)]
     edge_x = c.w / 2 - 3 * c.k
     edges = [_rect(sx * edge_x - width / 2, -c.h, sx * edge_x + width / 2, c.h) for sx in (-1, 1)]
-    cracks = []
-    for x, y, _ in c.scatter(max(1, int(c.area / 800)), 1.0, 1.0, 10 * c.k):
-        cracks += _crack(c, x, y, c.rng.uniform(0, 360), c.rng.randint(3, 5), 3 * c.k, spread=30)
-    return Design("asphalt", [Layer("asphalt", _union(cracks), height=-c.hgt(0.4)),
-                              Layer("white", _union(line + edges))])  # a flat road
+    return Design("asphalt", [Layer("white", _union(line + edges))])  # a flat road
 
 
 def _wave(x, y, length, amplitude, width) -> Sketch:
@@ -1108,7 +1104,7 @@ TILE_TYPES = {
     "earth": TileType("Earth", "Terrain", _earth, "brown soil with raised clods and stones"),
     "sand": TileType("Sand", "Terrain", _sand, "sand with raised wind ripples and pebbles"),
     "grass": TileType("Grass", "Terrain", _grass, "tufts of upright grass blades with a few flowers"),
-    "asphalt": TileType("Asphalt", "Terrain", _asphalt, "flat road with a dashed centre line, edge lines and fine cracks"),
+    "asphalt": TileType("Asphalt", "Terrain", _asphalt, "flat road with a dashed centre line and edge lines"),
     "cobblestone": TileType("Cobblestone", "Terrain", _cobblestone, "uneven cobbles with sunken, mossy joints"),
     "wood": TileType("Wooden floor", "Terrain", _wood, "planks with sunken seams and grain, raised nail heads"),
     "bricks": TileType("Bricks", "Terrain", _bricks, "brick wall in running bond with deep mortar joints"),

@@ -8,6 +8,9 @@ hold one body per colour, named after it. Built models and their files are cache
 web_app/model_cache.py); the default tile is made when the server starts.
 """
 
+import io
+import re
+import zipfile
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -104,6 +107,21 @@ def info(p: TileParams = Depends(_params)) -> dict:
 	return {
 		"summary": describe(p),
 		"colors": [{"name": name.replace("_", " "), "hex": _hex(PALETTE[name])} for name in colors_used(p)],
+	}
+
+
+@router.get("/mesh-stats")
+def mesh_stats(p: TileParams = Depends(_params)) -> dict:
+	"""Size of the print mesh (the 3MF file, rough surfaces included): triangles and vertices,
+	in total and per colour. Makes the 3MF file if needed (it is cached for the download)."""
+	model = zipfile.ZipFile(io.BytesIO(_file(p, "3mf"))).read("3D/3dmodel.model").decode()
+	per_colour = []
+	for name, mesh in re.findall(r'<object id="\d+" type="model" pid="1" pindex="\d+" name="([^"]*)"><mesh>(.*?)</mesh>', model, re.S):
+		per_colour.append({"name": name.replace("_", " "), "triangles": mesh.count("<triangle "), "vertices": mesh.count("<vertex ")})
+	return {
+		"triangles": sum(c["triangles"] for c in per_colour),
+		"vertices": sum(c["vertices"] for c in per_colour),
+		"colours": per_colour,
 	}
 
 

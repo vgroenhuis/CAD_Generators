@@ -19,6 +19,7 @@ const downloadBtn = document.getElementById("download-btn");
 const downloadStepBtn = document.getElementById("download-step-btn");
 const infoEl = document.getElementById("info");
 const swatchesEl = document.getElementById("swatches");
+const meshStatsEl = document.getElementById("mesh-stats");
 const statusEl = document.getElementById("status");
 const placeholderEl = document.getElementById("viewer-placeholder");
 const canvas = document.getElementById("viewer-canvas");
@@ -146,6 +147,26 @@ function showColors(colors) {
 
 let generation = 0;
 
+// Size of the print mesh (the 3MF file): asked for after the preview, as making the 3MF file
+// can take a few seconds (it is then ready for the download).
+async function showMeshStats(query, mine) {
+	meshStatsEl.textContent = "Print mesh (3MF): counting...";
+	try {
+		const response = await fetch(`${API}/mesh-stats?${query}`);
+		if (mine !== generation) return;
+		if (!response.ok) {
+			meshStatsEl.textContent = "";
+			return;
+		}
+		const stats = await response.json();
+		const n = (x) => x.toLocaleString("en-US");
+		meshStatsEl.textContent = `Print mesh (3MF): ${n(stats.triangles)} faces (triangles), ${n(stats.vertices)} vertices`;
+		meshStatsEl.title = stats.colours.map((c) => `${c.name}: ${n(c.triangles)} faces, ${n(c.vertices)} vertices`).join("\n");
+	} catch (exc) {
+		if (mine === generation) meshStatsEl.textContent = "";
+	}
+}
+
 async function onGenerate() {
 	let params;
 	try {
@@ -161,6 +182,7 @@ async function onGenerate() {
 	const query = buildQuery(params);
 	try {
 		// The summary is cheap and validates the parameters before the build.
+		meshStatsEl.textContent = "";
 		const infoResponse = await fetch(`${API}/info?${query}`);
 		if (mine !== generation) return;
 		if (!infoResponse.ok) {
@@ -201,6 +223,7 @@ async function onGenerate() {
 		downloadBtn.disabled = false;
 		downloadStepBtn.disabled = false;
 		setStatus(`Generated, ${info.colors.length} colours. Drag to rotate.`);
+		showMeshStats(query, mine);
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
 	} finally {
