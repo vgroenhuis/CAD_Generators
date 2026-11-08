@@ -192,14 +192,19 @@ def colours() -> dict:
 def stored() -> dict:
 	"""The tiles stored on disk (made by the current code), most recently used first: their
 	parameters, title, colours, which files are ready (kind -> bytes) and when they were made
-	and last used (Unix time)."""
+	and last used (Unix time); and the space used on disk (bytes): by the listed tiles, by all
+	game tile files (older versions included), by the whole store, and its limit."""
 	tiles = []
 	for e in disk.entries(cache.name):
 		meta = e["meta"]
 		if "params" not in meta:
 			continue
 		tiles.append({**meta, "files": e["files"], "created": e["created"], "used": e["used"]})
-	return {"enabled": disk.enabled, "tiles": tiles}
+	listed = sum(sum(t["files"].values()) for t in tiles)
+	return {
+		"enabled": disk.enabled, "tiles": tiles,
+		"bytes": {"listed": listed, "game_tiles": disk.usage(cache.name), "store": disk.usage(), "limit": disk.limit},
+	}
 
 
 @router.get("/export.3mf")

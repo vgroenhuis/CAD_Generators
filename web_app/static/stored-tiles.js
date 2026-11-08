@@ -33,6 +33,7 @@ function when(seconds) {
 }
 
 function size(bytes) {
+	if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(bytes >= 1e10 ? 0 : 1)} GB`;
 	return bytes > 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1e3))} kB`;
 }
 
@@ -91,11 +92,14 @@ async function load() {
 			statusEl.textContent = "Tiles are not stored on this server (its disk cache is turned off).";
 			return;
 		}
-		if (!stored.tiles.length) {
-			statusEl.textContent = "No stored tiles yet. Tiles you generate are added here.";
-			return;
-		}
-		statusEl.textContent = `${stored.tiles.length} stored tile${stored.tiles.length === 1 ? "" : "s"}.`;
+		const b = stored.bytes;
+		let text = stored.tiles.length
+			? `${stored.tiles.length} stored tile${stored.tiles.length === 1 ? "" : "s"}, ${size(b.listed)} on disk.`
+			: "No stored tiles yet. Tiles you generate are added here.";
+		if (b.game_tiles > b.listed * 1.01) text += ` All game tile files, older versions included: ${size(b.game_tiles)}.`;
+		text += ` The whole store (all generators): ${size(b.store)} of ${size(b.limit)}.`;
+		statusEl.textContent = text;
+		if (!stored.tiles.length) return;
 		rows.replaceChildren(...stored.tiles.map((t) => row(t, palette)));
 		table.hidden = false;
 	} catch (exc) {

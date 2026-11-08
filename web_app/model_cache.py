@@ -153,6 +153,13 @@ class DiskCache:
                             "created": record.get("created"), "used": used})
         return sorted(out, key=lambda e: e["used"], reverse=True)
 
+    def usage(self, name: str | None = None) -> int:
+        """Bytes on disk, of one cache (all code versions) or of the whole store."""
+        if not self.enabled:
+            return 0
+        pattern = f"{name}/*" if name else "*/*"
+        return sum(f.stat().st_size for f in self.root.glob(pattern) if f.is_file())
+
     def _prune(self) -> None:
         with self._lock:
             files = [(f.stat().st_mtime, f.stat().st_size, f) for f in self.root.glob("*/*") if f.is_file() and f.suffix != ".json"]
