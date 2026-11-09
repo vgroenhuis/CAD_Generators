@@ -18,6 +18,9 @@
     (each reading upright with that edge nearest) and the top id in the centre. A label given as
     text is centred; long labels are split over two lines when that gives a larger font.
     Optionally, short red (+X) and green (+Y) arrows lying on the floor beside the cube show the world frame.
+    Optionally (edge_colours=True), a red strip along the bottom edge of the +X face and a green
+    one along the bottom edge of the +Y face show the cube's own axes; they are inlaid flush like
+    the tag, in the lower part of the white margin below the tag, so the cube keeps its size.
 
     With the same tag on all faces, rotate_sides=True turns the tag on each side face a further
     quarter turn counterclockwise (as seen from outside): its top edge points up on +X, left on
@@ -142,6 +145,8 @@ _EDGE_MARGIN = 0.06  # gap between the cube edge and the ids along it, x cube si
 
 WORLD_FRAME_IDS = (25, 26, 27, 28, 29)  # +X, +Y, -X, -Y, +Z
 WORLD_FRAME_LABEL = "World frame"
+_STRIP_HEIGHT = 2.0  # mm, height of the red/green bottom-edge strips at most
+_STRIP_FRACTION = 1 / 3  # strip height as a fraction of the white margin (one cell)
 _LABEL_AREA = 0.8  # label width and height at most this x cube size
 _LABEL_MAX_FONT = 0.3  # largest font size, x cube size
 _LINE_PITCH = 1.25  # baseline-to-baseline distance, x font size
@@ -320,6 +325,19 @@ def _edge_label_cells(ids: list[int], size: float, depth: float) -> list[Part]:
     return parts
 
 
+def _edge_strips(size: float, depth: float) -> tuple[Part, Part]:
+    """Red (+X) and green (+Y) strips along the bottom edges of those faces, `depth` deep.
+
+    They fill the lowest _STRIP_FRACTION of the white margin below the tag (at most
+    _STRIP_HEIGHT), so the tag keeps most of its white border. The green strip stops where the
+    red one starts at the shared corner, so the two never overlap.
+    """
+    h = min(_STRIP_HEIGHT, _STRIP_FRACTION * size / GRID)
+    red = Pos(size / 2 - depth / 2, 0, -size / 2 + h / 2) * Box(depth, size, h)
+    green = Pos(-depth / 2, size / 2 - depth / 2, -size / 2 + h / 2) * Box(size - depth, depth, h)
+    return Part(red.wrapped), Part(green.wrapped)
+
+
 def _check_dimensions(size: float, depth: float) -> None:
     if size <= 0:
         raise ValueError("Cube size must be greater than 0.")
@@ -369,9 +387,23 @@ def _label_bodies(white, black) -> None:
     white.color, black.color = Color(0.93, 0.93, 0.93), Color(0.07, 0.07, 0.07)
 
 
+def _colour_bodies(arrows: list[Part], reds: list[Part], greens: list[Part]) -> list[Part]:
+    """The 'red' and 'green' bodies: the floor arrows and the edge strips of each colour, fused
+    (an arrow's tail overlaps the strip it starts at), so each colour is one body."""
+    bodies = []
+    for name, extra in (("red", reds), ("green", greens)):
+        parts = [a for a in arrows if a.label == name] + extra
+        if not parts:
+            continue
+        body = Part(parts[0].fuse(*parts[1:]).clean().wrapped) if len(parts) > 1 else Part(parts[0].wrapped)
+        body.label, body.color = name, Color(name)
+        bodies.append(body)
+    return bodies
+
+
 def build_apriltag_cube(
     tag_ids: int | list[int], size: float, depth: float = DEFAULT_DEPTH, axes: bool = False,
-    label: str | None = None, bottom_tag: bool = False, rotate_sides: bool = False,
+    label: str | None = None, bottom_tag: bool = False, rotate_sides: bool = False, edge_colours: bool = False,
 ) -> Compound:
     """Build a compound with two bodies (labels 'white' and 'black').
 
@@ -380,6 +412,8 @@ def build_apriltag_cube(
     label is the bottom label: None for the default (see default_label), "" for none.
     With axes=True, two extra bodies 'red' (+X) and 'green' (+Y) are added on the floor beside the cube.
     rotate_sides=True turns the side tags so that they can be told apart (see the module docstring).
+    edge_colours=True adds red (+X) and green (+Y) strips along those faces' bottom edges, in the
+    same 'red' and 'green' bodies as the arrows.
     """
     ids = [tag_ids] if isinstance(tag_ids, int) else list(tag_ids)
     n_faces = face_count(bottom_tag)
@@ -393,9 +427,11 @@ def build_apriltag_cube(
 
     white, black = _build_cube_bodies(ids, size, depth, label, rotate_sides)
     arrows = _axis_arrows(size) if axes else []
-    white = _cut_arrows(white, arrows)
+    strips = _edge_strips(size, depth) if edge_colours else ()
+    white = _cut_arrows(white, arrows + list(strips))
     _label_bodies(white, black)
-    return Compound(children=[white, black] + arrows, label="apriltag_cube")
+    colours = _colour_bodies(arrows, list(strips[:1]), list(strips[1:]))
+    return Compound(children=[white, black] + colours, label="apriltag_cube")
 
 
 def grid_dimension(count: int) -> int:
@@ -408,7 +444,7 @@ def grid_dimension(count: int) -> int:
 
 def build_apriltag_cube_grid(
     tag_ids: list[int], size: float, depth: float = DEFAULT_DEPTH, axes: bool = False, spacing: float = GRID_SPACING,
-    labels: bool = True, bottom_tag: bool = False, rotate_sides: bool = False,
+    labels: bool = True, bottom_tag: bool = False, rotate_sides: bool = False, edge_colours: bool = False,
 ) -> Compound:
     """One cube per tag id (same tag on all tag faces), in the smallest square grid.
 
@@ -417,7 +453,8 @@ def build_apriltag_cube_grid(
     one body 'white' and all black parts one body 'black', so a slicer can assign each filament
     once for every cube. With labels=True each cube's bottom face carries its tag id; with
     bottom_tag=True it carries the tag instead. rotate_sides turns the side tags as in
-    build_apriltag_cube. With a single id this is the same as build_apriltag_cube.
+    build_apriltag_cube, and edge_colours gives every cube its red and green bottom edges. With a
+    single id this is the same as build_apriltag_cube.
     """
     ids = list(tag_ids)
     if not ids:
@@ -425,14 +462,16 @@ def build_apriltag_cube_grid(
     if len(ids) > MAX_CUBES:
         raise ValueError(f"At most {MAX_CUBES} cubes can be generated at once.")
     if len(ids) == 1:
-        return build_apriltag_cube(ids[0], size, depth, axes, None if labels else "", bottom_tag, rotate_sides)
+        return build_apriltag_cube(ids[0], size, depth, axes, None if labels else "", bottom_tag, rotate_sides,
+                                   edge_colours)
     _check_dimensions(size, depth)
 
     n = grid_dimension(len(ids))
     pitch = size + spacing
     extent = n * size + (n - 1) * spacing
     arrows = _axis_arrows(size, extent) if axes else []
-    whites, blacks = [], []
+    whites, blacks, reds, greens = [], [], [], []
+    strips = _edge_strips(size, depth) if edge_colours else ()
     bodies_by_id: dict[int, tuple[Part, Part]] = {}
     for index, tag_id in enumerate(ids):
         if tag_id not in bodies_by_id:
@@ -442,13 +481,17 @@ def build_apriltag_cube_grid(
         row, col = divmod(index, n)
         shift = Pos(-extent / 2 + size / 2 + col * pitch, extent / 2 - size / 2 - row * pitch, 0)
         white, black = bodies_by_id[tag_id]
-        whites.append(_cut_arrows(Part((shift * white).wrapped), arrows))
+        cube_strips = [Part((shift * strip).wrapped) for strip in strips]
+        whites.append(_cut_arrows(Part((shift * white).wrapped), arrows + cube_strips))
         blacks.append(Part((shift * black).wrapped))
+        reds += cube_strips[:1]
+        greens += cube_strips[1:]
 
     white = Compound(children=whites)
     black = Compound(children=blacks)
     _label_bodies(white, black)
-    return Compound(children=[white, black] + arrows, label="apriltag_cubes")
+    colours = _colour_bodies(arrows, reds, greens)
+    return Compound(children=[white, black] + colours, label="apriltag_cubes")
 
 
 def export_apriltag_cube(cube: Compound, path: str) -> None:
@@ -471,17 +514,20 @@ def main() -> None:
     ap.add_argument("--cubes", help="comma-separated tag ids: one cube (same tag on all faces) per id, in a square grid "
                     f"{GRID_SPACING:g} mm apart; used instead of --id")
     ap.add_argument("--axes", action="store_true", help="add red (+X) and green (+Y) world-frame arrows on the floor beside the cube(s)")
+    ap.add_argument("--edge-colours", action="store_true", help="red (+X) and green (+Y) strips along those faces' "
+                    "bottom edges, inlaid within the cube")
     ap.add_argument("--out", default="apriltag_cube.step")
     a = ap.parse_args()
     if a.world_frame:
-        cube = build_apriltag_cube(list(WORLD_FRAME_IDS), a.size, a.depth, True, a.label)
+        cube = build_apriltag_cube(list(WORLD_FRAME_IDS), a.size, a.depth, True, a.label, edge_colours=a.edge_colours)
     elif a.cubes:
         cube = build_apriltag_cube_grid(parse_tag_ids(a.cubes, per_face=False), a.size, a.depth, a.axes,
-                                        labels=a.label != "", bottom_tag=a.bottom_tag, rotate_sides=a.rotate_sides)
+                                        labels=a.label != "", bottom_tag=a.bottom_tag, rotate_sides=a.rotate_sides,
+                                        edge_colours=a.edge_colours)
     else:
         ids = parse_tag_ids(a.id, bottom_tag=a.bottom_tag)
         cube = build_apriltag_cube(ids, a.size, a.depth, a.axes, a.label, a.bottom_tag,
-                                   a.rotate_sides and len(set(ids)) == 1)
+                                   a.rotate_sides and len(set(ids)) == 1, a.edge_colours)
     export_apriltag_cube(cube, a.out)
     print(f"Wrote {a.out}")
 

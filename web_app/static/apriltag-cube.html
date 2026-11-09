@@ -82,13 +82,16 @@
 			<label for="depth">Black depth (mm)</label>
 			<input type="text" inputmode="decimal" autocomplete="off" id="depth">
 
+			<label class="check" for="edge_colours"><input type="checkbox" id="edge_colours"> Red/green bottom edges (X/Y)</label>
+			<div class="hint">A red strip along the bottom edge of the +X face and a green one along the +Y face, inlaid flush in the white margin below the tag, so the cube keeps its size.</div>
+
 			<label class="check" for="axes"><input type="checkbox" id="axes"> Red/green axes (X/Y) on the floor</label>
 
 			<button id="generate-btn">Generate</button>
 			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
 			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
 
-			<div class="fixed-info">The tag (6 cells wide) sits inside a 1-cell white margin, so tag size = 0.75 x cube size. The STEP file contains two bodies, "white" (cube with pockets) and "black" (tag cells and bottom label or tag, inlaid flush), for multimaterial printing. With axes enabled, "red" (+X) and "green" (+Y) arrows lie flat on the floor beside the cube, on its X and Y axes.</div>
+			<div class="fixed-info">The tag (6 cells wide) sits inside a 1-cell white margin, so tag size = 0.75 x cube size. The STEP file contains two bodies, "white" (cube with pockets) and "black" (tag cells and bottom label or tag, inlaid flush), for multimaterial printing. The red/green bottom edges and the axes arrows are the bodies "red" (+X) and "green" (+Y); with axes enabled, the arrows lie flat on the floor beside the cube, on its X and Y axes.</div>
 
 			<div id="status">Enter dimensions and click Generate.</div>
 		</div>

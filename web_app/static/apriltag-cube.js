@@ -10,6 +10,7 @@ const tagIdsInput = document.getElementById("tag_ids");
 const modeInputs = document.querySelectorAll('input[name="tag_mode"]');
 const axesInput = document.getElementById("axes");
 const rotateInput = document.getElementById("rotate_sides");
+const edgeColoursInput = document.getElementById("edge_colours");
 const bottomLabelInput = document.getElementById("bottom_label");
 const labelInput = document.getElementById("label");
 const labelHint = document.getElementById("label-hint");
@@ -213,6 +214,7 @@ function readParams() {
 		axes: mode === "world" || axesInput.checked,
 		perFace: mode !== "same",
 		rotateSides: mode === "same" && rotateInput.checked,
+		edgeColours: edgeColoursInput.checked,
 		bottomLabel: bottomLabelInput.checked,
 		label: labelInput.disabled ? "" : labelInput.value.trim(),
 	};
@@ -265,6 +267,7 @@ function buildQuery(params) {
 		bottom_label: params.bottomLabel,
 		label: params.label,
 		rotate_sides: params.rotateSides,
+		edge_colours: params.edgeColours,
 	});
 }
 
@@ -326,6 +329,7 @@ async function onGenerate() {
 				what += label === EDGE_LABEL ? ", bottom: IDs along the edges" : `, label "${label}"`;
 			}
 		}
+		if (params.edgeColours) what += ", red/green bottom edges";
 		setStatus(`Generated ${what}, ${params.size} mm, black depth ${params.depth} mm`);
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
@@ -361,6 +365,7 @@ modeInputs.forEach((el) => el.addEventListener("change", () => {
 updateMode();
 axesInput.addEventListener("change", onGenerate);
 rotateInput.addEventListener("change", onGenerate);
+edgeColoursInput.addEventListener("change", onGenerate);
 bottomLabelInput.addEventListener("change", () => {
 	setBottomLabel(bottomLabelInput.checked);
 	updateLabel();

@@ -55,6 +55,7 @@ _DEFAULTS = {
 	"depth": "0.7",
 	"axes": False,
 	"rotate_sides": True,
+	"edge_colours": True,
 }
 
 
@@ -103,6 +104,7 @@ class AprilTagCubeApp:
 		self.ids_var = tk.StringVar(value=p["tag_ids"])
 		self.axes_var = tk.BooleanVar(value=bool(p["axes"]))
 		self.rotate_var = tk.BooleanVar(value=bool(p.get("rotate_sides", True)))
+		self.edge_colours_var = tk.BooleanVar(value=bool(p.get("edge_colours", True)))
 		self.bottom_label_var = tk.BooleanVar(value=bool(p["bottom_label"]))
 		self.label_var = tk.StringVar(value=p["label"])
 		self.size_var = tk.StringVar(value=p["size"])
@@ -198,6 +200,10 @@ class AprilTagCubeApp:
 			controls, text="Add red/green axes (X/Y) on floor", variable=self.axes_var, command=self.on_generate
 		)
 		self.axes_check.grid(row=1, column=0, columnspan=6, sticky=tk.W, pady=(4, 0))
+		ttk.Checkbutton(
+			controls, text="Red/green bottom edges of the +X/+Y faces (inlaid, within the cube)",
+			variable=self.edge_colours_var, command=self.on_generate,
+		).grid(row=2, column=0, columnspan=6, sticky=tk.W, pady=(4, 0))
 		self._update_mode()
 
 		buttons = ttk.Frame(main)
@@ -289,12 +295,13 @@ class AprilTagCubeApp:
 			label = (self.label_var.get().strip() or None) if use_label else ""
 			if grid:
 				self.current_cube = build_apriltag_cube_grid(
-					tag_ids, size, depth, axes=self.axes_var.get(), bottom_tag=not use_label, rotate_sides=rotate
+					tag_ids, size, depth, axes=self.axes_var.get(), bottom_tag=not use_label, rotate_sides=rotate,
+					edge_colours=self.edge_colours_var.get(),
 				)
 			else:
 				self.current_cube = build_apriltag_cube(
 					tag_ids, size, depth, axes=self.axes_var.get(), label=label, bottom_tag=not use_label,
-					rotate_sides=rotate,
+					rotate_sides=rotate, edge_colours=self.edge_colours_var.get(),
 				)
 			_save_params(
 				{
@@ -307,6 +314,7 @@ class AprilTagCubeApp:
 					"bottom_label": self.bottom_label_var.get(),
 					"label": self.label_var.get(),
 					"rotate_sides": self.rotate_var.get(),
+					"edge_colours": self.edge_colours_var.get(),
 				}
 			)
 			self.export_btn.configure(state=tk.NORMAL)
