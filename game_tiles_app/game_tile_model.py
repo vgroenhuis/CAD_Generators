@@ -1100,7 +1100,7 @@ def _star_upright(c: Ctx) -> Design:
 # --- Connector: a sleeve that joins two tiles of the same shape ---
 
 CONNECTOR_WALL = 0.8  # mm, wall thickness
-CONNECTOR_SOCKET = 2.5  # mm, how deep a tile goes in from either side
+CONNECTOR_SOCKET = 2.4  # mm, how deep a tile goes in from either side (all heights multiples of 0.2 mm layers)
 CONNECTOR_LEDGE = 0.3  # mm, how far the ledge inside sticks out (short, so it prints over the wall below)
 CONNECTOR_LEDGE_HEIGHT = 0.6  # mm, its height: three layers of 0.2 mm
 CONNECTOR_HEIGHT = 2 * CONNECTOR_SOCKET + CONNECTOR_LEDGE_HEIGHT  # mm, total height
