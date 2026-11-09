@@ -6,7 +6,8 @@ a filament to each). Writing it is much faster than writing STEP: STEP stores th
 geometry (every surface, edge and vertex as text), 3MF only triangles.
 
 The meshes come from OpenCascade's tessellation (the same as STL export). Vertices are
-merged across faces so every mesh is closed, as 3MF requires.
+merged across faces so every mesh is closed, as 3MF requires. Bambu Studio gets each colour
+on its own filament slot, and optionally a project file with the colours (cad_common.bambu).
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ from dataclasses import dataclass, field
 from xml.sax.saxutils import quoteattr
 
 import numpy as np
+
+from cad_common.bambu import BAMBU_APPLICATION, BambuPrinter, filament_slots, model_settings, project_settings
 
 _CONTENT_TYPES = (
     '<?xml version="1.0" encoding="UTF-8"?>'
@@ -40,6 +43,7 @@ class MeshPart:
     name: str
     shape: object  # any build123d Shape
     color: tuple[float, float, float] | None = None  # rgb, 0..1
+    filament: str | None = None  # "#RRGGBB" of the filament to print it with; default: the colour
 
 
 @dataclass
@@ -60,7 +64,7 @@ def parts_of(shape, default_name: str = "part") -> list[MeshPart]:
         color = getattr(item, "color", None)
         rgb = tuple(color)[:3] if color is not None else None  # build123d Color iterates as r, g, b, a
         name = getattr(item, "label", "") or (default_name if len(items) == 1 else f"{default_name} {i + 1}")
-        parts.append(MeshPart(name, item, rgb))
+        parts.append(MeshPart(name, item, rgb, getattr(item, "filament", None)))
     return parts
 
 
@@ -89,43 +93,69 @@ def _hex(rgb) -> str:
     return f"#{r:02X}{g:02X}{b:02X}"
 
 
-def to_3mf(objects: list[MeshObject], tolerance: float = 0.01, angular_tolerance: float = 0.2) -> bytes:
+def to_3mf(objects: list[MeshObject], tolerance: float = 0.01, angular_tolerance: float = 0.2,
+           bambu: BambuPrinter | None = None) -> bytes:
     """Write the objects (millimetres, positions as modelled) to 3MF and return the bytes.
 
     `tolerance` is the largest distance (mm) between the mesh and the exact surface; it
-    only matters for curved surfaces.
+    only matters for curved surfaces. See write_3mf for `bambu`.
     """
-    bases, resources, items = [], [], []
-    next_id = 2  # id 1 is the material list
+    meshed = []
     for obj in objects:
-        part_ids = []
+        parts = []
         for part in obj.parts:
             v, t = _mesh(part.shape, tolerance, angular_tolerance)
-            if not len(t):
-                continue
-            pindex = len(bases)
-            bases.append(f"<base name={quoteattr(part.name)} displaycolor=\"{_hex(part.color)}\"/>")
-            resources.append(
-                f'<object id="{next_id}" type="model" pid="1" pindex="{pindex}" name={quoteattr(part.name)}>'
-                f"{_mesh_xml(v, t)}</object>"
-            )
-            part_ids.append(next_id)
-            next_id += 1
-        if not part_ids:
-            continue
-        if len(part_ids) == 1:
-            items.append(part_ids[0])
-            continue
-        comps = "".join(f'<component objectid="{i}"/>' for i in part_ids)
-        resources.append(f'<object id="{next_id}" type="model" name={quoteattr(obj.name)}><components>{comps}</components></object>')
-        items.append(next_id)
-        next_id += 1
-    if not items:
+            if len(t):
+                parts.append(Mesh(part.name, part.color, v, t, part.filament))
+        if parts:
+            meshed.append((obj.name, parts))
+    return write_3mf(meshed, bambu)
+
+
+def write_3mf(objects: list[tuple[str, list["Mesh"]]], bambu: BambuPrinter | None = None) -> bytes:
+    """The 3MF of these objects, each (name, its coloured part meshes) and made of its parts as
+    components, so a slicer opens it as one object with a part per colour.
+
+    The colours are written the core-spec way (basematerials, for PrusaSlicer and others) and
+    for Bambu Studio / OrcaSlicer as a filament slot per part, one slot per colour (see
+    cad_common.bambu). With `bambu` (a printer) the file is also a Bambu Studio project for that
+    printer holding the filament colours, with the objects in the middle of its plate.
+    """
+    if not objects:
         raise ValueError("Nothing to export.")
-    build = "".join(f'<item objectid="{i}"/>' for i in items)
+    bases, resources, settings = [], [], []
+    slots, slot_colours = filament_slots([m.filament or _hex(m.color) for _, parts in objects for m in parts])
+    slot_iter = iter(slots)
+    next_id = 2  # id 1 is the material list
+    for name, parts in objects:
+        part_ids = []
+        for m in parts:
+            pindex = len(bases)
+            bases.append(f"<base name={quoteattr(m.name)} displaycolor=\"{_hex(m.color)}\"/>")
+            resources.append(
+                f'<object id="{next_id}" type="model" pid="1" pindex="{pindex}" name={quoteattr(m.name)}>'
+                f"{_mesh_xml(m.vertices, m.triangles)}</object>"
+            )
+            part_ids.append((next_id, m.name, next(slot_iter)))
+            next_id += 1
+        comps = "".join(f'<component objectid="{i}"/>' for i, _, _ in part_ids)
+        resources.append(f'<object id="{next_id}" type="model" name={quoteattr(name)}><components>{comps}</components></object>')
+        settings.append((next_id, name, part_ids))
+        next_id += 1
+    transform = ""
+    if bambu is not None:
+        # A project keeps positions as they are: put the objects in the middle of the plate, on it.
+        v = np.concatenate([m.vertices for _, parts in objects for m in parts])
+        lo, hi = v.min(axis=0), v.max(axis=0)
+        dx, dy = bambu.plate[0] / 2 - (lo[0] + hi[0]) / 2, bambu.plate[1] / 2 - (lo[1] + hi[1]) / 2
+        transform = f' transform="1 0 0 0 1 0 0 0 1 {dx:.4f} {dy:.4f} {-lo[2]:.4f}"'
+    build = "".join(f'<item objectid="{assembly}"{transform}/>' for assembly, _, _ in settings)
+    application = (f'<metadata name="Application">{BAMBU_APPLICATION}</metadata>'
+                   '<metadata name="BambuStudio:3mfVersion">1</metadata>') if bambu is not None else ""
     model = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
+        f"{application}"
         f'<resources><basematerials id="1">{"".join(bases)}</basematerials>{"".join(resources)}</resources>'
         f"<build>{build}</build>"
         "</model>"
@@ -135,12 +165,15 @@ def to_3mf(objects: list[MeshObject], tolerance: float = 0.01, angular_tolerance
         z.writestr("[Content_Types].xml", _CONTENT_TYPES)
         z.writestr("_rels/.rels", _RELS)
         z.writestr("3D/3dmodel.model", model)
+        z.writestr("Metadata/model_settings.config", model_settings(settings, plate=bambu is not None))
+        if bambu is not None:
+            z.writestr("Metadata/project_settings.config", project_settings(bambu, slot_colours))
     return buf.getvalue()
 
 
-def shape_to_3mf(shape, name: str, tolerance: float = 0.01) -> bytes:
-    """One object made of the assembly's coloured bodies (see parts_of)."""
-    return to_3mf([MeshObject(name, parts_of(shape, name))], tolerance)
+def shape_to_3mf(shape, name: str, tolerance: float = 0.01, bambu: BambuPrinter | None = None) -> bytes:
+    """One object made of the assembly's coloured bodies (see parts_of); see write_3mf for `bambu`."""
+    return to_3mf([MeshObject(name, parts_of(shape, name))], tolerance, bambu=bambu)
 
 
 # --- Ready-made meshes (e.g. made rough with cad_common.mesh_fuzz) ---
@@ -151,6 +184,7 @@ class Mesh:
     color: tuple[float, float, float] | None
     vertices: np.ndarray  # n x 3, mm
     triangles: np.ndarray  # m x 3
+    filament: str | None = None  # "#RRGGBB" of the filament to print it with; default: the colour
 
 
 def meshes_of(shape, tolerance: float = 0.01, angular_tolerance: float = 0.2) -> list[Mesh]:
@@ -159,39 +193,13 @@ def meshes_of(shape, tolerance: float = 0.01, angular_tolerance: float = 0.2) ->
     for part in parts_of(shape):
         v, t = _mesh(part.shape, tolerance, angular_tolerance)
         if len(t):
-            out.append(Mesh(part.name, part.color, v, t))
+            out.append(Mesh(part.name, part.color, v, t, part.filament))
     return out
 
 
-def meshes_to_3mf(name: str, meshes: list[Mesh]) -> bytes:
+def meshes_to_3mf(name: str, meshes: list[Mesh], bambu: BambuPrinter | None = None) -> bytes:
     """One object made of the meshes as coloured parts (like shape_to_3mf)."""
-    bases, resources, ids = [], [], []
-    for i, m in enumerate(meshes):
-        bases.append(f"<base name={quoteattr(m.name)} displaycolor=\"{_hex(m.color)}\"/>")
-        resources.append(f'<object id="{i + 2}" type="model" pid="1" pindex="{i}" name={quoteattr(m.name)}>'
-                         f"{_mesh_xml(m.vertices, m.triangles)}</object>")
-        ids.append(i + 2)
-    if not ids:
-        raise ValueError("Nothing to export.")
-    if len(ids) == 1:
-        item = ids[0]
-    else:
-        item = len(meshes) + 2
-        comps = "".join(f'<component objectid="{i}"/>' for i in ids)
-        resources.append(f'<object id="{item}" type="model" name={quoteattr(name)}><components>{comps}</components></object>')
-    model = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
-        f'<resources><basematerials id="1">{"".join(bases)}</basematerials>{"".join(resources)}</resources>'
-        f'<build><item objectid="{item}"/></build>'
-        "</model>"
-    )
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", _CONTENT_TYPES)
-        z.writestr("_rels/.rels", _RELS)
-        z.writestr("3D/3dmodel.model", model)
-    return buf.getvalue()
+    return write_3mf([(name, list(meshes))] if meshes else [], bambu)
 
 
 def meshes_to_glb(meshes: list[Mesh]) -> bytes:

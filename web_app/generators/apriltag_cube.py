@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from apriltag_cube_app.apriltag_cube_model import (
 	DEFAULT_DEPTH, DEFAULT_EDGE_DEPTH, DEFAULT_EDGE_HEIGHT, WORLD_FRAME_IDS, WORLD_FRAME_LABEL, build_apriltag_cube, build_apriltag_cube_grid, parse_tag_ids,
 )
+from cad_common.bambu import PRINTERS, printer as bambu_printer
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
 
@@ -115,9 +116,27 @@ def preview_glb(key: tuple = Depends(_key)):
 	return glb_response(_file(key, "glb"))
 
 
+@router.get("/printers")
+def printers_route() -> list[dict]:
+	"""The Bambu Lab printers a 3MF can be a Bambu Studio project for (see export.3mf)."""
+	return [{"id": pid, "name": f"Bambu Lab {p.name}"} for pid, p in PRINTERS.items()]
+
+
 @router.get("/export.3mf")
-def export_3mf(key: tuple = Depends(_key)):
-	return download_response(_file(key, "3mf"), _filename(key, "3mf"))
+def export_3mf(key: tuple = Depends(_key), printer: str = Query("", max_length=20)):
+	"""printer: a Bambu Lab printer id (see /printers) makes the file a Bambu Studio project for
+	that printer, which opens with the filament colours; empty for a plain 3MF."""
+	try:
+		bambu = bambu_printer(printer)
+	except ValueError as exc:
+		raise HTTPException(status_code=400, detail=str(exc))
+	if bambu is None:
+		return download_response(_file(key, "3mf"), _filename(key, "3mf"))
+	try:
+		data = cache.file(key, key, f"3mf-{printer}", lambda cube: threemf_bytes(cube, "apriltag_cube", bambu=bambu))
+	except ValueError as exc:
+		raise HTTPException(status_code=400, detail=str(exc))
+	return download_response(data, _filename(key, "3mf"))
 
 
 @router.get("/export.step")

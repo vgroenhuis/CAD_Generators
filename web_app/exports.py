@@ -25,8 +25,10 @@ def step_bytes(shape) -> bytes:
         return path.read_bytes()
 
 
-def threemf_bytes(shape, name: str, tolerance: float = 0.01) -> bytes:
-    return shape_to_3mf(shape, name, tolerance)
+def threemf_bytes(shape, name: str, tolerance: float = 0.01, bambu=None) -> bytes:
+    """See cad_common.mesh_export.write_3mf; bambu: a cad_common.bambu.BambuPrinter for a Bambu
+    Studio project with the filament colours."""
+    return shape_to_3mf(shape, name, tolerance, bambu=bambu)
 
 
 def glb_response(data: bytes, headers: dict | None = None) -> Response:

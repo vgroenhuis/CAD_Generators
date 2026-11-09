@@ -400,9 +400,15 @@ def _cut_arrows(white: Part, arrows: list[Part]) -> Part:
     return Part(white.cut(*arrows).clean().wrapped)
 
 
+# Filament colour of each body (Bambu PLA Basic), for a slicer's filament list; the preview
+# colours (`color`) are softer so the shading shows.
+FILAMENT_COLOURS = {"white": "#FFFFFF", "black": "#000000", "red": "#C12E1F", "green": "#00AE42"}
+
+
 def _label_bodies(white, black) -> None:
     white.label, black.label = "white", "black"
     white.color, black.color = Color(0.93, 0.93, 0.93), Color(0.07, 0.07, 0.07)
+    white.filament, black.filament = FILAMENT_COLOURS["white"], FILAMENT_COLOURS["black"]
 
 
 def _colour_bodies(arrows: list[Part], reds: list[Part], greens: list[Part]) -> list[Part]:
@@ -414,7 +420,7 @@ def _colour_bodies(arrows: list[Part], reds: list[Part], greens: list[Part]) -> 
         if not parts:
             continue
         body = Part(parts[0].fuse(*parts[1:]).clean().wrapped) if len(parts) > 1 else Part(parts[0].wrapped)
-        body.label, body.color = name, Color(name)
+        body.label, body.color, body.filament = name, Color(name), FILAMENT_COLOURS[name]
         bodies.append(body)
     return bodies
 

@@ -265,7 +265,7 @@ class ModelCache:
             if data is None:
                 model = self._model_locked(entry, key, params)
                 log.info("%s: writing %s for %s", self.name, kind, _short(key))
-                report(f"Writing the {_LABELS.get(kind, kind)}")
+                report(f"Writing the {_LABELS.get(kind.split('-')[0], kind)}")
                 start = time.monotonic()
                 data = entry.files[kind] = make(model)
                 log.info("%s: wrote %s for %s in %.1f s", self.name, kind, _short(key), time.monotonic() - start)

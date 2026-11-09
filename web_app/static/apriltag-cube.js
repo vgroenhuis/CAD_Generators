@@ -26,6 +26,29 @@ const depthInput = document.getElementById("depth");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
 const downloadStepBtn = document.getElementById("download-step-btn");
+const printerSelect = document.getElementById("printer");
+const PRINTER_KEY = "apriltag-cube-bambu-printer";
+
+// The Bambu Lab printers the 3MF can be a Bambu Studio project for; the choice is remembered.
+fetch("api/apriltag-cube/printers")
+	.then((r) => (r.ok ? r.json() : []))
+	.then((printers) => {
+		for (const p of printers) printerSelect.append(new Option(p.name, p.id));
+		try {
+			const saved = localStorage.getItem(PRINTER_KEY);
+			if (saved && printers.some((p) => p.id === saved)) printerSelect.value = saved;
+		} catch (e) {
+			// storage blocked: start with "any slicer"
+		}
+	})
+	.catch(() => {});
+printerSelect.addEventListener("change", () => {
+	try {
+		localStorage.setItem(PRINTER_KEY, printerSelect.value);
+	} catch (e) {
+		// not remembered
+	}
+});
 const statusEl = document.getElementById("status");
 const placeholderEl = document.getElementById("viewer-placeholder");
 const canvas = document.getElementById("viewer-canvas");
@@ -378,7 +401,9 @@ async function onDownload(format) {
 		return;
 	}
 	try {
-		const response = await downloadWithProgress(`api/apriltag-cube/export.${format}?${buildQuery(params)}`, setStatus);
+		const query = buildQuery(params);
+		if (format === "3mf" && printerSelect.value) query.set("printer", printerSelect.value);
+		const response = await downloadWithProgress(`api/apriltag-cube/export.${format}?${query}`, setStatus);
 		setStatus(response.ok ? `Downloaded ${response.filename}.` : await friendlyErrorMessage(response), !response.ok);
 	} catch (exc) {
 		setStatus(`Download failed: ${exc.message || exc}`, true);
