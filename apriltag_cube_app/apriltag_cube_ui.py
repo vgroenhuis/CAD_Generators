@@ -54,6 +54,7 @@ _DEFAULTS = {
 	"size": "40",
 	"depth": "0.7",
 	"axes": False,
+	"rotate_sides": True,
 }
 
 
@@ -101,6 +102,7 @@ class AprilTagCubeApp:
 		self.id_var = tk.StringVar(value=p["tag_id"])
 		self.ids_var = tk.StringVar(value=p["tag_ids"])
 		self.axes_var = tk.BooleanVar(value=bool(p["axes"]))
+		self.rotate_var = tk.BooleanVar(value=bool(p.get("rotate_sides", True)))
 		self.bottom_label_var = tk.BooleanVar(value=bool(p["bottom_label"]))
 		self.label_var = tk.StringVar(value=p["label"])
 		self.size_var = tk.StringVar(value=p["size"])
@@ -166,6 +168,16 @@ class AprilTagCubeApp:
 			"Unticked: a tag on the bottom face as well.",
 			foreground="gray",
 		).grid(row=3, column=2, sticky=tk.W, padx=(12, 0))
+		self.rotate_check = ttk.Checkbutton(
+			tags, text="Turn the side tags", variable=self.rotate_var, command=self.on_generate
+		)
+		self.rotate_check.grid(row=4, column=0, sticky=tk.W, padx=(0, 16), pady=2)
+		ttk.Label(
+			tags,
+			text="Same tag only: a quarter turn per side (top edge up on +X, left on +Y, down on -X, right on -Y),\n"
+			"so a camera can tell the sides of an upright cube apart with one ID per cube.",
+			foreground="gray",
+		).grid(row=4, column=1, columnspan=2, sticky=tk.W)
 		for entry in (self.id_entry, self.ids_entry, self.label_entry):
 			entry.bind("<Return>", lambda e: self.on_generate())
 
@@ -234,6 +246,8 @@ class AprilTagCubeApp:
 		mode = self.mode_var.get()
 		self.id_entry.configure(state=tk.NORMAL if mode == "same" else tk.DISABLED)
 		self.ids_entry.configure(state=tk.NORMAL if mode == "faces" else tk.DISABLED)
+		if hasattr(self, "rotate_check"):
+			self.rotate_check.configure(state=tk.NORMAL if mode == "same" else tk.DISABLED)
 		if mode == "world":
 			self.bottom_label_var.set(True)  # the world-frame cube stands on the floor
 		self.bottom_label_check.configure(state=tk.DISABLED if mode == "world" else tk.NORMAL)
@@ -271,14 +285,16 @@ class AprilTagCubeApp:
 			tag_ids, size, depth = self._parse_inputs()
 			grid = self.mode_var.get() == "same" and len(tag_ids) > 1
 			use_label = self.bottom_label_var.get()
+			rotate = self.mode_var.get() == "same" and self.rotate_var.get()
 			label = (self.label_var.get().strip() or None) if use_label else ""
 			if grid:
 				self.current_cube = build_apriltag_cube_grid(
-					tag_ids, size, depth, axes=self.axes_var.get(), bottom_tag=not use_label
+					tag_ids, size, depth, axes=self.axes_var.get(), bottom_tag=not use_label, rotate_sides=rotate
 				)
 			else:
 				self.current_cube = build_apriltag_cube(
-					tag_ids, size, depth, axes=self.axes_var.get(), label=label, bottom_tag=not use_label
+					tag_ids, size, depth, axes=self.axes_var.get(), label=label, bottom_tag=not use_label,
+					rotate_sides=rotate,
 				)
 			_save_params(
 				{
@@ -290,6 +306,7 @@ class AprilTagCubeApp:
 					"axes": self.axes_var.get(),
 					"bottom_label": self.bottom_label_var.get(),
 					"label": self.label_var.get(),
+					"rotate_sides": self.rotate_var.get(),
 				}
 			)
 			self.export_btn.configure(state=tk.NORMAL)

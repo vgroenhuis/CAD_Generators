@@ -8,7 +8,9 @@ comma-separated id per tag face for one cube: the four side faces counterclockwi
 from above (+X, +Y, -X, -Y), then the top, and without bottom_label the bottom. Otherwise it
 holds one or more ids, each giving a cube with that tag on all its tag faces; several cubes
 are laid out in the smallest square grid, 2 mm apart. axes adds red +X / green +Y arrows on
-the floor beside the cube(s). The label is `label`, or when that is empty the default: the
+the floor beside the cube(s). rotate_sides=true (same tag on all faces only) turns the tag
+on each side face a further quarter turn (0, 90, 180, 270 degrees for +X, +Y, -X, -Y), so a
+camera can tell the sides of an upright cube apart. The label is `label`, or when that is empty the default: the
 tag id, "World frame" for ids 25-29, or with five different tags the side ids along the
 matching bottom edges and the top id in the centre; in a grid each cube gets its own id. The STEP and 3MF files hold the bodies
 ("white", "black", and "red"/"green" with axes) as separate parts; the glTF preview
@@ -29,17 +31,18 @@ router = APIRouter()
 
 
 def _build(key: tuple):
-	ids, size, depth, axes, per_face, bottom_label, label = key
+	ids, size, depth, axes, per_face, bottom_label, label, rotate_sides = key
 	bottom_tag = not bottom_label
 	if per_face or len(ids) == 1:
-		return build_apriltag_cube(list(ids), size, depth, axes=axes, label=label, bottom_tag=bottom_tag)
-	return build_apriltag_cube_grid(list(ids), size, depth, axes=axes, bottom_tag=bottom_tag)
+		return build_apriltag_cube(list(ids), size, depth, axes=axes, label=label, bottom_tag=bottom_tag,
+		                           rotate_sides=rotate_sides)
+	return build_apriltag_cube_grid(list(ids), size, depth, axes=axes, bottom_tag=bottom_tag, rotate_sides=rotate_sides)
 
 
 cache = ModelCache("apriltag_cube", _build)
 # tag ids, size, depth, axes, per face, bottom label (else a bottom tag), label text (None:
-# default label); the page loads them from /defaults
-DEFAULT = ((0,), 40.0, DEFAULT_DEPTH, False, False, True, None)
+# default label), side tags turned (same tag only); the page loads them from /defaults
+DEFAULT = ((0,), 40.0, DEFAULT_DEPTH, False, False, True, None, True)
 DEFAULT_FACE_IDS = (0, 1, 2, 3, 4)  # starting value of the page's "different tags" field (5 or 6 ids)
 FILES = {
 	"glb": glb_bytes,
@@ -56,6 +59,7 @@ def _key(
 	per_face: bool = Query(False),
 	bottom_label: bool = Query(True),
 	label: str = Query("", max_length=40),
+	rotate_sides: bool = Query(False),
 ) -> tuple:
 	try:
 		ids = parse_tag_ids(tag_ids, per_face=per_face, bottom_tag=not bottom_label)  # also checks the ID range
@@ -63,7 +67,8 @@ def _key(
 		raise HTTPException(status_code=400, detail=str(exc))
 	if not bottom_label or (not per_face and len(ids) > 1):
 		label = ""  # not used; keeps the cache key unique
-	return (tuple(ids), size, depth, axes, per_face, bottom_label, label.strip() or None)
+	rotate_sides = rotate_sides and not per_face  # different tags are told apart by their ids
+	return (tuple(ids), size, depth, axes, per_face, bottom_label, label.strip() or None, rotate_sides)
 
 
 def _filename(key: tuple, ext: str) -> str:
@@ -84,12 +89,12 @@ def warm() -> None:
 @router.get("/defaults")
 def defaults_route() -> dict:
 	"""The page's starting values (by input id), so they are defined only here."""
-	ids, size, depth, axes, per_face, bottom_label, label = DEFAULT
+	ids, size, depth, axes, per_face, bottom_label, label, rotate_sides = DEFAULT
 	return {
 		"tag_id": ",".join(map(str, ids)) if not per_face else "0",
 		"tag_ids": ",".join(map(str, ids if per_face else DEFAULT_FACE_IDS)),
 		"size": size, "depth": depth, "axes": axes, "mode_same": not per_face, "mode_faces": per_face,
-		"mode_world": False, "bottom_label": bottom_label, "label": label or "",
+		"mode_world": False, "bottom_label": bottom_label, "label": label or "", "rotate_sides": rotate_sides,
 		"world_frame_ids": ",".join(map(str, WORLD_FRAME_IDS)), "world_frame_label": WORLD_FRAME_LABEL,
 	}
 

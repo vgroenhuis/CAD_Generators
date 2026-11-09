@@ -19,6 +19,12 @@
     text is centred; long labels are split over two lines when that gives a larger font.
     Optionally, short red (+X) and green (+Y) arrows lying on the floor beside the cube show the world frame.
 
+    With the same tag on all faces, rotate_sides=True turns the tag on each side face a further
+    quarter turn counterclockwise (as seen from outside): its top edge points up on +X, left on
+    +Y, down on -X and right on -Y. A detector reports which way a tag is turned, so for a cube
+    standing upright (top face up) it can tell the four sides apart, and with that the cube's
+    heading, while each cube still uses just one tag id.
+
     With several tag ids and the same tag on all faces, one cube per id is generated in the
     smallest square grid (2x2, 3x3, ...), 2 mm apart, still as just two bodies ("white" holding
     every cube's white part and "black" holding every black part).
@@ -128,6 +134,9 @@ _TAG_FACES = 5  # without a tag on the bottom
 # matching bottom edge, so it reads upright with that edge nearest: +X right, +Y bottom, -X left,
 # -Y top.
 _EDGE_ROTATIONS = (90, 0, 270, 180)
+# Extra counterclockwise turn (degrees, seen from outside) of the tag on each side face with
+# rotate_sides, in _FACE_PLANES order (+X, +Y, -X, -Y).
+SIDE_TURNS = (0, 90, 180, 270)
 _EDGE_FONT = 0.2  # font size of the ids along the edges and in the centre, x cube size
 _EDGE_MARGIN = 0.06  # gap between the cube edge and the ids along it, x cube size
 
@@ -318,15 +327,19 @@ def _check_dimensions(size: float, depth: float) -> None:
         raise ValueError("Tag depth must be positive and smaller than half the cube size.")
 
 
-def _build_cube_bodies(ids: list[int], size: float, depth: float, label: str | None = "") -> tuple[Part, Part]:
+def _build_cube_bodies(ids: list[int], size: float, depth: float, label: str | None = "",
+                       rotate_sides: bool = False) -> tuple[Part, Part]:
     """White and black solids of one cube centred on the origin. ids has one tag id per tag
     face (five, or six with a tag on the bottom face). With five, a non-empty label is inlaid in
-    the bottom face; label None puts the ids along the bottom edges instead."""
+    the bottom face; label None puts the ids along the bottom edges instead. rotate_sides turns
+    the side tags by SIDE_TURNS."""
     face_parts = []
     cells_by_id: dict[int, list[Part]] = {}
-    for tag_id, placement in zip(ids, _FACE_PLACEMENTS + [_BOTTOM_PLACEMENT]):
+    for face, (tag_id, placement) in enumerate(zip(ids, _FACE_PLACEMENTS + [_BOTTOM_PLACEMENT])):
         if tag_id not in cells_by_id:
             cells_by_id[tag_id] = _face_cells(tag_id, size, depth)
+        if rotate_sides and face < len(SIDE_TURNS):
+            placement = placement * Rot(0, 0, SIDE_TURNS[face])  # turn within the face, about its normal
         for b in cells_by_id[tag_id]:
             face_parts.append(placement * b)
     if len(ids) == _TAG_FACES:
@@ -358,7 +371,7 @@ def _label_bodies(white, black) -> None:
 
 def build_apriltag_cube(
     tag_ids: int | list[int], size: float, depth: float = DEFAULT_DEPTH, axes: bool = False,
-    label: str | None = None, bottom_tag: bool = False,
+    label: str | None = None, bottom_tag: bool = False, rotate_sides: bool = False,
 ) -> Compound:
     """Build a compound with two bodies (labels 'white' and 'black').
 
@@ -366,6 +379,7 @@ def build_apriltag_cube(
     five, or six with bottom_tag=True (a tag instead of the label on the bottom face).
     label is the bottom label: None for the default (see default_label), "" for none.
     With axes=True, two extra bodies 'red' (+X) and 'green' (+Y) are added on the floor beside the cube.
+    rotate_sides=True turns the side tags so that they can be told apart (see the module docstring).
     """
     ids = [tag_ids] if isinstance(tag_ids, int) else list(tag_ids)
     n_faces = face_count(bottom_tag)
@@ -377,7 +391,7 @@ def build_apriltag_cube(
     if label is None and not bottom_tag:
         label = default_label(ids)
 
-    white, black = _build_cube_bodies(ids, size, depth, label)
+    white, black = _build_cube_bodies(ids, size, depth, label, rotate_sides)
     arrows = _axis_arrows(size) if axes else []
     white = _cut_arrows(white, arrows)
     _label_bodies(white, black)
@@ -394,7 +408,7 @@ def grid_dimension(count: int) -> int:
 
 def build_apriltag_cube_grid(
     tag_ids: list[int], size: float, depth: float = DEFAULT_DEPTH, axes: bool = False, spacing: float = GRID_SPACING,
-    labels: bool = True, bottom_tag: bool = False,
+    labels: bool = True, bottom_tag: bool = False, rotate_sides: bool = False,
 ) -> Compound:
     """One cube per tag id (same tag on all tag faces), in the smallest square grid.
 
@@ -402,8 +416,8 @@ def build_apriltag_cube_grid(
     +Z with +X right and +Y up), and the grid is centred on the origin. All white parts form
     one body 'white' and all black parts one body 'black', so a slicer can assign each filament
     once for every cube. With labels=True each cube's bottom face carries its tag id; with
-    bottom_tag=True it carries the tag instead. With a single id this is the same as
-    build_apriltag_cube.
+    bottom_tag=True it carries the tag instead. rotate_sides turns the side tags as in
+    build_apriltag_cube. With a single id this is the same as build_apriltag_cube.
     """
     ids = list(tag_ids)
     if not ids:
@@ -411,7 +425,7 @@ def build_apriltag_cube_grid(
     if len(ids) > MAX_CUBES:
         raise ValueError(f"At most {MAX_CUBES} cubes can be generated at once.")
     if len(ids) == 1:
-        return build_apriltag_cube(ids[0], size, depth, axes, None if labels else "", bottom_tag)
+        return build_apriltag_cube(ids[0], size, depth, axes, None if labels else "", bottom_tag, rotate_sides)
     _check_dimensions(size, depth)
 
     n = grid_dimension(len(ids))
@@ -423,7 +437,7 @@ def build_apriltag_cube_grid(
     for index, tag_id in enumerate(ids):
         if tag_id not in bodies_by_id:
             bodies_by_id[tag_id] = _build_cube_bodies(
-                [tag_id] * face_count(bottom_tag), size, depth, str(tag_id) if labels else ""
+                [tag_id] * face_count(bottom_tag), size, depth, str(tag_id) if labels else "", rotate_sides
             )
         row, col = divmod(index, n)
         shift = Pos(-extent / 2 + size / 2 + col * pitch, extent / 2 - size / 2 - row * pitch, 0)
@@ -446,6 +460,8 @@ def main() -> None:
     ap.add_argument("--id", default="0", help="tag16h5 id 0-29, or 5 comma-separated ids: +X, +Y, -X, -Y (sides, "
                     "counterclockwise from above), then +Z (top); 6 with --bottom-tag (then -Z)")
     ap.add_argument("--bottom-tag", action="store_true", help="a tag on the bottom face too, instead of the label")
+    ap.add_argument("--rotate-sides", action="store_true", help="same tag on all faces: turn the side tags 0, 90, 180 "
+                    "and 270 degrees (+X, +Y, -X, -Y) so a camera can tell the sides apart")
     ap.add_argument("--world-frame", action="store_true", help=f"world-frame cube: ids {','.join(map(str, WORLD_FRAME_IDS))}, "
                     f"label '{WORLD_FRAME_LABEL}' and axes; used instead of --id")
     ap.add_argument("--label", help="bottom label (default: the tag id, 'World frame', or five different ids along "
@@ -461,10 +477,11 @@ def main() -> None:
         cube = build_apriltag_cube(list(WORLD_FRAME_IDS), a.size, a.depth, True, a.label)
     elif a.cubes:
         cube = build_apriltag_cube_grid(parse_tag_ids(a.cubes, per_face=False), a.size, a.depth, a.axes,
-                                        labels=a.label != "", bottom_tag=a.bottom_tag)
+                                        labels=a.label != "", bottom_tag=a.bottom_tag, rotate_sides=a.rotate_sides)
     else:
-        cube = build_apriltag_cube(parse_tag_ids(a.id, bottom_tag=a.bottom_tag), a.size, a.depth, a.axes, a.label,
-                                   a.bottom_tag)
+        ids = parse_tag_ids(a.id, bottom_tag=a.bottom_tag)
+        cube = build_apriltag_cube(ids, a.size, a.depth, a.axes, a.label, a.bottom_tag,
+                                   a.rotate_sides and len(set(ids)) == 1)
     export_apriltag_cube(cube, a.out)
     print(f"Wrote {a.out}")
 

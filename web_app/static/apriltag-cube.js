@@ -9,6 +9,7 @@ const tagIdInput = document.getElementById("tag_id");
 const tagIdsInput = document.getElementById("tag_ids");
 const modeInputs = document.querySelectorAll('input[name="tag_mode"]');
 const axesInput = document.getElementById("axes");
+const rotateInput = document.getElementById("rotate_sides");
 const bottomLabelInput = document.getElementById("bottom_label");
 const labelInput = document.getElementById("label");
 const labelHint = document.getElementById("label-hint");
@@ -130,6 +131,7 @@ function updateMode() {
 	const mode = tagMode();
 	tagIdInput.disabled = mode !== "same";
 	tagIdsInput.disabled = mode !== "faces";
+	rotateInput.disabled = mode !== "same";  // different tags are told apart by their IDs
 	axesInput.disabled = mode === "world";
 	if (mode === "world") axesInput.checked = true;
 	// The world-frame cube stands on the floor: its bottom face always carries the label.
@@ -210,6 +212,7 @@ function readParams() {
 		tagIds, size, depth,
 		axes: mode === "world" || axesInput.checked,
 		perFace: mode !== "same",
+		rotateSides: mode === "same" && rotateInput.checked,
 		bottomLabel: bottomLabelInput.checked,
 		label: labelInput.disabled ? "" : labelInput.value.trim(),
 	};
@@ -261,6 +264,7 @@ function buildQuery(params) {
 		per_face: params.perFace,
 		bottom_label: params.bottomLabel,
 		label: params.label,
+		rotate_sides: params.rotateSides,
 	});
 }
 
@@ -310,9 +314,11 @@ async function onGenerate() {
 		if (!params.perFace && params.tagIds.length > 1) {
 			const n = Math.ceil(Math.sqrt(params.tagIds.length));
 			what = `${params.tagIds.length} cubes in a ${n}x${n} grid: tag16h5 ids ${idsText}`;
+			if (params.rotateSides) what += ", side tags turned";
 			if (!params.bottomLabel) what += ", tags on the bottoms too";
 		} else {
 			what = `cube: tag16h5 ${params.tagIds.length === 1 ? "id" : "ids"} ${idsText}`;
+			if (params.rotateSides) what += ", side tags turned";
 			if (!params.bottomLabel) {
 				what += ", tag on the bottom too";
 			} else {
@@ -354,6 +360,7 @@ modeInputs.forEach((el) => el.addEventListener("change", () => {
 }));
 updateMode();
 axesInput.addEventListener("change", onGenerate);
+rotateInput.addEventListener("change", onGenerate);
 bottomLabelInput.addEventListener("change", () => {
 	setBottomLabel(bottomLabelInput.checked);
 	updateLabel();

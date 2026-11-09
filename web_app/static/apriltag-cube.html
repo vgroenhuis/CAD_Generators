@@ -34,6 +34,7 @@
 	.controls .radio, .controls .check { display: flex; align-items: center; gap: 8px; }
 	.controls .radio { margin-top: 10px; color: #c0c4c9; }
 	.controls .check { margin-top: 16px; font-size: 13px; color: #e8e8e8; }
+	.controls .check.sub { margin-top: 8px; }
 	.controls .radio input, .controls .check input { width: auto; margin: 0; }
 	.controls input:disabled { opacity: 0.45; }
 	#status { margin-top: 14px; font-size: 12px; color: #a0a5ab; white-space: pre-wrap; }
@@ -60,6 +61,8 @@
 			<label class="radio" for="mode_same"><input type="radio" name="tag_mode" id="mode_same" value="same"> Same tag on all faces</label>
 			<input type="text" id="tag_id" autocomplete="off" placeholder="0  or  0,1,2,3">
 			<div class="hint">One ID, or several comma-separated IDs: one cube per ID, in the smallest square grid (2x2, 3x3, ...) with 2 mm spacing.</div>
+			<label class="check sub" for="rotate_sides"><input type="checkbox" id="rotate_sides"> Turn the side tags a quarter turn each</label>
+			<div class="hint">The tag's top edge points up on +X, left on +Y, down on -X and right on -Y (seen from outside). The detector reports which way a tag is turned, so for an upright cube it can tell which side it sees, and the cube's heading, with just one ID per cube.</div>
 			<label class="radio" for="mode_faces"><input type="radio" name="tag_mode" id="mode_faces" value="faces"> <span id="faces-title">Five different tags</span></label>
 			<input type="text" id="tag_ids" autocomplete="off" placeholder="0,1,2,3,4">
 			<div class="hint" id="faces-hint">Five comma-separated IDs: the four sides counterclockwise as seen from above (+X, +Y, -X, -Y), then the top (+Z).</div>
