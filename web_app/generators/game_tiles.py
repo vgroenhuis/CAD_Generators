@@ -56,6 +56,8 @@ def _params(
 ) -> TileParams:
 	if shape != "rectangle":
 		length = DEFAULT.length  # not used; keeps the cache key unique
+	if tile_type == "connector":  # thickness and colour depth don't apply
+		thickness, inlay_depth = DEFAULT.thickness, DEFAULT.inlay_depth
 	p = TileParams(tile_type, shape, size, length, thickness, inlay_depth, count, seed)
 	try:
 		validate(p)

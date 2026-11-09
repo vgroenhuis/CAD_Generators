@@ -17,6 +17,11 @@
     across square and rectangular tiles laid side by side. Random details (stones, drops,
     flames, ...) depend on `seed`; with several tiles each one gets its own variation.
 
+    The connector is no tile but a sleeve of the tile's shape, to join two tiles rigidly (one
+    on top of a part of the same shape): a thin wall with a ledge inside halfway up, so each
+    tile goes in CONNECTOR_SOCKET deep from either side. Thickness and colour depth don't
+    apply to it.
+
     Can also be run standalone:  python game_tile_model.py --type bricks --shape hexagon --out tile.step
 """
 
@@ -31,8 +36,8 @@ from typing import Callable
 
 import numpy as np
 from build123d import (
-    Axis, Box, Color, Compound, Cylinder, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, mirror, offset,
-    revolve,
+    Axis, Box, Color, Compound, Cylinder, Kind, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, mirror,
+    offset, revolve,
 )
 
 log = logging.getLogger("cad_generators.game_tiles")
@@ -1092,6 +1097,31 @@ def _star_upright(c: Ctx) -> Design:
     ])
 
 
+# --- Connector: a sleeve that joins two tiles of the same shape ---
+
+CONNECTOR_WALL = 0.8  # mm, wall thickness
+CONNECTOR_HEIGHT = 5.5  # mm, total height
+CONNECTOR_LEDGE = 0.5  # mm, width and height of the ledge inside, halfway up
+CONNECTOR_SOCKET = (CONNECTOR_HEIGHT - CONNECTOR_LEDGE) / 2  # how deep a tile goes in from either side
+CONNECTOR_CLEARANCE = 0.1  # mm between tile and wall on every side: a tight push fit
+CONNECTOR_COLOUR = "grey"
+
+
+def _connector(c: Ctx) -> Design:
+    return Design(CONNECTOR_COLOUR, [])  # the sleeve itself is made by _connector_body
+
+
+def _connector_body(c: Ctx) -> Part:
+    """The sleeve, bottom at z = 0: the tile outline grown by the clearance inside, a wall
+    around it, and the ledge halfway up. Corners stay sharp, like the tile's."""
+    inner = _sk(offset(c.outline, CONNECTOR_CLEARANCE, kind=Kind.INTERSECTION))
+    outer = _sk(offset(inner, CONNECTOR_WALL, kind=Kind.INTERSECTION))
+    ledge_inner = _sk(offset(inner, -CONNECTOR_LEDGE, kind=Kind.INTERSECTION))
+    wall = extrude(_sk(outer - inner), amount=CONNECTOR_HEIGHT)
+    ledge = Pos(0, 0, CONNECTOR_SOCKET) * extrude(_sk(inner - ledge_inner), amount=CONNECTOR_LEDGE)
+    return _fuse([Part(wall.wrapped), Part(ledge.wrapped)])
+
+
 @dataclass
 class TileType:
     title: str
@@ -1126,6 +1156,10 @@ TILE_TYPES = {
     "star": TileType("Star (flat)", "Objects", _star_tile, "raised gold star, for a bonus or goal"),
     "star_upright": TileType("Star (upright)", "Objects", _star_upright, "gem-bevelled gold star standing on its two lower points"),
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
+    "connector": TileType("Connector", "Special", _connector,
+                          f"sleeve to join a tile rigidly on top of a part of the same shape: {CONNECTOR_WALL:g} mm wall, "
+                          f"{CONNECTOR_HEIGHT:g} mm high, a {CONNECTOR_LEDGE:g} mm ledge inside halfway up, so each tile "
+                          f"goes in {CONNECTOR_SOCKET:g} mm from either side ({CONNECTOR_CLEARANCE:g} mm clearance)"),
 }
 
 
@@ -1159,9 +1193,11 @@ def validate(p: TileParams) -> None:
         raise ValueError("Tile size must be between 15 and 200 mm.")
     if p.shape == "rectangle" and not 15 <= p.length <= 200:
         raise ValueError("Tile length must be between 15 and 200 mm.")
-    if p.thickness < 1.5:
+    if p.tile_type == "connector":  # thickness and colour depth don't apply
+        pass
+    elif p.thickness < 1.5:
         raise ValueError("Thickness must be at least 1.5 mm.")
-    if not 0.2 <= p.inlay_depth <= p.thickness - 1.0:
+    elif not 0.2 <= p.inlay_depth <= p.thickness - 1.0:
         raise ValueError("Colour depth must be at least 0.2 mm and leave at least 1 mm of base below it.")
     if not 1 <= p.count <= MAX_COUNT:
         raise ValueError(f"Number of tiles must be between 1 and {MAX_COUNT}.")
@@ -1210,6 +1246,8 @@ def _bodies(p: TileParams, seed: int) -> dict[str, list[Part]]:
     the base is fused with raised parts in its own colour (e.g. cobbles), when that can still
     be meshed."""
     c = Ctx(p, seed)
+    if p.tile_type == "connector":
+        return {CONNECTOR_COLOUR: [_connector_body(c)]}
     design = TILE_TYPES[p.tile_type].build(c)
     top, depth = p.thickness, p.inlay_depth
     # Clip every region to the tile, and let later layers cover earlier ones.
@@ -1318,6 +1356,10 @@ def describe(p: TileParams) -> str:
     else:
         dims = f"{p.size:g} mm sides"
     n = f"{p.count} tiles" if p.count > 1 else "Tile"
+    if p.tile_type == "connector":
+        n = f"{p.count} connectors" if p.count > 1 else "Connector"
+        return (f"{n}: {t.description}; for {p.shape} tiles, {dims}. Outside "
+                f"{CONNECTOR_CLEARANCE + CONNECTOR_WALL:g} mm larger on every side. Print it standing as shown.")
     colors = colors_used(p)
     return (f"{n}: {t.title.lower()}, {t.description}; {p.shape}, {dims}, {p.thickness:g} mm thick. "
             f"{len(colors)} colours: {', '.join(c.replace('_', ' ') for c in colors)} (base first).")

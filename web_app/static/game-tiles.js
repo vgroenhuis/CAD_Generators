@@ -287,6 +287,7 @@ async function setup() {
 		if (fromUrl.has(id) && Number.isFinite(parseNumber(fromUrl.get(id)))) document.getElementById(id).value = fromUrl.get(id);
 	}
 	updateShape();
+	updateTypeFields();
 	updateDescription();
 	onGenerate();
 }
@@ -294,7 +295,18 @@ async function setup() {
 generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
+// The connector (a sleeve) has a fixed height and no colours: thickness and colour depth don't apply.
+function updateTypeFields() {
+	const connector = typeSelect.value === "connector";
+	for (const id of ["thickness", "inlay_depth"]) {
+		const el = document.getElementById(id);
+		el.disabled = connector;
+		el.title = connector ? "Not used for the connector (5.5 mm high)" : "";
+	}
+}
+
 typeSelect.addEventListener("change", () => {
+	updateTypeFields();
 	updateDescription();
 	onGenerate();
 });
