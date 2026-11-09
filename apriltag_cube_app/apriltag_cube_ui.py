@@ -13,7 +13,7 @@ Inputs:
 
 Actions:
 - Generate: builds the cube and shows it in the OCP CAD Viewer (VS Code extension).
-- Export: saves a STEP file with two bodies ("white" and "black") for multimaterial printing.
+- Export: saves a STEP file with one body per colour ("white", "black", and "red"/"green" with the edges or axes) for multimaterial printing.
 """
 
 from __future__ import annotations
@@ -57,8 +57,8 @@ _DEFAULTS = {
 	"axes": False,
 	"rotate_sides": True,
 	"edge_colours": True,
-	"edge_height": "",  # empty: automatic
-	"edge_depth": "",
+	"edge_height": "1",  # mm; empty: 1 mm
+	"edge_depth": "1",
 }
 
 
@@ -108,8 +108,8 @@ class AprilTagCubeApp:
 		self.axes_var = tk.BooleanVar(value=bool(p["axes"]))
 		self.rotate_var = tk.BooleanVar(value=bool(p.get("rotate_sides", True)))
 		self.edge_colours_var = tk.BooleanVar(value=bool(p.get("edge_colours", True)))
-		self.edge_height_var = tk.StringVar(value=p.get("edge_height", ""))
-		self.edge_depth_var = tk.StringVar(value=p.get("edge_depth", ""))
+		self.edge_height_var = tk.StringVar(value=p.get("edge_height") or "1")
+		self.edge_depth_var = tk.StringVar(value=p.get("edge_depth") or "1")
 		self.bottom_label_var = tk.BooleanVar(value=bool(p["bottom_label"]))
 		self.label_var = tk.StringVar(value=p["label"])
 		self.size_var = tk.StringVar(value=p["size"])
@@ -214,7 +214,6 @@ class AprilTagCubeApp:
 			entry = ttk.Entry(controls, textvariable=var, width=10)
 			entry.grid(row=3, column=col * 2 + 1, sticky=tk.W, pady=4)
 			entry.bind("<Return>", lambda e: self.on_generate())
-		ttk.Label(controls, text="empty: automatic", foreground="gray").grid(row=3, column=4, columnspan=2, sticky=tk.W, padx=(20, 0))
 		self._update_mode()
 
 		buttons = ttk.Frame(main)
@@ -229,8 +228,8 @@ class AprilTagCubeApp:
 		info.pack(fill=tk.BOTH, expand=True)
 		ttk.Label(
 			info,
-			text="The STEP file contains two bodies: 'white' (cube with pockets) and 'black' (tag cells and bottom label).\n"
-			"With axes enabled, 'red' (+X) and 'green' (+Y) arrows lie flat on the floor beside the cube, on its X and Y axes.",
+			text="The STEP file contains one body per colour: 'white' (cube with pockets) and 'black' (tag cells and bottom label),\n"
+			"plus 'red' (+X) and 'green' (+Y) with the red/green edges and/or the axes arrows (then four bodies).",
 			anchor=tk.CENTER,
 			justify=tk.CENTER,
 		).pack(fill=tk.BOTH, expand=True)
@@ -312,7 +311,7 @@ class AprilTagCubeApp:
 					"edge_depth": float(self.edge_depth_var.get()) if self.edge_depth_var.get().strip() else None,
 				}
 			except ValueError as exc:
-				raise ValueError("Edge height and depth must be numbers (or empty for automatic).") from exc
+				raise ValueError("Edge height and depth must be numbers (or empty for 1 mm).") from exc
 			label = (self.label_var.get().strip() or None) if use_label else ""
 			if self.mode_var.get() == "world" and label is None:
 				label = _WORLD_FRAME_LABEL

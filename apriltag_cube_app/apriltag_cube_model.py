@@ -148,8 +148,8 @@ _EDGE_MARGIN = 0.06  # gap between the cube edge and the ids along it, x cube si
 WORLD_FRAME_ID = 29  # on all five faces, the side tags turned so the cube's heading can be read
 WORLD_FRAME_IDS = (WORLD_FRAME_ID,) * 5  # +X, +Y, -X, -Y, +Z
 WORLD_FRAME_LABEL = "World frame"
-_STRIP_HEIGHT = 2.0  # mm, height of the red/green bottom-edge strips at most
-_STRIP_FRACTION = 1 / 3  # strip height as a fraction of the white margin (one cell)
+DEFAULT_EDGE_HEIGHT = 1.0  # mm, red/green bottom-edge strips
+DEFAULT_EDGE_DEPTH = 1.0  # mm
 _LABEL_AREA = 0.8  # label width and height at most this x cube size
 _LABEL_MAX_FONT = 0.3  # largest font size, x cube size
 _LINE_PITCH = 1.25  # baseline-to-baseline distance, x font size
@@ -328,13 +328,12 @@ def _edge_label_cells(ids: list[int], size: float, depth: float) -> list[Part]:
 
 def edge_strip_size(size: float, depth: float, edge_height: float | None = None,
                     edge_depth: float | None = None) -> tuple[float, float]:
-    """Height and depth (mm) of the red/green edge strips. By default the height fills the lowest
-    _STRIP_FRACTION of the white margin below the tag (at most _STRIP_HEIGHT) and the depth is
-    the black depth. Both must stay within the white margin (one cell), so a strip never touches
-    a tag."""
+    """Height and depth (mm) of the red/green edge strips (None: DEFAULT_EDGE_HEIGHT and
+    DEFAULT_EDGE_DEPTH). Both must stay within the white margin (one cell), so a strip never
+    touches a tag."""
     margin = size / GRID
-    h = min(_STRIP_HEIGHT, _STRIP_FRACTION * margin) if edge_height is None else edge_height
-    d = depth if edge_depth is None else edge_depth
+    h = DEFAULT_EDGE_HEIGHT if edge_height is None else edge_height
+    d = DEFAULT_EDGE_DEPTH if edge_depth is None else edge_depth
     if not 0 < h <= margin:
         raise ValueError(f"Edge height must be greater than 0 and at most the white margin below the tag ({margin:g} mm).")
     if not 0 < d < margin:
@@ -552,9 +551,8 @@ def main() -> None:
     ap.add_argument("--axes", action="store_true", help="add red (+X) and green (+Y) world-frame arrows on the floor beside the cube(s)")
     ap.add_argument("--edge-colours", action="store_true", help="red (+X) and green (+Y) strips along those faces' "
                     "bottom edges, inlaid within the cube")
-    ap.add_argument("--edge-height", type=float, help="height of the red/green edges (mm; default: a third of the "
-                    "white margin below the tag, at most 2 mm)")
-    ap.add_argument("--edge-depth", type=float, help="depth of the red/green edges (mm; default: the black depth)")
+    ap.add_argument("--edge-height", type=float, default=DEFAULT_EDGE_HEIGHT, help="height of the red/green edges (mm)")
+    ap.add_argument("--edge-depth", type=float, default=DEFAULT_EDGE_DEPTH, help="depth of the red/green edges (mm)")
     ap.add_argument("--out", default="apriltag_cube.step")
     a = ap.parse_args()
     if a.world_frame:

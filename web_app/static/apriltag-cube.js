@@ -206,22 +206,20 @@ function readTagIds() {
 	return mode === "faces" ? parseTagIds(tagIdsInput.value, true) : parseTagIds(tagIdInput.value, false);
 }
 
-// An optional positive number (empty: automatic, null); only read while the red/green edges are on.
+// An optional positive number (empty: the default, null); only read while the red/green edges are on.
 function optionalNumber(input, name) {
 	if (input.disabled || !input.value.trim()) return null;
 	const value = parseNumber(input.value);
-	if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a number greater than 0 (or empty for automatic).`);
+	if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a number greater than 0 (or empty for ${EDGE_DEFAULT} mm).`);
 	return value;
 }
 
-// Greyed-out automatic values of the edge fields; mirrors edge_strip_size() in apriltag_cube_model.py.
+// Default height and depth of the red/green edges (mm), used when a field is empty; mirrors
+// DEFAULT_EDGE_HEIGHT and DEFAULT_EDGE_DEPTH in apriltag_cube_model.py.
+const EDGE_DEFAULT = 1;
 function updateEdgeFields() {
-	const on = edgeColoursInput.checked;
-	edgeHeightInput.disabled = edgeDepthInput.disabled = !on;
-	const size = parseNumber(sizeInput.value);
-	const depth = parseNumber(depthInput.value);
-	edgeHeightInput.placeholder = Number.isFinite(size) ? `${+Math.min(2, size / 8 / 3).toFixed(2)}` : "";
-	edgeDepthInput.placeholder = Number.isFinite(depth) ? `${depth}` : "";
+	edgeHeightInput.disabled = edgeDepthInput.disabled = !edgeColoursInput.checked;
+	edgeHeightInput.placeholder = edgeDepthInput.placeholder = String(EDGE_DEFAULT);
 }
 
 function readParams() {
@@ -360,8 +358,7 @@ async function onGenerate() {
 			}
 		}
 		if (params.edgeColours) {
-			const h = params.edgeHeight ?? +Math.min(2, params.size / 8 / 3).toFixed(2);
-			what += `, red/green bottom edges ${h} x ${params.edgeDepth ?? params.depth} mm`;
+			what += `, red/green bottom edges ${params.edgeHeight ?? EDGE_DEFAULT} x ${params.edgeDepth ?? EDGE_DEFAULT} mm`;
 		}
 		setStatus(`Generated ${what}, ${params.size} mm, black depth ${params.depth} mm`);
 	} catch (exc) {
@@ -402,7 +399,6 @@ edgeColoursInput.addEventListener("change", () => {
 	updateEdgeFields();
 	onGenerate();
 });
-[sizeInput, tagSizeInput, depthInput].forEach((el) => el.addEventListener("input", updateEdgeFields));
 bottomLabelInput.addEventListener("change", () => {
 	setBottomLabel(bottomLabelInput.checked);
 	updateLabel();

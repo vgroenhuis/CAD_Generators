@@ -12,7 +12,7 @@ the floor beside the cube(s). rotate_sides=true (same tag on all faces only) tur
 on each side face a further quarter turn (0, 90, 180, 270 degrees for +X, +Y, -X, -Y), so a
 camera can tell the sides of an upright cube apart. edge_colours=true adds red (+X) and green
 (+Y) strips along those faces' bottom edges, inlaid within the cube, edge_height mm high and
-edge_depth mm deep (left out: a third of the white margin, at most 2 mm, and the black depth). The label is `label`, or when that is empty the default: the
+edge_depth mm deep (default 1 mm each). The label is `label`, or when that is empty the default: the
 tag id, or with five different tags the side ids along the
 matching bottom edges and the top id in the centre; in a grid each cube gets its own id. The STEP and 3MF files hold the bodies
 ("white", "black", and "red"/"green" with axes) as separate parts; the glTF preview
@@ -24,7 +24,7 @@ server starts.
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from apriltag_cube_app.apriltag_cube_model import (
-	DEFAULT_DEPTH, WORLD_FRAME_IDS, WORLD_FRAME_LABEL, build_apriltag_cube, build_apriltag_cube_grid, parse_tag_ids,
+	DEFAULT_DEPTH, DEFAULT_EDGE_DEPTH, DEFAULT_EDGE_HEIGHT, WORLD_FRAME_IDS, WORLD_FRAME_LABEL, build_apriltag_cube, build_apriltag_cube_grid, parse_tag_ids,
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
@@ -47,8 +47,8 @@ cache = ModelCache("apriltag_cube", _build)
 # tag ids, size, depth, axes, per face, bottom label (else a bottom tag), label text (None:
 # default label), side tags turned (same tag only), red/green bottom edges; the page loads them
 # from /defaults
-# (edge height and depth None: automatic)
-DEFAULT = ((0,), 40.0, DEFAULT_DEPTH, False, False, True, None, True, True, None, None)
+# edge height and depth (mm)
+DEFAULT = ((0,), 40.0, DEFAULT_DEPTH, False, False, True, None, True, True, DEFAULT_EDGE_HEIGHT, DEFAULT_EDGE_DEPTH)
 DEFAULT_FACE_IDS = (0, 1, 2, 3, 4)  # starting value of the page's "different tags" field (5 or 6 ids)
 FILES = {
 	"glb": glb_bytes,
@@ -67,8 +67,8 @@ def _key(
 	label: str = Query("", max_length=40),
 	rotate_sides: bool = Query(False),
 	edge_colours: bool = Query(False),
-	edge_height: float | None = Query(None, gt=0),
-	edge_depth: float | None = Query(None, gt=0),
+	edge_height: float = Query(DEFAULT_EDGE_HEIGHT, gt=0),
+	edge_depth: float = Query(DEFAULT_EDGE_DEPTH, gt=0),
 ) -> tuple:
 	try:
 		ids = parse_tag_ids(tag_ids, per_face=per_face, bottom_tag=not bottom_label)  # also checks the ID range
@@ -105,7 +105,7 @@ def defaults_route() -> dict:
 		"tag_ids": ",".join(map(str, ids if per_face else DEFAULT_FACE_IDS)),
 		"size": size, "depth": depth, "axes": axes, "mode_same": not per_face, "mode_faces": per_face,
 		"mode_world": False, "bottom_label": bottom_label, "label": label or "", "rotate_sides": rotate_sides,
-		"edge_colours": edge_colours, "edge_height": edge_height or "", "edge_depth": edge_depth or "",
+		"edge_colours": edge_colours, "edge_height": edge_height, "edge_depth": edge_depth,
 		"world_frame_ids": ",".join(map(str, WORLD_FRAME_IDS)), "world_frame_label": WORLD_FRAME_LABEL,
 	}
 

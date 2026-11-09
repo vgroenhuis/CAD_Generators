@@ -87,9 +87,9 @@
 
 			<label class="check" for="edge_colours"><input type="checkbox" id="edge_colours"> Red/green bottom edges (X/Y) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">A red strip along the bottom edge of the +X face and a green one along the +Y face, inlaid flush in the white margin below the tag, so the cube keeps its size. Their ends are cut at 45 degrees, so each colour shows on its own face only.</span></button></label>
 			<div class="pair">
-				<div><label for="edge_height">Height (mm) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">Empty: automatic (shown greyed out), a third of the white margin below the tag, at most 2 mm. At most the white margin, 1/8 of the cube size.</span></button></label>
+				<div><label for="edge_height">Height (mm) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">Height of the red/green strips, 1 mm by default. At most the white margin below the tag, 1/8 of the cube size.</span></button></label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="edge_height"></div>
-				<div><label for="edge_depth">Depth (mm) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">Empty: automatic (shown greyed out), as deep as the black. Less than the white margin, 1/8 of the cube size. Where a deep edge meets the bottom label, the label gives way.</span></button></label>
+				<div><label for="edge_depth">Depth (mm) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">How deep the red/green strips are inlaid, 1 mm by default. Less than the white margin, 1/8 of the cube size. Where a deep edge meets the bottom label, the label gives way.</span></button></label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="edge_depth"></div>
 			</div>
 
@@ -99,7 +99,7 @@
 			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
 			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
 
-			<div class="fixed-info">The STEP file contains two bodies, "white" (cube with pockets) and "black" (tag cells and bottom label or tag, inlaid flush), for multimaterial printing. The red/green bottom edges and the axes arrows are the bodies "red" (+X) and "green" (+Y); with axes enabled, the arrows lie flat on the floor beside the cube, on its X and Y axes.</div>
+			<div class="fixed-info">The 3MF and STEP files contain one body per colour, for multimaterial printing: "white" (cube with pockets) and "black" (tag cells and bottom label or tag, inlaid flush), plus "red" (+X) and "green" (+Y) with the red/green edges and/or the axes arrows, so two or four bodies.</div>
 
 			<div id="status">Enter dimensions and click Generate.</div>
 		</div>
