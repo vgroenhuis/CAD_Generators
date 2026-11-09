@@ -18,8 +18,10 @@
     flames, ...) depend on `seed`; with several tiles each one gets its own variation.
 
     The connector is no tile but a sleeve of the tile's shape, to join two tiles rigidly (one
-    on top of a part of the same shape): a thin wall with a ledge inside halfway up, so each
-    tile goes in CONNECTOR_SOCKET deep from either side. Thickness and colour depth don't
+    on top of a part of the same shape): a thin wall with a stop inside halfway up, so each
+    tile goes in CONNECTOR_SOCKET deep from either side. The stop is a ledge along the walls
+    (with gaps) or, the other type, a flat triangle across every inside corner, whose open
+    edge the printer bridges. Thickness and colour depth don't
     apply to it.
 
     Can also be run standalone:  python game_tile_model.py --type bricks --shape hexagon --out tile.step
@@ -1107,6 +1109,10 @@ CONNECTOR_HEIGHT = 2 * CONNECTOR_SOCKET + CONNECTOR_LEDGE_HEIGHT  # mm, total he
 CONNECTOR_CLEARANCE = 0.0  # mm between tile and wall on every side: none, the thin wall stretches a little
 CONNECTOR_GAP = 1 / 3  # gap in the ledge at the middle of every edge, as a fraction of the edge length
 CONNECTOR_CIRCLE_GAPS = 8  # a round connector's ledge has this many gaps, evenly spread
+CONNECTOR_CORNER = 5.0  # mm, how far a corner stop reaches along each wall from the corner
+CONNECTOR_CIRCLE_STOPS = 4  # a round connector gets this many flat stops, cut off by a straight bridge
+CONNECTOR_CIRCLE_DEPTH = 1.0  # mm, how far such a stop reaches in, at its middle
+CONNECTOR_TYPES = ("connector", "connector_corners")
 CONNECTOR_COLOUR = "grey"
 
 
@@ -1140,17 +1146,46 @@ def _ledge_gaps(p: TileParams) -> list[Sketch]:
     return gaps
 
 
+def _corner_stops(p: TileParams) -> list[Sketch]:
+    """Flat stops across the inside corners: a triangle reaching CONNECTOR_CORNER along both
+    walls from every corner; its third edge is a bridge from wall to wall. A circle has no
+    corners: it gets CONNECTOR_CIRCLE_STOPS segments, each cut off by a straight bridge
+    CONNECTOR_CIRCLE_DEPTH from the wall at its middle."""
+    pts = outline_points(p)
+    if p.shape == "circle":
+        r = p.size / 2
+        half = math.acos((r - CONNECTOR_CIRCLE_DEPTH) / r)  # half the angle the bridge spans
+        stops = []
+        for k in range(CONNECTOR_CIRCLE_STOPS):
+            mid = math.radians(45 + k * 360 / CONNECTOR_CIRCLE_STOPS)
+            a = np.linspace(mid - half, mid + half, 12)
+            stops.append(_poly(np.column_stack([r * np.cos(a), r * np.sin(a)])))  # the arc, closed by the chord
+        return stops
+    stops = []
+    n = len(pts)
+    for i in range(n):
+        v, before, after = pts[i], pts[i - 1], pts[(i + 1) % n]
+        reach = min(CONNECTOR_CORNER, 0.4 * float(np.hypot(*(after - v))), 0.4 * float(np.hypot(*(before - v))))
+        a = v + reach * (before - v) / np.hypot(*(before - v))
+        b = v + reach * (after - v) / np.hypot(*(after - v))
+        stops.append(_poly([a, v, b]))
+    return stops
+
+
 def _connector_body(c: Ctx) -> Part:
     """The sleeve, bottom at z = 0: the tile outline grown by the clearance inside, a wall
-    around it, and the ledge halfway up, with gaps at the middle of the edges (_ledge_gaps).
-    Corners stay sharp, like the tile's."""
+    around it, and halfway up the stop: the ledge, with gaps at the middle of the edges
+    (_ledge_gaps), or for "connector_corners" the corner stops (_corner_stops). Corners stay
+    sharp, like the tile's."""
     inner = _sk(offset(c.outline, CONNECTOR_CLEARANCE, kind=Kind.INTERSECTION)) if CONNECTOR_CLEARANCE else c.outline
     outer = _sk(offset(inner, CONNECTOR_WALL, kind=Kind.INTERSECTION))
-    ledge_inner = _sk(offset(inner, -CONNECTOR_LEDGE, kind=Kind.INTERSECTION))
     wall = extrude(_sk(outer - inner), amount=CONNECTOR_HEIGHT)
-    ledge_ring = _sk(inner - ledge_inner)
-    ledge_ring = _sk(ledge_ring - _union(_ledge_gaps(c.p)))
-    ledge = Pos(0, 0, CONNECTOR_SOCKET) * extrude(ledge_ring, amount=CONNECTOR_LEDGE_HEIGHT)
+    if c.p.tile_type == "connector_corners":
+        stop = _sk(inner & _union(_corner_stops(c.p)))
+    else:
+        ledge_inner = _sk(offset(inner, -CONNECTOR_LEDGE, kind=Kind.INTERSECTION))
+        stop = _sk(_sk(inner - ledge_inner) - _union(_ledge_gaps(c.p)))
+    ledge = Pos(0, 0, CONNECTOR_SOCKET) * extrude(stop, amount=CONNECTOR_LEDGE_HEIGHT)
     return _fuse([Part(wall.wrapped), Part(ledge.wrapped)])
 
 
@@ -1188,12 +1223,17 @@ TILE_TYPES = {
     "star": TileType("Star (flat)", "Objects", _star_tile, "raised gold star, for a bonus or goal"),
     "star_upright": TileType("Star (upright)", "Objects", _star_upright, "gem-bevelled gold star standing on its two lower points"),
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
-    "connector": TileType("Connector", "Special", _connector,
+    "connector": TileType("Connector (ledge)", "Special", _connector,
                           f"sleeve to join a tile rigidly on top of a part of the same shape: {CONNECTOR_WALL:g} mm wall, "
                           f"{CONNECTOR_HEIGHT:g} mm high, a ledge inside halfway up ({CONNECTOR_LEDGE:g} mm deep, "
                           f"{CONNECTOR_LEDGE_HEIGHT:g} mm high), so each tile "
                           f"goes in {CONNECTOR_SOCKET:g} mm from either side; the ledge has gaps at the middle of the edges, "
                           "and there is no clearance, so it fits tight"),
+    "connector_corners": TileType("Connector (corner bridges)", "Special", _connector,
+                                  f"sleeve like the connector with a ledge, but the tiles stop on a flat triangle in "
+                                  f"every inside corner ({CONNECTOR_CORNER:g} mm along each wall, "
+                                  f"{CONNECTOR_LEDGE_HEIGHT:g} mm high), whose open edge is printed as a bridge; "
+                                  f"a round one has {CONNECTOR_CIRCLE_STOPS} flat stops instead"),
 }
 
 
@@ -1227,7 +1267,7 @@ def validate(p: TileParams) -> None:
         raise ValueError("Tile size must be between 15 and 200 mm.")
     if p.shape == "rectangle" and not 15 <= p.length <= 200:
         raise ValueError("Tile length must be between 15 and 200 mm.")
-    if p.tile_type == "connector":  # thickness and colour depth don't apply
+    if p.tile_type in CONNECTOR_TYPES:  # thickness and colour depth don't apply
         pass
     elif p.thickness < 1.5:
         raise ValueError("Thickness must be at least 1.5 mm.")
@@ -1280,7 +1320,7 @@ def _bodies(p: TileParams, seed: int) -> dict[str, list[Part]]:
     the base is fused with raised parts in its own colour (e.g. cobbles), when that can still
     be meshed."""
     c = Ctx(p, seed)
-    if p.tile_type == "connector":
+    if p.tile_type in CONNECTOR_TYPES:
         return {CONNECTOR_COLOUR: [_connector_body(c)]}
     design = TILE_TYPES[p.tile_type].build(c)
     top, depth = p.thickness, p.inlay_depth
@@ -1390,7 +1430,7 @@ def describe(p: TileParams) -> str:
     else:
         dims = f"{p.size:g} mm sides"
     n = f"{p.count} tiles" if p.count > 1 else "Tile"
-    if p.tile_type == "connector":
+    if p.tile_type in CONNECTOR_TYPES:
         n = f"{p.count} connectors" if p.count > 1 else "Connector"
         return (f"{n}: {t.description}; for {p.shape} tiles, {dims}. Outside "
                 f"{CONNECTOR_CLEARANCE + CONNECTOR_WALL:g} mm larger on every side. Print it standing as shown.")

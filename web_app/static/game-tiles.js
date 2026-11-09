@@ -297,7 +297,7 @@ downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
 // The connector (a sleeve) has a fixed height and no colours: thickness and colour depth don't apply.
 function updateTypeFields() {
-	const connector = typeSelect.value === "connector";
+	const connector = typeSelect.value.startsWith("connector");
 	for (const id of ["thickness", "inlay_depth"]) {
 		const el = document.getElementById(id);
 		el.disabled = connector;
