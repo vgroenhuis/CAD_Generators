@@ -1103,7 +1103,7 @@ CONNECTOR_WALL = 0.8  # mm, wall thickness
 CONNECTOR_HEIGHT = 5.5  # mm, total height
 CONNECTOR_LEDGE = 0.5  # mm, width and height of the ledge inside, halfway up
 CONNECTOR_SOCKET = (CONNECTOR_HEIGHT - CONNECTOR_LEDGE) / 2  # how deep a tile goes in from either side
-CONNECTOR_CLEARANCE = 0.1  # mm between tile and wall on every side: a tight push fit
+CONNECTOR_CLEARANCE = 0.0  # mm between tile and wall on every side: none, the thin wall stretches a little
 CONNECTOR_COLOUR = "grey"
 
 
@@ -1114,7 +1114,7 @@ def _connector(c: Ctx) -> Design:
 def _connector_body(c: Ctx) -> Part:
     """The sleeve, bottom at z = 0: the tile outline grown by the clearance inside, a wall
     around it, and the ledge halfway up. Corners stay sharp, like the tile's."""
-    inner = _sk(offset(c.outline, CONNECTOR_CLEARANCE, kind=Kind.INTERSECTION))
+    inner = _sk(offset(c.outline, CONNECTOR_CLEARANCE, kind=Kind.INTERSECTION)) if CONNECTOR_CLEARANCE else c.outline
     outer = _sk(offset(inner, CONNECTOR_WALL, kind=Kind.INTERSECTION))
     ledge_inner = _sk(offset(inner, -CONNECTOR_LEDGE, kind=Kind.INTERSECTION))
     wall = extrude(_sk(outer - inner), amount=CONNECTOR_HEIGHT)
@@ -1159,7 +1159,7 @@ TILE_TYPES = {
     "connector": TileType("Connector", "Special", _connector,
                           f"sleeve to join a tile rigidly on top of a part of the same shape: {CONNECTOR_WALL:g} mm wall, "
                           f"{CONNECTOR_HEIGHT:g} mm high, a {CONNECTOR_LEDGE:g} mm ledge inside halfway up, so each tile "
-                          f"goes in {CONNECTOR_SOCKET:g} mm from either side ({CONNECTOR_CLEARANCE:g} mm clearance)"),
+                          f"goes in {CONNECTOR_SOCKET:g} mm from either side; no clearance, so it fits tight"),
 }
 
 
