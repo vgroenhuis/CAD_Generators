@@ -6,7 +6,7 @@ import { showViewerError } from "./error-banner.js";
 
 const API = "api/game-tiles";
 // Input ids = query parameter names.
-const NUMBER_FIELDS = ["size", "length", "thickness", "inlay_depth", "count", "seed"];
+const NUMBER_FIELDS = ["size", "length", "thickness", "inlay_depth", "count", "seed", "wall", "clearance"];
 const INTEGER_FIELDS = ["count", "seed"];
 const typeSelect = document.getElementById("tile_type");
 const shapeSelect = document.getElementById("shape");
@@ -295,14 +295,12 @@ async function setup() {
 generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
-// The connector (a sleeve) has a fixed height and no colours: thickness and colour depth don't apply.
+// A connector (a sleeve) has a fixed height and no colours: instead of thickness and colour
+// depth it has a wall thickness and a clearance.
 function updateTypeFields() {
 	const connector = typeSelect.value.startsWith("connector");
-	for (const id of ["thickness", "inlay_depth"]) {
-		const el = document.getElementById(id);
-		el.disabled = connector;
-		el.title = connector ? "Not used for the connector (a sleeve of fixed height)" : "";
-	}
+	document.getElementById("tile-row").hidden = connector;
+	document.getElementById("connector-row").hidden = !connector;
 }
 
 typeSelect.addEventListener("change", () => {

@@ -44,6 +44,7 @@
 	.controls h3 { font-size: 13px; margin: 18px 0 0 0; color: #e8e8e8; font-weight: 600; }
 	.row { display: flex; gap: 10px; }
 	.row > div { flex: 1; }
+	.row[hidden] { display: none; }
 	#info { margin-top: 14px; font-size: 12px; color: #c0c4c9; line-height: 1.5; }
 	.view-section { margin-top: 18px; padding-top: 12px; border-top: 1px solid #3a3f45; }
 	.view-section h3 { margin-top: 0 !important; }
@@ -87,7 +88,13 @@
 				<div id="length-box"><label for="length">Length (mm)</label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="length"></div>
 			</div>
-			<div class="row">
+			<div class="row" id="connector-row" hidden>
+				<div><label for="wall">Wall (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="wall"></div>
+				<div><label for="clearance">Clearance (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="clearance"></div>
+			</div>
+			<div class="row" id="tile-row">
 				<div><label for="thickness">Thickness (mm)</label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="thickness"></div>
 				<div><label for="inlay_depth">Colour depth (mm)</label>

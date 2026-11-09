@@ -6,7 +6,7 @@ const table = document.getElementById("table");
 const rows = document.getElementById("rows");
 
 // Query parameters of a tile, in the order the generator's endpoints take them.
-const PARAM_KEYS = ["tile_type", "shape", "size", "length", "thickness", "inlay_depth", "count", "seed"];
+const PARAM_KEYS = ["tile_type", "shape", "size", "length", "thickness", "inlay_depth", "count", "seed", "wall", "clearance"];
 
 function el(tag, attrs = {}, ...children) {
 	const e = document.createElement(tag);
@@ -22,6 +22,7 @@ function query(params) {
 	const q = new URLSearchParams();
 	for (const k of PARAM_KEYS) {
 		if (k === "length" && params.shape !== "rectangle") continue;
+		if (params[k] === undefined) continue;  // stored before this setting existed
 		q.set(k, String(params[k]));
 	}
 	return q.toString();
@@ -72,8 +73,9 @@ function row(tile, palette) {
 		el("td", {}, tile.title),
 		el("td", {}, p.shape),
 		el("td", { class: "num" }, sizeText(p)),
-		el("td", { class: "num" }, `${p.thickness}`),
-		el("td", { class: "num" }, `${p.inlay_depth}`),
+		// Connectors have a wall and a clearance instead of a thickness and a colour depth.
+		el("td", { class: "num" }, p.tile_type.startsWith("connector") ? `wall ${p.wall}` : `${p.thickness}`),
+		el("td", { class: "num" }, p.tile_type.startsWith("connector") ? `clearance ${p.clearance}` : `${p.inlay_depth}`),
 		el("td", { class: "num" }, `${p.count}`),
 		el("td", { class: "num" }, `${p.seed}`),
 		el("td", {}, colours),

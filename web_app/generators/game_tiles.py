@@ -53,12 +53,16 @@ def _params(
 	inlay_depth: float = Query(..., gt=0, le=100),
 	count: int = Query(1, ge=1, le=MAX_COUNT),
 	seed: int = Query(1, ge=0, le=1_000_000),
+	wall: float = Query(TileParams.wall, gt=0, le=100),  # connectors only
+	clearance: float = Query(TileParams.clearance, ge=0, le=100),  # connectors only
 ) -> TileParams:
 	if shape != "rectangle":
 		length = DEFAULT.length  # not used; keeps the cache key unique
 	if tile_type.startswith("connector"):  # thickness and colour depth don't apply
 		thickness, inlay_depth = DEFAULT.thickness, DEFAULT.inlay_depth
-	p = TileParams(tile_type, shape, size, length, thickness, inlay_depth, count, seed)
+	else:  # wall and clearance only apply to connectors
+		wall, clearance = DEFAULT.wall, DEFAULT.clearance
+	p = TileParams(tile_type, shape, size, length, thickness, inlay_depth, count, seed, wall, clearance)
 	try:
 		validate(p)
 	except ValueError as exc:

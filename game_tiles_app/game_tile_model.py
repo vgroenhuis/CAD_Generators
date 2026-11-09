@@ -60,6 +60,8 @@ class TileParams:
     inlay_depth: float = 0.6  # depth of the coloured inlays in the top face
     count: int = 1
     seed: int = 1
+    wall: float = 1.2  # connectors only: wall thickness
+    clearance: float = 0.1  # connectors only: gap between tile and wall on every side
 
 
 # Colour names (also the body names in the 3MF and STEP files) and their preview colours.
@@ -1101,12 +1103,12 @@ def _star_upright(c: Ctx) -> Design:
 
 # --- Connector: a sleeve that joins two tiles of the same shape ---
 
-CONNECTOR_WALL = 1.2  # mm, wall thickness (0.8 printed poorly)
+# Wall thickness and clearance are parameters (TileParams.wall, .clearance): 1.2 and 0.1 mm by
+# default; 0.8 mm walls printed poorly and no clearance was too tight.
 CONNECTOR_SOCKET = 2.4  # mm, how deep a tile goes in from either side (all heights multiples of 0.2 mm layers)
 CONNECTOR_LEDGE = 0.3  # mm, how far the ledge inside sticks out (short, so it prints over the wall below)
 CONNECTOR_LEDGE_HEIGHT = 0.6  # mm, its height: three layers of 0.2 mm
 CONNECTOR_HEIGHT = 2 * CONNECTOR_SOCKET + CONNECTOR_LEDGE_HEIGHT  # mm, total height
-CONNECTOR_CLEARANCE = 0.1  # mm between tile and wall on every side (none was too tight in a print)
 CONNECTOR_GAP = 1 / 3  # gap in the ledge at the middle of every edge, as a fraction of the edge length
 CONNECTOR_CIRCLE_GAPS = 8  # a round connector's ledge has this many gaps, evenly spread
 CONNECTOR_CORNER = 5.0  # mm, how far a corner stop reaches along each wall from the corner
@@ -1137,7 +1139,7 @@ def _ledge_gaps(p: TileParams) -> list[Sketch]:
             d = p1 - p0
             length = float(np.hypot(*d))
             spans.append(((p0 + p1) / 2, d / length, CONNECTOR_GAP * length))
-    reach = CONNECTOR_LEDGE + CONNECTOR_WALL + 1.0  # across the ledge, both ways
+    reach = CONNECTOR_LEDGE + p.clearance + p.wall + 1.0  # across the ledge, both ways
     gaps = []
     for m, d, width in spans:
         nrm = np.array([-d[1], d[0]])
@@ -1166,9 +1168,9 @@ def _corner_stops(p: TileParams) -> list[Sketch]:
     corners: it gets CONNECTOR_CIRCLE_STOPS segments, each cut off by a straight bridge
     CONNECTOR_CIRCLE_DEPTH from the wall at its middle. All measured from the inside of the
     wall, i.e. the tile outline grown by the clearance."""
-    pts = _grow_polygon(outline_points(p), CONNECTOR_CLEARANCE)
+    pts = _grow_polygon(outline_points(p), p.clearance)
     if p.shape == "circle":
-        r = p.size / 2 + CONNECTOR_CLEARANCE
+        r = p.size / 2 + p.clearance
         half = math.acos((r - CONNECTOR_CIRCLE_DEPTH) / r)  # half the angle the bridge spans
         stops = []
         for k in range(CONNECTOR_CIRCLE_STOPS):
@@ -1192,8 +1194,9 @@ def _connector_body(c: Ctx) -> Part:
     around it, and halfway up the stop: the ledge, with gaps at the middle of the edges
     (_ledge_gaps), or for "connector_corners" the corner stops (_corner_stops). Corners stay
     sharp, like the tile's."""
-    inner = _sk(offset(c.outline, CONNECTOR_CLEARANCE, kind=Kind.INTERSECTION)) if CONNECTOR_CLEARANCE else c.outline
-    outer = _sk(offset(inner, CONNECTOR_WALL, kind=Kind.INTERSECTION))
+    p = c.p
+    inner = _sk(offset(c.outline, p.clearance, kind=Kind.INTERSECTION)) if p.clearance else c.outline
+    outer = _sk(offset(inner, p.wall, kind=Kind.INTERSECTION))
     wall = extrude(_sk(outer - inner), amount=CONNECTOR_HEIGHT)
     if c.p.tile_type == "connector_corners":
         stop = _sk(inner & _union(_corner_stops(c.p)))
@@ -1239,11 +1242,11 @@ TILE_TYPES = {
     "star_upright": TileType("Star (upright)", "Objects", _star_upright, "gem-bevelled gold star standing on its two lower points"),
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
     "connector": TileType("Connector (ledge)", "Special", _connector,
-                          f"sleeve to join a tile rigidly on top of a part of the same shape: {CONNECTOR_WALL:g} mm wall, "
+                          f"sleeve to join a tile rigidly on top of a part of the same shape: "
                           f"{CONNECTOR_HEIGHT:g} mm high, a ledge inside halfway up ({CONNECTOR_LEDGE:g} mm deep, "
                           f"{CONNECTOR_LEDGE_HEIGHT:g} mm high), so each tile "
-                          f"goes in {CONNECTOR_SOCKET:g} mm from either side; the ledge has gaps at the middle of the edges, "
-                          f"with {CONNECTOR_CLEARANCE:g} mm clearance round the tile"),
+                          f"goes in {CONNECTOR_SOCKET:g} mm from either side; the ledge has gaps at the middle of the edges. "
+                          "Wall thickness and clearance can be set"),
     "connector_corners": TileType("Connector (corner bridges)", "Special", _connector,
                                   f"sleeve like the connector with a ledge, but the tiles stop on a flat triangle in "
                                   f"every inside corner ({CONNECTOR_CORNER:g} mm along each wall, "
@@ -1283,7 +1286,10 @@ def validate(p: TileParams) -> None:
     if p.shape == "rectangle" and not 15 <= p.length <= 200:
         raise ValueError("Tile length must be between 15 and 200 mm.")
     if p.tile_type in CONNECTOR_TYPES:  # thickness and colour depth don't apply
-        pass
+        if not 0.4 <= p.wall <= 10:
+            raise ValueError("Wall thickness must be between 0.4 and 10 mm.")
+        if not 0 <= p.clearance <= 2:
+            raise ValueError("Clearance must be between 0 and 2 mm.")
     elif p.thickness < 1.5:
         raise ValueError("Thickness must be at least 1.5 mm.")
     elif not 0.2 <= p.inlay_depth <= p.thickness - 1.0:
@@ -1447,8 +1453,8 @@ def describe(p: TileParams) -> str:
     n = f"{p.count} tiles" if p.count > 1 else "Tile"
     if p.tile_type in CONNECTOR_TYPES:
         n = f"{p.count} connectors" if p.count > 1 else "Connector"
-        return (f"{n}: {t.description}; for {p.shape} tiles, {dims}. Outside "
-                f"{CONNECTOR_CLEARANCE + CONNECTOR_WALL:g} mm larger on every side. Print it standing as shown.")
+        return (f"{n}: {t.description}; for {p.shape} tiles, {dims}: {p.wall:g} mm wall, {p.clearance:g} mm clearance, "
+                f"so the outside is {p.clearance + p.wall:g} mm larger on every side. Print it standing as shown.")
     colors = colors_used(p)
     return (f"{n}: {t.title.lower()}, {t.description}; {p.shape}, {dims}, {p.thickness:g} mm thick. "
             f"{len(colors)} colours: {', '.join(c.replace('_', ' ') for c in colors)} (base first).")
@@ -1464,9 +1470,11 @@ def main() -> None:
     ap.add_argument("--inlay-depth", type=float, default=0.6)
     ap.add_argument("--count", type=int, default=1)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--wall", type=float, default=1.2, help="connector wall thickness (mm)")
+    ap.add_argument("--clearance", type=float, default=0.1, help="connector clearance round the tile (mm)")
     ap.add_argument("--out", default="game_tile.step")
     a = ap.parse_args()
-    p = TileParams(a.type, a.shape, a.size, a.length, a.thickness, a.inlay_depth, a.count, a.seed)
+    p = TileParams(a.type, a.shape, a.size, a.length, a.thickness, a.inlay_depth, a.count, a.seed, a.wall, a.clearance)
     export_step(build_tiles(p), a.out)
     print(describe(p))
     print(f"Wrote {a.out}")
