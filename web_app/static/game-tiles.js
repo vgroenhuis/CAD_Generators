@@ -301,7 +301,7 @@ function updateTypeFields() {
 	for (const id of ["thickness", "inlay_depth"]) {
 		const el = document.getElementById(id);
 		el.disabled = connector;
-		el.title = connector ? "Not used for the connector (5.5 mm high)" : "";
+		el.title = connector ? "Not used for the connector (a sleeve of fixed height)" : "";
 	}
 }
 

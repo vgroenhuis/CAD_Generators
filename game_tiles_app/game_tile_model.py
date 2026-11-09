@@ -1100,9 +1100,10 @@ def _star_upright(c: Ctx) -> Design:
 # --- Connector: a sleeve that joins two tiles of the same shape ---
 
 CONNECTOR_WALL = 0.8  # mm, wall thickness
-CONNECTOR_HEIGHT = 5.5  # mm, total height
-CONNECTOR_LEDGE = 0.5  # mm, width and height of the ledge inside, halfway up
-CONNECTOR_SOCKET = (CONNECTOR_HEIGHT - CONNECTOR_LEDGE) / 2  # how deep a tile goes in from either side
+CONNECTOR_SOCKET = 2.5  # mm, how deep a tile goes in from either side
+CONNECTOR_LEDGE = 0.3  # mm, how far the ledge inside sticks out (short, so it prints over the wall below)
+CONNECTOR_LEDGE_HEIGHT = 0.6  # mm, its height: three layers of 0.2 mm
+CONNECTOR_HEIGHT = 2 * CONNECTOR_SOCKET + CONNECTOR_LEDGE_HEIGHT  # mm, total height
 CONNECTOR_CLEARANCE = 0.0  # mm between tile and wall on every side: none, the thin wall stretches a little
 CONNECTOR_GAP = 1 / 3  # gap in the ledge at the middle of every edge, as a fraction of the edge length
 CONNECTOR_CIRCLE_GAPS = 8  # a round connector's ledge has this many gaps, evenly spread
@@ -1149,7 +1150,7 @@ def _connector_body(c: Ctx) -> Part:
     wall = extrude(_sk(outer - inner), amount=CONNECTOR_HEIGHT)
     ledge_ring = _sk(inner - ledge_inner)
     ledge_ring = _sk(ledge_ring - _union(_ledge_gaps(c.p)))
-    ledge = Pos(0, 0, CONNECTOR_SOCKET) * extrude(ledge_ring, amount=CONNECTOR_LEDGE)
+    ledge = Pos(0, 0, CONNECTOR_SOCKET) * extrude(ledge_ring, amount=CONNECTOR_LEDGE_HEIGHT)
     return _fuse([Part(wall.wrapped), Part(ledge.wrapped)])
 
 
@@ -1189,7 +1190,8 @@ TILE_TYPES = {
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
     "connector": TileType("Connector", "Special", _connector,
                           f"sleeve to join a tile rigidly on top of a part of the same shape: {CONNECTOR_WALL:g} mm wall, "
-                          f"{CONNECTOR_HEIGHT:g} mm high, a {CONNECTOR_LEDGE:g} mm ledge inside halfway up, so each tile "
+                          f"{CONNECTOR_HEIGHT:g} mm high, a ledge inside halfway up ({CONNECTOR_LEDGE:g} mm deep, "
+                          f"{CONNECTOR_LEDGE_HEIGHT:g} mm high), so each tile "
                           f"goes in {CONNECTOR_SOCKET:g} mm from either side; the ledge has gaps at the middle of the edges, "
                           "and there is no clearance, so it fits tight"),
 }
