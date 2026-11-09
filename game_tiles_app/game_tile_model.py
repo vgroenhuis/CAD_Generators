@@ -1101,12 +1101,12 @@ def _star_upright(c: Ctx) -> Design:
 
 # --- Connector: a sleeve that joins two tiles of the same shape ---
 
-CONNECTOR_WALL = 0.8  # mm, wall thickness
+CONNECTOR_WALL = 1.2  # mm, wall thickness (0.8 printed poorly)
 CONNECTOR_SOCKET = 2.4  # mm, how deep a tile goes in from either side (all heights multiples of 0.2 mm layers)
 CONNECTOR_LEDGE = 0.3  # mm, how far the ledge inside sticks out (short, so it prints over the wall below)
 CONNECTOR_LEDGE_HEIGHT = 0.6  # mm, its height: three layers of 0.2 mm
 CONNECTOR_HEIGHT = 2 * CONNECTOR_SOCKET + CONNECTOR_LEDGE_HEIGHT  # mm, total height
-CONNECTOR_CLEARANCE = 0.0  # mm between tile and wall on every side: none, the thin wall stretches a little
+CONNECTOR_CLEARANCE = 0.1  # mm between tile and wall on every side (none was too tight in a print)
 CONNECTOR_GAP = 1 / 3  # gap in the ledge at the middle of every edge, as a fraction of the edge length
 CONNECTOR_CIRCLE_GAPS = 8  # a round connector's ledge has this many gaps, evenly spread
 CONNECTOR_CORNER = 5.0  # mm, how far a corner stop reaches along each wall from the corner
@@ -1146,14 +1146,29 @@ def _ledge_gaps(p: TileParams) -> list[Sketch]:
     return gaps
 
 
+def _grow_polygon(pts: np.ndarray, d: float) -> np.ndarray:
+    """A convex counterclockwise polygon with every edge moved outwards by d (sharp corners)."""
+    if not d:
+        return pts
+    out = []
+    n = len(pts)
+    for i in range(n):
+        a, v, b = pts[i - 1], pts[i], pts[(i + 1) % n]
+        n1 = np.array([(v - a)[1], -(v - a)[0]]) / np.hypot(*(v - a))  # outward normals of the two edges
+        n2 = np.array([(b - v)[1], -(b - v)[0]]) / np.hypot(*(b - v))
+        out.append(v + d * (n1 + n2) / (1 + float(n1 @ n2)))  # where the two moved edges meet
+    return np.array(out)
+
+
 def _corner_stops(p: TileParams) -> list[Sketch]:
     """Flat stops across the inside corners: a triangle reaching CONNECTOR_CORNER along both
     walls from every corner; its third edge is a bridge from wall to wall. A circle has no
     corners: it gets CONNECTOR_CIRCLE_STOPS segments, each cut off by a straight bridge
-    CONNECTOR_CIRCLE_DEPTH from the wall at its middle."""
-    pts = outline_points(p)
+    CONNECTOR_CIRCLE_DEPTH from the wall at its middle. All measured from the inside of the
+    wall, i.e. the tile outline grown by the clearance."""
+    pts = _grow_polygon(outline_points(p), CONNECTOR_CLEARANCE)
     if p.shape == "circle":
-        r = p.size / 2
+        r = p.size / 2 + CONNECTOR_CLEARANCE
         half = math.acos((r - CONNECTOR_CIRCLE_DEPTH) / r)  # half the angle the bridge spans
         stops = []
         for k in range(CONNECTOR_CIRCLE_STOPS):
@@ -1228,7 +1243,7 @@ TILE_TYPES = {
                           f"{CONNECTOR_HEIGHT:g} mm high, a ledge inside halfway up ({CONNECTOR_LEDGE:g} mm deep, "
                           f"{CONNECTOR_LEDGE_HEIGHT:g} mm high), so each tile "
                           f"goes in {CONNECTOR_SOCKET:g} mm from either side; the ledge has gaps at the middle of the edges, "
-                          "and there is no clearance, so it fits tight"),
+                          f"with {CONNECTOR_CLEARANCE:g} mm clearance round the tile"),
     "connector_corners": TileType("Connector (corner bridges)", "Special", _connector,
                                   f"sleeve like the connector with a ledge, but the tiles stop on a flat triangle in "
                                   f"every inside corner ({CONNECTOR_CORNER:g} mm along each wall, "
