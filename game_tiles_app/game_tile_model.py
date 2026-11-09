@@ -1104,6 +1104,8 @@ CONNECTOR_HEIGHT = 5.5  # mm, total height
 CONNECTOR_LEDGE = 0.5  # mm, width and height of the ledge inside, halfway up
 CONNECTOR_SOCKET = (CONNECTOR_HEIGHT - CONNECTOR_LEDGE) / 2  # how deep a tile goes in from either side
 CONNECTOR_CLEARANCE = 0.0  # mm between tile and wall on every side: none, the thin wall stretches a little
+CONNECTOR_GAP = 1 / 3  # gap in the ledge at the middle of every edge, as a fraction of the edge length
+CONNECTOR_CIRCLE_GAPS = 8  # a round connector's ledge has this many gaps, evenly spread
 CONNECTOR_COLOUR = "grey"
 
 
@@ -1111,14 +1113,43 @@ def _connector(c: Ctx) -> Design:
     return Design(CONNECTOR_COLOUR, [])  # the sleeve itself is made by _connector_body
 
 
+def _ledge_gaps(p: TileParams) -> list[Sketch]:
+    """Where the ledge is left out: a stretch of CONNECTOR_GAP of every edge, at its middle
+    (evenly spread round a circle). A short ledge in a corner prints more reliably than one
+    overhanging all the way round."""
+    pts = outline_points(p)
+    if p.shape == "circle":
+        n = CONNECTOR_CIRCLE_GAPS
+        a = np.radians(np.arange(n) * 360 / n + 180 / n)
+        r = p.size / 2
+        pts_mid = np.column_stack([r * np.cos(a), r * np.sin(a)])
+        spans = [(m, np.array([-math.sin(t), math.cos(t)]), CONNECTOR_GAP * 2 * math.pi * r / n) for m, t in zip(pts_mid, a)]
+    else:
+        spans = []
+        for p0, p1 in zip(pts, np.roll(pts, -1, axis=0)):
+            d = p1 - p0
+            length = float(np.hypot(*d))
+            spans.append(((p0 + p1) / 2, d / length, CONNECTOR_GAP * length))
+    reach = CONNECTOR_LEDGE + CONNECTOR_WALL + 1.0  # across the ledge, both ways
+    gaps = []
+    for m, d, width in spans:
+        nrm = np.array([-d[1], d[0]])
+        corners = [m + s * width / 2 * d + t * reach * nrm for s, t in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+        gaps.append(_poly(corners))
+    return gaps
+
+
 def _connector_body(c: Ctx) -> Part:
     """The sleeve, bottom at z = 0: the tile outline grown by the clearance inside, a wall
-    around it, and the ledge halfway up. Corners stay sharp, like the tile's."""
+    around it, and the ledge halfway up, with gaps at the middle of the edges (_ledge_gaps).
+    Corners stay sharp, like the tile's."""
     inner = _sk(offset(c.outline, CONNECTOR_CLEARANCE, kind=Kind.INTERSECTION)) if CONNECTOR_CLEARANCE else c.outline
     outer = _sk(offset(inner, CONNECTOR_WALL, kind=Kind.INTERSECTION))
     ledge_inner = _sk(offset(inner, -CONNECTOR_LEDGE, kind=Kind.INTERSECTION))
     wall = extrude(_sk(outer - inner), amount=CONNECTOR_HEIGHT)
-    ledge = Pos(0, 0, CONNECTOR_SOCKET) * extrude(_sk(inner - ledge_inner), amount=CONNECTOR_LEDGE)
+    ledge_ring = _sk(inner - ledge_inner)
+    ledge_ring = _sk(ledge_ring - _union(_ledge_gaps(c.p)))
+    ledge = Pos(0, 0, CONNECTOR_SOCKET) * extrude(ledge_ring, amount=CONNECTOR_LEDGE)
     return _fuse([Part(wall.wrapped), Part(ledge.wrapped)])
 
 
@@ -1159,7 +1190,8 @@ TILE_TYPES = {
     "connector": TileType("Connector", "Special", _connector,
                           f"sleeve to join a tile rigidly on top of a part of the same shape: {CONNECTOR_WALL:g} mm wall, "
                           f"{CONNECTOR_HEIGHT:g} mm high, a {CONNECTOR_LEDGE:g} mm ledge inside halfway up, so each tile "
-                          f"goes in {CONNECTOR_SOCKET:g} mm from either side; no clearance, so it fits tight"),
+                          f"goes in {CONNECTOR_SOCKET:g} mm from either side; the ledge has gaps at the middle of the edges, "
+                          "and there is no clearance, so it fits tight"),
 }
 
 
