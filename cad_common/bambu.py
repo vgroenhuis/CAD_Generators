@@ -20,7 +20,9 @@ and plate sizes are the ones that labels.vi-kan.net (MIT, Vegar Vikan) tested wi
 
 from __future__ import annotations
 
+import colorsys
 import json
+import math
 from dataclasses import dataclass
 from xml.sax.saxutils import quoteattr
 
@@ -121,6 +123,42 @@ def model_settings(objects: list[tuple[int, str, list[tuple[int, str, int]]]], p
     return "\n".join(out)
 
 
+_MIN_FLUSH = 107  # mm3, purged at least when the filament changes
+_MAX_FLUSH = 900  # mm3, Bambu Studio's largest purge volume
+_FLUSH_MARGIN = 1.3  # on top of the colour estimate: Bambu's measured data often asks for more
+
+
+def _flush_estimate(src: str, dst: str) -> float:
+    """Purge volume (mm3) estimated from the two colours, as Bambu Studio's FlushVolCalculator::
+    calc_flush_vol_rgb does: a light colour after a dark one needs much more than the reverse."""
+    a = [int(src[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    b = [int(dst[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    h1, s1, v1 = colorsys.rgb_to_hsv(*a)
+    h2, s2, v2 = colorsys.rgb_to_hsv(*b)
+    h1, h2 = h1 * 2 * math.pi, h2 * 2 * math.pi
+    hs = min(1.2, math.hypot(math.cos(h1) * s1 * v1 - math.cos(h2) * s2 * v2, math.sin(h1) * s1 * v1 - math.sin(h2) * s2 * v2))
+    lum_a, lum_b = (0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2] for c in (a, b))
+    if lum_b >= lum_a:
+        lumi = (lum_b - lum_a) ** 0.7 * 560
+    else:
+        lumi = (lum_a - lum_b) * 80
+        hs = min(0.67 * v2 + 0.33 * v1, hs)
+    hsf = 230 * hs
+    return max(60.0, math.sqrt(hsf * hsf + lumi * lumi + hsf * lumi))  # third side, 120 degree angle
+
+
+def flush_volumes(slot_colours: list[str], nozzles: int = 1) -> list[str]:
+    """flush_volumes_matrix: the purge volume (mm3) from every filament slot to every other,
+    row by row, once per nozzle. Bambu Studio refuses a project whose matrix doesn't match its
+    filament count. Re-calculating it in Bambu Studio (Purging volumes) gives its own figures."""
+    matrix = []
+    for src in slot_colours:
+        for dst in slot_colours:
+            v = 0 if src == dst else min(_MAX_FLUSH, round(_flush_estimate(src, dst) * _FLUSH_MARGIN) + _MIN_FLUSH)
+            matrix.append(str(v))
+    return matrix * nozzles
+
+
 def project_settings(p: BambuPrinter, slot_colours: list[str]) -> str:
     """Metadata/project_settings.config (JSON): the printer's system presets and the colour of
     every filament slot."""
@@ -137,6 +175,16 @@ def project_settings(p: BambuPrinter, slot_colours: list[str]) -> str:
         "filament_settings_id": [p.filament_preset] * len(slot_colours),
         "filament_colour": slot_colours,
         "filament_type": ["PLA"] * len(slot_colours),
+        # Purging between the filaments: sized for these filaments (and every nozzle).
+        "flush_volumes_matrix": flush_volumes(slot_colours, p.nozzles),
+        "flush_volumes_vector": ["140"] * (2 * len(slot_colours)),
+        "flush_multiplier": ["1"] * p.nozzles,
+        # Which nozzle prints which filament: left to Bambu Studio ("Auto For Flush"), but these
+        # lists, one entry per filament, must match the filament count as well.
+        "filament_map_mode": "Auto For Flush",
+        "filament_map": ["1"] * len(slot_colours),
+        "filament_nozzle_map": ["0"] * len(slot_colours),
+        "filament_volume_map": ["0"] * len(slot_colours),
     }
     if p.nozzles == 1:  # two-nozzle printers list every nozzle setting per nozzle: leave those to the presets
         settings["nozzle_diameter"] = ["0.4"]
