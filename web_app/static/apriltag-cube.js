@@ -19,6 +19,7 @@ const labelHint = document.getElementById("label-hint");
 const labelHintText = labelHint.textContent;
 const facesTitle = document.getElementById("faces-title");
 const facesHint = document.getElementById("faces-hint");
+const facesTip = document.getElementById("faces-tip");
 const sizeInput = document.getElementById("size");
 const tagSizeInput = document.getElementById("tag_size");
 const depthInput = document.getElementById("depth");
@@ -151,7 +152,8 @@ function setBottomLabel(on) {
 	if (bottomLabelInput.checked !== on) bottomLabelInput.checked = on;
 	const n = faceCount();
 	facesTitle.textContent = n === 6 ? "Six different tags" : "Five different tags";
-	facesHint.textContent = `${n === 6 ? "Six" : "Five"} comma-separated IDs: ${facesText()}.`;
+	facesHint.textContent = `Order: +X, +Y, -X, -Y, top${n === 6 ? ", bottom" : ""}`;
+	facesTip.textContent = `${n === 6 ? "Six" : "Five"} comma-separated IDs: ${facesText()}.`;
 	const parts = tagIdsInput.value.split(/[,;]/).map((s) => s.trim()).filter((s) => s !== "");
 	if (parts.every((s) => /^\d+$/.test(s))) {
 		const ids = parts.map(Number);

@@ -17,7 +17,7 @@
 	h1 { font-size: 18px; margin: 8px 0 0 0; font-weight: 600; }
 	.header-note { margin: 4px 0 0; font-size: 13px; color: #a0a5ab; }
 	main { flex: 1; display: flex; min-height: 0; }
-	.controls { width: 300px; padding: 16px 20px; border-right: 1px solid #3a3f45; overflow-y: auto; box-sizing: border-box; }
+	.controls { width: 300px; padding: 16px 20px; border-right: 1px solid #3a3f45; overflow-y: auto; box-sizing: border-box; position: relative; }
 	.controls label { display: block; margin-top: 12px; font-size: 13px; color: #c0c4c9; }
 	.controls input { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; }
 	.controls button { margin-top: 16px; width: 100%; padding: 8px; border-radius: 4px; border: none; cursor: pointer; font-size: 14px; }
@@ -38,6 +38,11 @@
 	.controls .pair { display: flex; gap: 10px; }
 	.controls .pair > div { flex: 1; min-width: 0; }
 	.controls .radio input, .controls .check input { width: auto; margin: 0; }
+	/* Help: a "?" after a label; its text pops up across the sidebar on hover, or on tap (focus). */
+	.controls button.tip { flex: none; width: 16px; height: 16px; margin: 0 0 0 4px; padding: 0; border-radius: 50%; border: 1px solid #5a5f65; background: transparent; color: #a0a5ab; font-size: 10px; line-height: 14px; font-weight: 600; cursor: help; vertical-align: 1px; }
+	.controls button.tip:hover, .controls button.tip:focus { border-color: #8fb4e8; color: #8fb4e8; outline: none; }
+	.tip-text { display: none; position: absolute; left: 12px; right: 12px; margin-top: 20px; z-index: 10; padding: 8px 10px; background: #2f343a; border: 1px solid #4a4f55; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); color: #d8dbde; font-size: 12px; font-weight: normal; line-height: 1.5; text-align: left; cursor: default; }
+	.tip:hover .tip-text, .tip:focus .tip-text { display: block; }
 	.controls input:disabled { opacity: 0.45; }
 	#status { margin-top: 14px; font-size: 12px; color: #a0a5ab; white-space: pre-wrap; }
 	#status.error { color: #e08a8a; }
@@ -60,47 +65,41 @@
 	<main>
 		<div class="controls">
 			<label>Tags (tag16h5, IDs 0-29)</label>
-			<label class="radio" for="mode_same"><input type="radio" name="tag_mode" id="mode_same" value="same"> Same tag on all faces</label>
+			<label class="radio" for="mode_same"><input type="radio" name="tag_mode" id="mode_same" value="same"> Same tag on all faces <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">One ID, or several comma-separated IDs: one cube per ID, in the smallest square grid (2x2, 3x3, ...) with 2 mm spacing.</span></button></label>
 			<input type="text" id="tag_id" autocomplete="off" placeholder="0  or  0,1,2,3">
-			<div class="hint">One ID, or several comma-separated IDs: one cube per ID, in the smallest square grid (2x2, 3x3, ...) with 2 mm spacing.</div>
-			<label class="check sub" for="rotate_sides"><input type="checkbox" id="rotate_sides"> Turn the side tags a quarter turn each</label>
-			<div class="hint">The tag's top edge points up on +X, left on +Y, down on -X and right on -Y (seen from outside). The detector reports which way a tag is turned, so for an upright cube it can tell which side it sees, and the cube's heading, with just one ID per cube.</div>
-			<label class="radio" for="mode_faces"><input type="radio" name="tag_mode" id="mode_faces" value="faces"> <span id="faces-title">Five different tags</span></label>
+			<label class="check sub" for="rotate_sides"><input type="checkbox" id="rotate_sides"> Turn the side tags a quarter turn each <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">The tag's top edge points up on +X, left on +Y, down on -X and right on -Y (seen from outside). The detector reports which way a tag is turned, so for an upright cube it can tell which side it sees, and the cube's heading, with just one ID per cube.</span></button></label>
+			<label class="radio" for="mode_faces"><input type="radio" name="tag_mode" id="mode_faces" value="faces"> <span id="faces-title">Five different tags</span> <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip" id="faces-tip"></span></button></label>
 			<input type="text" id="tag_ids" autocomplete="off" placeholder="0,1,2,3,4">
-			<div class="hint" id="faces-hint">Five comma-separated IDs: the four sides counterclockwise as seen from above (+X, +Y, -X, -Y), then the top (+Z).</div>
-			<label class="radio" for="mode_world"><input type="radio" name="tag_mode" id="mode_world" value="world"> World frame cube</label>
-			<div class="hint">Tag 29 on all five faces, the side tags turned so the cube's heading can be read, labelled "World frame", with the red/green axes on the floor.</div>
+			<div class="hint" id="faces-hint">Order: +X, +Y, -X, -Y, top</div>
+			<label class="radio" for="mode_world"><input type="radio" name="tag_mode" id="mode_world" value="world"> World frame cube <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">Tag 29 on all five faces, the side tags turned so the cube&#39;s heading can be read, labelled "World frame", with the red/green axes on the floor.</span></button></label>
 
-			<label class="check" for="bottom_label"><input type="checkbox" id="bottom_label"> Bottom face: label with the ID(s)</label>
+			<label class="check" for="bottom_label"><input type="checkbox" id="bottom_label"> Bottom face: label with the ID(s) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip" id="label-hint">A cube standing on a surface never shows its bottom face to the camera. Leave empty for the default label (shown greyed out): the ID, or with different tags each side&#39;s ID along its edge and the top ID in the centre. Long labels are split over two lines; | forces a line break. Untick to put a tag on the bottom face as well.</span></button></label>
 			<input type="text" id="label" autocomplete="off" maxlength="40">
-			<div class="hint" id="label-hint">A cube standing on a surface never shows its bottom face to the camera. Leave empty for the default label (shown greyed out): the ID, or with different tags each side's ID along its edge and the top ID in the centre. Long labels are split over two lines; | forces a line break. Untick to put a tag on the bottom face as well.</div>
 
 			<label for="size">Cube size (mm)</label>
 			<input type="text" inputmode="decimal" autocomplete="off" id="size">
 
-			<label for="tag_size">Tag size (mm, black square)</label>
+			<label for="tag_size">Tag size (mm, black square) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">The tag (6 cells wide) sits inside a 1-cell white margin, so tag size = 0.75 x cube size. Changing one changes the other.</span></button></label>
 			<input type="text" inputmode="decimal" autocomplete="off" id="tag_size">
 
-			<label for="depth">Black depth (mm)</label>
+			<label for="depth">Black depth (mm) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">How deep the black tag cells and the bottom label are inlaid into the white cube, flush with its faces.</span></button></label>
 			<input type="text" inputmode="decimal" autocomplete="off" id="depth">
 
-			<label class="check" for="edge_colours"><input type="checkbox" id="edge_colours"> Red/green bottom edges (X/Y)</label>
-			<div class="hint">A red strip along the bottom edge of the +X face and a green one along the +Y face, inlaid flush in the white margin below the tag, so the cube keeps its size.</div>
+			<label class="check" for="edge_colours"><input type="checkbox" id="edge_colours"> Red/green bottom edges (X/Y) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">A red strip along the bottom edge of the +X face and a green one along the +Y face, inlaid flush in the white margin below the tag, so the cube keeps its size. Their ends are cut at 45 degrees, so each colour shows on its own face only.</span></button></label>
 			<div class="pair">
-				<div><label for="edge_height">Edge height (mm)</label>
+				<div><label for="edge_height">Height (mm) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">Empty: automatic (shown greyed out), a third of the white margin below the tag, at most 2 mm. At most the white margin, 1/8 of the cube size.</span></button></label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="edge_height"></div>
-				<div><label for="edge_depth">Edge depth (mm)</label>
+				<div><label for="edge_depth">Depth (mm) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">Empty: automatic (shown greyed out), as deep as the black. Less than the white margin, 1/8 of the cube size. Where a deep edge meets the bottom label, the label gives way.</span></button></label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="edge_depth"></div>
 			</div>
-			<div class="hint">Empty: automatic (shown greyed out), a third of the white margin (at most 2 mm) high and as deep as the black. Both at most the white margin, 1/8 of the cube size.</div>
 
-			<label class="check" for="axes"><input type="checkbox" id="axes"> Red/green axes (X/Y) on the floor</label>
+			<label class="check" for="axes"><input type="checkbox" id="axes"> Red/green axes (X/Y) on the floor <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">Flat red (+X) and green (+Y) arrows on the floor beside the cube, on its X and Y axes, to show the world frame. They stick out beside the cube.</span></button></label>
 
 			<button id="generate-btn">Generate</button>
 			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
 			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
 
-			<div class="fixed-info">The tag (6 cells wide) sits inside a 1-cell white margin, so tag size = 0.75 x cube size. The STEP file contains two bodies, "white" (cube with pockets) and "black" (tag cells and bottom label or tag, inlaid flush), for multimaterial printing. The red/green bottom edges and the axes arrows are the bodies "red" (+X) and "green" (+Y); with axes enabled, the arrows lie flat on the floor beside the cube, on its X and Y axes.</div>
+			<div class="fixed-info">The STEP file contains two bodies, "white" (cube with pockets) and "black" (tag cells and bottom label or tag, inlaid flush), for multimaterial printing. The red/green bottom edges and the axes arrows are the bodies "red" (+X) and "green" (+Y); with axes enabled, the arrows lie flat on the floor beside the cube, on its X and Y axes.</div>
 
 			<div id="status">Enter dimensions and click Generate.</div>
 		</div>
