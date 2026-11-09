@@ -4,7 +4,7 @@ Can be run standalone, or launched as a subprocess from main_menu.py.
 Inputs:
 - Either one tag ID (same tag on all faces), five tag IDs (comma-separated: the four sides
   counterclockwise as seen from above, +X, +Y, -X, -Y, then the top), or the world-frame cube
-  (IDs 25-29 with the axes). AprilTag family tag16h5, IDs 0-29.
+  (ID 29 on all faces, side tags turned, with the axes). AprilTag family tag16h5, IDs 0-29.
 - Bottom face: a label (default: the tag ID, "World frame", or with five different tags each
   side's ID along its edge and the top ID in the centre), or a tag (then six different tags)
 - Cube size (mm)
@@ -43,7 +43,8 @@ _load_error: BaseException | None = None
 _CONFIG_FILE = Path(__file__).parent / "apriltag_cube_params.json"
 # The tag is 6 cells wide inside a 1-cell white margin on an 8-cell face.
 _TAG_FRACTION = 6 / 8
-_WORLD_FRAME_IDS = [25, 26, 27, 28, 29]  # keep in sync with WORLD_FRAME_IDS in apriltag_cube_model.py
+_WORLD_FRAME_IDS = [29] * 5  # keep in sync with WORLD_FRAME_IDS in apriltag_cube_model.py
+_WORLD_FRAME_LABEL = "World frame"  # keep in sync with WORLD_FRAME_LABEL
 _GRID_SPACING = 2.0  # mm between cubes; keep in sync with GRID_SPACING in apriltag_cube_model.py
 _DEFAULTS = {
 	"tag_mode": "same",  # "same": one tag on all faces; "faces": five different tags; "world": world frame
@@ -155,7 +156,7 @@ class AprilTagCubeApp:
 		).grid(row=2, column=0, sticky=tk.W, padx=(0, 16), pady=2)
 		ttk.Label(
 			tags,
-			text="Tags 25 (+X), 26 (+Y), 27 (-X), 28 (-Y), 29 (top), label 'World frame', red/green axes on the floor.",
+			text="Tag 29 on all faces, side tags turned, label 'World frame', red/green axes on the floor.",
 			foreground="gray",
 		).grid(row=2, column=1, columnspan=2, sticky=tk.W)
 		self.bottom_label_check = ttk.Checkbutton(
@@ -255,6 +256,8 @@ class AprilTagCubeApp:
 		if hasattr(self, "rotate_check"):
 			self.rotate_check.configure(state=tk.NORMAL if mode == "same" else tk.DISABLED)
 		if mode == "world":
+			self.rotate_var.set(True)  # the world-frame cube shows its heading
+		if mode == "world":
 			self.bottom_label_var.set(True)  # the world-frame cube stands on the floor
 		self.bottom_label_check.configure(state=tk.DISABLED if mode == "world" else tk.NORMAL)
 		self.label_entry.configure(state=tk.NORMAL if self.bottom_label_var.get() else tk.DISABLED)
@@ -291,8 +294,10 @@ class AprilTagCubeApp:
 			tag_ids, size, depth = self._parse_inputs()
 			grid = self.mode_var.get() == "same" and len(tag_ids) > 1
 			use_label = self.bottom_label_var.get()
-			rotate = self.mode_var.get() == "same" and self.rotate_var.get()
+			rotate = self.mode_var.get() in ("same", "world") and self.rotate_var.get()
 			label = (self.label_var.get().strip() or None) if use_label else ""
+			if self.mode_var.get() == "world" and label is None:
+				label = _WORLD_FRAME_LABEL
 			if grid:
 				self.current_cube = build_apriltag_cube_grid(
 					tag_ids, size, depth, axes=self.axes_var.get(), bottom_tag=not use_label, rotate_sides=rotate,

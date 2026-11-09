@@ -104,7 +104,7 @@ function facesText() {
 		(faceCount() === 6 ? " and the bottom (-Z)" : "");
 }
 // Set from the server's defaults (see loadDefaults below).
-let worldFrameIds = [25, 26, 27, 28, 29];
+let worldFrameIds = [29, 29, 29, 29, 29];
 let worldFrameLabel = "World frame";
 
 function tagMode() {
@@ -112,10 +112,11 @@ function tagMode() {
 }
 
 // The label used when the label field is empty; mirrors default_label() in apriltag_cube_model.py
-// (different tags: each side's ID along its bottom edge, the top ID in the centre).
+// (different tags: each side's ID along its bottom edge, the top ID in the centre), and the
+// world-frame cube's own label.
 const EDGE_LABEL = "IDs along the edges";
 function defaultLabel(ids) {
-	if (ids.join(",") === worldFrameIds.join(",")) return worldFrameLabel;
+	if (tagMode() === "world") return worldFrameLabel;
 	if (new Set(ids).size === 1) return String(ids[0]);
 	return EDGE_LABEL;
 }
@@ -132,7 +133,9 @@ function updateMode() {
 	const mode = tagMode();
 	tagIdInput.disabled = mode !== "same";
 	tagIdsInput.disabled = mode !== "faces";
-	rotateInput.disabled = mode !== "same";  // different tags are told apart by their IDs
+	// Different tags are told apart by their IDs; the world-frame cube always has its sides turned.
+	rotateInput.disabled = mode !== "same";
+	if (mode === "world") rotateInput.checked = true;
 	axesInput.disabled = mode === "world";
 	if (mode === "world") axesInput.checked = true;
 	// The world-frame cube stands on the floor: its bottom face always carries the label.
@@ -213,10 +216,10 @@ function readParams() {
 		tagIds, size, depth,
 		axes: mode === "world" || axesInput.checked,
 		perFace: mode !== "same",
-		rotateSides: mode === "same" && rotateInput.checked,
+		rotateSides: mode === "world" || (mode === "same" && rotateInput.checked),
 		edgeColours: edgeColoursInput.checked,
 		bottomLabel: bottomLabelInput.checked,
-		label: labelInput.disabled ? "" : labelInput.value.trim(),
+		label: labelInput.disabled ? "" : labelInput.value.trim() || (mode === "world" ? worldFrameLabel : ""),
 	};
 }
 

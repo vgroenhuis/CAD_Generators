@@ -12,7 +12,7 @@ the floor beside the cube(s). rotate_sides=true (same tag on all faces only) tur
 on each side face a further quarter turn (0, 90, 180, 270 degrees for +X, +Y, -X, -Y), so a
 camera can tell the sides of an upright cube apart. edge_colours=true adds red (+X) and green
 (+Y) strips along those faces' bottom edges, inlaid within the cube. The label is `label`, or when that is empty the default: the
-tag id, "World frame" for ids 25-29, or with five different tags the side ids along the
+tag id, or with five different tags the side ids along the
 matching bottom edges and the top id in the centre; in a grid each cube gets its own id. The STEP and 3MF files hold the bodies
 ("white", "black", and "red"/"green" with axes) as separate parts; the glTF preview
 keeps them as separate nodes so the frontend can colour them. Built models and their
@@ -71,7 +71,7 @@ def _key(
 		raise HTTPException(status_code=400, detail=str(exc))
 	if not bottom_label or (not per_face and len(ids) > 1):
 		label = ""  # not used; keeps the cache key unique
-	rotate_sides = rotate_sides and not per_face  # different tags are told apart by their ids
+	rotate_sides = rotate_sides and len(set(ids)) == 1  # different tags are told apart by their ids
 	return (tuple(ids), size, depth, axes, per_face, bottom_label, label.strip() or None, rotate_sides, edge_colours)
 
 

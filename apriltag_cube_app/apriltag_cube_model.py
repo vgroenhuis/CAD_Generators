@@ -13,11 +13,12 @@
     outside: on the four side faces the tag's top edge points to +Z, on the top face to +Y.
     With bottom_tag=True a sixth tag goes on the bottom face (-Z), its top edge pointing to -Y.
     The bottom label is inlaid in black, flush with the face, and reads correctly from below. By
-    default it is the tag id (same tag on all faces), "World frame" for the world-frame cube
-    (ids 25-29), or with five different tags the four side ids along the matching bottom edges
+    default it is the tag id (same tag on all faces), or with five different tags the four side ids along the matching bottom edges
     (each reading upright with that edge nearest) and the top id in the centre. A label given as
     text is centred; long labels are split over two lines when that gives a larger font.
     Optionally, short red (+X) and green (+Y) arrows lying on the floor beside the cube show the world frame.
+    The world-frame cube (build_world_frame_cube) has tag WORLD_FRAME_ID on all five faces with the
+    side tags turned, the label "World frame" and the arrows.
     Optionally (edge_colours=True), a red strip along the bottom edge of the +X face and a green
     one along the bottom edge of the +Y face show the cube's own axes; they are inlaid flush like
     the tag, in the lower part of the white margin below the tag, so the cube keeps its size.
@@ -143,7 +144,8 @@ SIDE_TURNS = (0, 90, 180, 270)
 _EDGE_FONT = 0.2  # font size of the ids along the edges and in the centre, x cube size
 _EDGE_MARGIN = 0.06  # gap between the cube edge and the ids along it, x cube size
 
-WORLD_FRAME_IDS = (25, 26, 27, 28, 29)  # +X, +Y, -X, -Y, +Z
+WORLD_FRAME_ID = 29  # on all five faces, the side tags turned so the cube's heading can be read
+WORLD_FRAME_IDS = (WORLD_FRAME_ID,) * 5  # +X, +Y, -X, -Y, +Z
 WORLD_FRAME_LABEL = "World frame"
 _STRIP_HEIGHT = 2.0  # mm, height of the red/green bottom-edge strips at most
 _STRIP_FRACTION = 1 / 3  # strip height as a fraction of the white margin (one cell)
@@ -236,10 +238,8 @@ def _axis_arrows(size: float, extent: float | None = None) -> list[Part]:
 
 
 def default_label(ids: list[int]) -> str | None:
-    """Bottom label for a cube with these five tag ids (or one id): the id, "World frame", or
-    None for different tags, whose ids go along the bottom edges (see _edge_label_cells)."""
-    if tuple(ids) == WORLD_FRAME_IDS:
-        return WORLD_FRAME_LABEL
+    """Bottom label for a cube with these five tag ids (or one id): the id, or None for
+    different tags, whose ids go along the bottom edges (see _edge_label_cells)."""
     if len(set(ids)) == 1:
         return str(ids[0])
     return None
@@ -434,6 +434,14 @@ def build_apriltag_cube(
     return Compound(children=[white, black] + colours, label="apriltag_cube")
 
 
+def build_world_frame_cube(size: float, depth: float = DEFAULT_DEPTH, label: str | None = None,
+                           edge_colours: bool = False) -> Compound:
+    """The world-frame cube: WORLD_FRAME_ID on all five faces with the side tags turned, the
+    label "World frame" (or `label`) and the red/green arrows on the floor."""
+    return build_apriltag_cube(list(WORLD_FRAME_IDS), size, depth, True, label or WORLD_FRAME_LABEL,
+                               rotate_sides=True, edge_colours=edge_colours)
+
+
 def grid_dimension(count: int) -> int:
     """Side length n of the smallest square n x n grid that holds `count` cubes."""
     n = 1
@@ -505,8 +513,8 @@ def main() -> None:
     ap.add_argument("--bottom-tag", action="store_true", help="a tag on the bottom face too, instead of the label")
     ap.add_argument("--rotate-sides", action="store_true", help="same tag on all faces: turn the side tags 0, 90, 180 "
                     "and 270 degrees (+X, +Y, -X, -Y) so a camera can tell the sides apart")
-    ap.add_argument("--world-frame", action="store_true", help=f"world-frame cube: ids {','.join(map(str, WORLD_FRAME_IDS))}, "
-                    f"label '{WORLD_FRAME_LABEL}' and axes; used instead of --id")
+    ap.add_argument("--world-frame", action="store_true", help=f"world-frame cube: id {WORLD_FRAME_ID} on all faces, side tags "
+                    f"turned, label '{WORLD_FRAME_LABEL}' and axes; used instead of --id")
     ap.add_argument("--label", help="bottom label (default: the tag id, 'World frame', or five different ids along "
                     "the edges); '|' is a line break, empty for none")
     ap.add_argument("--size", type=float, default=40.0, help="cube edge length (mm)")
@@ -519,7 +527,7 @@ def main() -> None:
     ap.add_argument("--out", default="apriltag_cube.step")
     a = ap.parse_args()
     if a.world_frame:
-        cube = build_apriltag_cube(list(WORLD_FRAME_IDS), a.size, a.depth, True, a.label, edge_colours=a.edge_colours)
+        cube = build_world_frame_cube(a.size, a.depth, a.label, a.edge_colours)
     elif a.cubes:
         cube = build_apriltag_cube_grid(parse_tag_ids(a.cubes, per_face=False), a.size, a.depth, a.axes,
                                         labels=a.label != "", bottom_tag=a.bottom_tag, rotate_sides=a.rotate_sides,
