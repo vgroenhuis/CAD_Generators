@@ -11,6 +11,8 @@ const modeInputs = document.querySelectorAll('input[name="tag_mode"]');
 const axesInput = document.getElementById("axes");
 const rotateInput = document.getElementById("rotate_sides");
 const edgeColoursInput = document.getElementById("edge_colours");
+const edgeHeightInput = document.getElementById("edge_height");
+const edgeDepthInput = document.getElementById("edge_depth");
 const bottomLabelInput = document.getElementById("bottom_label");
 const labelInput = document.getElementById("label");
 const labelHint = document.getElementById("label-hint");
@@ -202,6 +204,24 @@ function readTagIds() {
 	return mode === "faces" ? parseTagIds(tagIdsInput.value, true) : parseTagIds(tagIdInput.value, false);
 }
 
+// An optional positive number (empty: automatic, null); only read while the red/green edges are on.
+function optionalNumber(input, name) {
+	if (input.disabled || !input.value.trim()) return null;
+	const value = parseNumber(input.value);
+	if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a number greater than 0 (or empty for automatic).`);
+	return value;
+}
+
+// Greyed-out automatic values of the edge fields; mirrors edge_strip_size() in apriltag_cube_model.py.
+function updateEdgeFields() {
+	const on = edgeColoursInput.checked;
+	edgeHeightInput.disabled = edgeDepthInput.disabled = !on;
+	const size = parseNumber(sizeInput.value);
+	const depth = parseNumber(depthInput.value);
+	edgeHeightInput.placeholder = Number.isFinite(size) ? `${+Math.min(2, size / 8 / 3).toFixed(2)}` : "";
+	edgeDepthInput.placeholder = Number.isFinite(depth) ? `${depth}` : "";
+}
+
 function readParams() {
 	const tagIds = readTagIds();
 	const mode = tagMode();
@@ -218,6 +238,8 @@ function readParams() {
 		perFace: mode !== "same",
 		rotateSides: mode === "world" || (mode === "same" && rotateInput.checked),
 		edgeColours: edgeColoursInput.checked,
+		edgeHeight: optionalNumber(edgeHeightInput, "Edge height"),
+		edgeDepth: optionalNumber(edgeDepthInput, "Edge depth"),
 		bottomLabel: bottomLabelInput.checked,
 		label: labelInput.disabled ? "" : labelInput.value.trim() || (mode === "world" ? worldFrameLabel : ""),
 	};
@@ -261,7 +283,7 @@ canvas.title = "Drag to rotate, scroll to zoom, double-click to fit the model in
 canvas.addEventListener("dblclick", () => currentModel && fitCameraToObject(currentModel));
 
 function buildQuery(params) {
-	return new URLSearchParams({
+	const query = new URLSearchParams({
 		tag_ids: params.tagIds.join(","),
 		size: params.size,
 		depth: params.depth,
@@ -272,6 +294,9 @@ function buildQuery(params) {
 		rotate_sides: params.rotateSides,
 		edge_colours: params.edgeColours,
 	});
+	if (params.edgeColours && params.edgeHeight !== null) query.set("edge_height", params.edgeHeight);
+	if (params.edgeColours && params.edgeDepth !== null) query.set("edge_depth", params.edgeDepth);
+	return query;
 }
 
 async function onGenerate() {
@@ -332,7 +357,10 @@ async function onGenerate() {
 				what += label === EDGE_LABEL ? ", bottom: IDs along the edges" : `, label "${label}"`;
 			}
 		}
-		if (params.edgeColours) what += ", red/green bottom edges";
+		if (params.edgeColours) {
+			const h = params.edgeHeight ?? +Math.min(2, params.size / 8 / 3).toFixed(2);
+			what += `, red/green bottom edges ${h} x ${params.edgeDepth ?? params.depth} mm`;
+		}
 		setStatus(`Generated ${what}, ${params.size} mm, black depth ${params.depth} mm`);
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
@@ -368,14 +396,18 @@ modeInputs.forEach((el) => el.addEventListener("change", () => {
 updateMode();
 axesInput.addEventListener("change", onGenerate);
 rotateInput.addEventListener("change", onGenerate);
-edgeColoursInput.addEventListener("change", onGenerate);
+edgeColoursInput.addEventListener("change", () => {
+	updateEdgeFields();
+	onGenerate();
+});
+[sizeInput, tagSizeInput, depthInput].forEach((el) => el.addEventListener("input", updateEdgeFields));
 bottomLabelInput.addEventListener("change", () => {
 	setBottomLabel(bottomLabelInput.checked);
 	updateLabel();
 	onGenerate();
 });
 [tagIdInput, tagIdsInput].forEach((el) => el.addEventListener("input", updateLabel));
-[tagIdInput, tagIdsInput, labelInput, sizeInput, tagSizeInput, depthInput].forEach((el) => {
+[tagIdInput, tagIdsInput, labelInput, sizeInput, tagSizeInput, depthInput, edgeHeightInput, edgeDepthInput].forEach((el) => {
 	el.addEventListener("keydown", (e) => {
 		if (e.key === "Enter") onGenerate();
 	});
@@ -389,6 +421,7 @@ loadDefaults("api/apriltag-cube")
 		setBottomLabel(bottomLabelInput.checked);
 		updateMode();
 		syncTagSizeFromCube();
+		updateEdgeFields();
 		onGenerate();
 	})
 	.catch((exc) => setStatus(exc.message, true));

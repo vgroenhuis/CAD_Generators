@@ -57,6 +57,8 @@ _DEFAULTS = {
 	"axes": False,
 	"rotate_sides": True,
 	"edge_colours": True,
+	"edge_height": "",  # empty: automatic
+	"edge_depth": "",
 }
 
 
@@ -106,6 +108,8 @@ class AprilTagCubeApp:
 		self.axes_var = tk.BooleanVar(value=bool(p["axes"]))
 		self.rotate_var = tk.BooleanVar(value=bool(p.get("rotate_sides", True)))
 		self.edge_colours_var = tk.BooleanVar(value=bool(p.get("edge_colours", True)))
+		self.edge_height_var = tk.StringVar(value=p.get("edge_height", ""))
+		self.edge_depth_var = tk.StringVar(value=p.get("edge_depth", ""))
 		self.bottom_label_var = tk.BooleanVar(value=bool(p["bottom_label"]))
 		self.label_var = tk.StringVar(value=p["label"])
 		self.size_var = tk.StringVar(value=p["size"])
@@ -205,6 +209,12 @@ class AprilTagCubeApp:
 			controls, text="Red/green bottom edges of the +X/+Y faces (inlaid, within the cube)",
 			variable=self.edge_colours_var, command=self.on_generate,
 		).grid(row=2, column=0, columnspan=6, sticky=tk.W, pady=(4, 0))
+		for col, (label, var) in enumerate([("Edge height (mm)", self.edge_height_var), ("Edge depth (mm)", self.edge_depth_var)]):
+			ttk.Label(controls, text=label).grid(row=3, column=col * 2, sticky=tk.W, padx=(0 if col == 0 else 20, 8), pady=4)
+			entry = ttk.Entry(controls, textvariable=var, width=10)
+			entry.grid(row=3, column=col * 2 + 1, sticky=tk.W, pady=4)
+			entry.bind("<Return>", lambda e: self.on_generate())
+		ttk.Label(controls, text="empty: automatic", foreground="gray").grid(row=3, column=4, columnspan=2, sticky=tk.W, padx=(20, 0))
 		self._update_mode()
 
 		buttons = ttk.Frame(main)
@@ -295,18 +305,25 @@ class AprilTagCubeApp:
 			grid = self.mode_var.get() == "same" and len(tag_ids) > 1
 			use_label = self.bottom_label_var.get()
 			rotate = self.mode_var.get() in ("same", "world") and self.rotate_var.get()
+			try:
+				edge = {
+					"edge_colours": self.edge_colours_var.get(),
+					"edge_height": float(self.edge_height_var.get()) if self.edge_height_var.get().strip() else None,
+					"edge_depth": float(self.edge_depth_var.get()) if self.edge_depth_var.get().strip() else None,
+				}
+			except ValueError as exc:
+				raise ValueError("Edge height and depth must be numbers (or empty for automatic).") from exc
 			label = (self.label_var.get().strip() or None) if use_label else ""
 			if self.mode_var.get() == "world" and label is None:
 				label = _WORLD_FRAME_LABEL
 			if grid:
 				self.current_cube = build_apriltag_cube_grid(
-					tag_ids, size, depth, axes=self.axes_var.get(), bottom_tag=not use_label, rotate_sides=rotate,
-					edge_colours=self.edge_colours_var.get(),
+					tag_ids, size, depth, axes=self.axes_var.get(), bottom_tag=not use_label, rotate_sides=rotate, **edge,
 				)
 			else:
 				self.current_cube = build_apriltag_cube(
 					tag_ids, size, depth, axes=self.axes_var.get(), label=label, bottom_tag=not use_label,
-					rotate_sides=rotate, edge_colours=self.edge_colours_var.get(),
+					rotate_sides=rotate, **edge,
 				)
 			_save_params(
 				{
@@ -320,6 +337,8 @@ class AprilTagCubeApp:
 					"label": self.label_var.get(),
 					"rotate_sides": self.rotate_var.get(),
 					"edge_colours": self.edge_colours_var.get(),
+					"edge_height": self.edge_height_var.get(),
+					"edge_depth": self.edge_depth_var.get(),
 				}
 			)
 			self.export_btn.configure(state=tk.NORMAL)

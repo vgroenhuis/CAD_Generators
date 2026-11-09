@@ -35,6 +35,8 @@
 	.controls .radio { margin-top: 10px; color: #c0c4c9; }
 	.controls .check { margin-top: 16px; font-size: 13px; color: #e8e8e8; }
 	.controls .check.sub { margin-top: 8px; }
+	.controls .pair { display: flex; gap: 10px; }
+	.controls .pair > div { flex: 1; min-width: 0; }
 	.controls .radio input, .controls .check input { width: auto; margin: 0; }
 	.controls input:disabled { opacity: 0.45; }
 	#status { margin-top: 14px; font-size: 12px; color: #a0a5ab; white-space: pre-wrap; }
@@ -84,6 +86,13 @@
 
 			<label class="check" for="edge_colours"><input type="checkbox" id="edge_colours"> Red/green bottom edges (X/Y)</label>
 			<div class="hint">A red strip along the bottom edge of the +X face and a green one along the +Y face, inlaid flush in the white margin below the tag, so the cube keeps its size.</div>
+			<div class="pair">
+				<div><label for="edge_height">Edge height (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="edge_height"></div>
+				<div><label for="edge_depth">Edge depth (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="edge_depth"></div>
+			</div>
+			<div class="hint">Empty: automatic (shown greyed out), a third of the white margin (at most 2 mm) high and as deep as the black. Both at most the white margin, 1/8 of the cube size.</div>
 
 			<label class="check" for="axes"><input type="checkbox" id="axes"> Red/green axes (X/Y) on the floor</label>
 

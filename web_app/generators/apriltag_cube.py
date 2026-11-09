@@ -11,7 +11,8 @@ are laid out in the smallest square grid, 2 mm apart. axes adds red +X / green +
 the floor beside the cube(s). rotate_sides=true (same tag on all faces only) turns the tag
 on each side face a further quarter turn (0, 90, 180, 270 degrees for +X, +Y, -X, -Y), so a
 camera can tell the sides of an upright cube apart. edge_colours=true adds red (+X) and green
-(+Y) strips along those faces' bottom edges, inlaid within the cube. The label is `label`, or when that is empty the default: the
+(+Y) strips along those faces' bottom edges, inlaid within the cube, edge_height mm high and
+edge_depth mm deep (left out: a third of the white margin, at most 2 mm, and the black depth). The label is `label`, or when that is empty the default: the
 tag id, or with five different tags the side ids along the
 matching bottom edges and the top id in the centre; in a grid each cube gets its own id. The STEP and 3MF files hold the bodies
 ("white", "black", and "red"/"green" with axes) as separate parts; the glTF preview
@@ -32,20 +33,22 @@ router = APIRouter()
 
 
 def _build(key: tuple):
-	ids, size, depth, axes, per_face, bottom_label, label, rotate_sides, edge_colours = key
+	ids, size, depth, axes, per_face, bottom_label, label, rotate_sides, edge_colours, edge_height, edge_depth = key
 	bottom_tag = not bottom_label
 	if per_face or len(ids) == 1:
 		return build_apriltag_cube(list(ids), size, depth, axes=axes, label=label, bottom_tag=bottom_tag,
-		                           rotate_sides=rotate_sides, edge_colours=edge_colours)
+		                           rotate_sides=rotate_sides, edge_colours=edge_colours, edge_height=edge_height,
+		                           edge_depth=edge_depth)
 	return build_apriltag_cube_grid(list(ids), size, depth, axes=axes, bottom_tag=bottom_tag, rotate_sides=rotate_sides,
-	                                edge_colours=edge_colours)
+	                                edge_colours=edge_colours, edge_height=edge_height, edge_depth=edge_depth)
 
 
 cache = ModelCache("apriltag_cube", _build)
 # tag ids, size, depth, axes, per face, bottom label (else a bottom tag), label text (None:
 # default label), side tags turned (same tag only), red/green bottom edges; the page loads them
 # from /defaults
-DEFAULT = ((0,), 40.0, DEFAULT_DEPTH, False, False, True, None, True, True)
+# (edge height and depth None: automatic)
+DEFAULT = ((0,), 40.0, DEFAULT_DEPTH, False, False, True, None, True, True, None, None)
 DEFAULT_FACE_IDS = (0, 1, 2, 3, 4)  # starting value of the page's "different tags" field (5 or 6 ids)
 FILES = {
 	"glb": glb_bytes,
@@ -64,6 +67,8 @@ def _key(
 	label: str = Query("", max_length=40),
 	rotate_sides: bool = Query(False),
 	edge_colours: bool = Query(False),
+	edge_height: float | None = Query(None, gt=0),
+	edge_depth: float | None = Query(None, gt=0),
 ) -> tuple:
 	try:
 		ids = parse_tag_ids(tag_ids, per_face=per_face, bottom_tag=not bottom_label)  # also checks the ID range
@@ -72,7 +77,8 @@ def _key(
 	if not bottom_label or (not per_face and len(ids) > 1):
 		label = ""  # not used; keeps the cache key unique
 	rotate_sides = rotate_sides and len(set(ids)) == 1  # different tags are told apart by their ids
-	return (tuple(ids), size, depth, axes, per_face, bottom_label, label.strip() or None, rotate_sides, edge_colours)
+	return (tuple(ids), size, depth, axes, per_face, bottom_label, label.strip() or None, rotate_sides, edge_colours,
+	        edge_height if edge_colours else None, edge_depth if edge_colours else None)
 
 
 def _filename(key: tuple, ext: str) -> str:
@@ -93,13 +99,13 @@ def warm() -> None:
 @router.get("/defaults")
 def defaults_route() -> dict:
 	"""The page's starting values (by input id), so they are defined only here."""
-	ids, size, depth, axes, per_face, bottom_label, label, rotate_sides, edge_colours = DEFAULT
+	ids, size, depth, axes, per_face, bottom_label, label, rotate_sides, edge_colours, edge_height, edge_depth = DEFAULT
 	return {
 		"tag_id": ",".join(map(str, ids)) if not per_face else "0",
 		"tag_ids": ",".join(map(str, ids if per_face else DEFAULT_FACE_IDS)),
 		"size": size, "depth": depth, "axes": axes, "mode_same": not per_face, "mode_faces": per_face,
 		"mode_world": False, "bottom_label": bottom_label, "label": label or "", "rotate_sides": rotate_sides,
-		"edge_colours": edge_colours,
+		"edge_colours": edge_colours, "edge_height": edge_height or "", "edge_depth": edge_depth or "",
 		"world_frame_ids": ",".join(map(str, WORLD_FRAME_IDS)), "world_frame_label": WORLD_FRAME_LABEL,
 	}
 
