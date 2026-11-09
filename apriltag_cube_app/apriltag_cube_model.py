@@ -21,7 +21,8 @@
     side tags turned, the label "World frame" and the arrows.
     Optionally (edge_colours=True), a red strip along the bottom edge of the +X face and a green
     one along the bottom edge of the +Y face show the cube's own axes; they are inlaid flush like
-    the tag, in the lower part of the white margin below the tag, so the cube keeps its size.
+    the tag, in the lower part of the white margin below the tag, so the cube keeps its size, with
+    their ends cut at 45 degrees so each colour shows on its own face only.
 
     With the same tag on all faces, rotate_sides=True turns the tag on each side face a further
     quarter turn counterclockwise (as seen from outside): its top edge points up on +X, left on
@@ -329,13 +330,16 @@ def _edge_strips(size: float, depth: float) -> tuple[Part, Part]:
     """Red (+X) and green (+Y) strips along the bottom edges of those faces, `depth` deep.
 
     They fill the lowest _STRIP_FRACTION of the white margin below the tag (at most
-    _STRIP_HEIGHT), so the tag keeps most of its white border. The green strip stops where the
-    red one starts at the shared corner, so the two never overlap.
+    _STRIP_HEIGHT), so the tag keeps most of its white border. Seen from above each strip is a
+    trapezoid whose ends are cut at 45 degrees through the cube's vertical corner edges: red and
+    green meet on that diagonal at their shared corner, and at their other ends the white takes
+    over on the diagonal, so no colour shows on a neighbouring face.
     """
     h = min(_STRIP_HEIGHT, _STRIP_FRACTION * size / GRID)
-    red = Pos(size / 2 - depth / 2, 0, -size / 2 + h / 2) * Box(depth, size, h)
-    green = Pos(-depth / 2, size / 2 - depth / 2, -size / 2 + h / 2) * Box(size - depth, depth, h)
-    return Part(red.wrapped), Part(green.wrapped)
+    a, b = size / 2, size / 2 - depth
+    red = Polygon((a, -a), (a, a), (b, b), (b, -b), align=None)
+    green = Polygon((a, a), (-a, a), (-b, b), (b, b), align=None)
+    return tuple(Part((Pos(0, 0, -size / 2) * extrude(outline, amount=h)).wrapped) for outline in (red, green))
 
 
 def _check_dimensions(size: float, depth: float) -> None:
