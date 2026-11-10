@@ -1416,6 +1416,7 @@ ROUGHNESS = {
     "pit": (0.15, 2.5, "surface"),
     "portal": (0.15, 2.0, "surface"),
     "portal_upright": (0.35, 2.0, "both"),
+    "tree": (0.45, 2.0, "both"),  # bark and foliage rough in all directions, the grass in height
 }
 
 
