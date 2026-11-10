@@ -38,7 +38,7 @@ from typing import Callable
 
 import numpy as np
 from build123d import (
-    Axis, Box, Color, Compound, Cylinder, Kind, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, mirror,
+    Align, Axis, Box, Color, Compound, Cylinder, Kind, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, mirror,
     offset, revolve,
 )
 
@@ -1101,6 +1101,56 @@ def _star_upright(c: Ctx) -> Design:
     ])
 
 
+def _tree(c: Ctx) -> Design:
+    """A fir tree standing on the grass: three tiers of foliage on a brown trunk, with roots,
+    a patch of bare earth, pine cones and moss round it. The underside of every tier slopes
+    at 45 degrees, so it prints without supports."""
+    y0, rt = c.cy, max(1.6, 0.12 * c.inr)  # centre and trunk radius
+    shift = Pos(0, y0, 0)
+    tiers, z_bottom = [], max(3.0, 0.2 * c.inr)  # where the lowest tier starts, on the trunk
+    rim = None
+    for i, frac in enumerate((0.74, 0.55, 0.37)):
+        r = frac * c.inr
+        cone = 1.2 * r  # height of the cone above the tier's rim
+        if rim is None:
+            rim = z_bottom + (r - rt)
+        else:  # rim of the tier below plus half its cone
+            rim += 0.55 * prev_cone
+        zb = rim - (r - rt)  # the underside rises from the trunk to the rim at 45 degrees
+        profile = Plane.XZ * Polygon((0, zb), (rt, zb), (r, rim), (r - 0.4, rim + 0.4), (0, rim + cone), align=None)
+        tiers.append(revolve(profile, Axis.Z))
+        prev_cone = cone
+    trunk_top = z_bottom + 0.5 * (0.74 * c.inr - rt)
+    trunk = Cylinder(rt, trunk_top, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    foliage = Part((_fuse(tiers) - trunk).wrapped)
+    # On the ground: bare earth round the trunk with roots, pine cones and moss further out.
+    patch = _blob(0, y0, rt + 3.0 * c.k, c.rng, n=11, jitter=0.2)
+    roots = []
+    a0 = c.rng.uniform(0, 360)
+    for j in range(5):
+        a = math.radians(a0 + j * 72 + c.rng.uniform(-15, 15))
+        length = c.rng.uniform(3.5, 5.5) * c.k
+        bend = math.radians(c.rng.uniform(-20, 20))
+        pts = [((rt - 0.3) * math.cos(a), y0 + (rt - 0.3) * math.sin(a)),
+               ((rt + 0.5 * length) * math.cos(a), y0 + (rt + 0.5 * length) * math.sin(a)),
+               ((rt + length) * math.cos(a + bend / 2), y0 + (rt + length) * math.sin(a + bend / 2))]
+        roots.append(_polyline(pts, c.line(1.4)))
+    keep_out = [(0, y0, rt + 6.5 * c.k)]
+    cones = []
+    for x, y, r in c.scatter(max(2, int(c.area / 450)), 1.2 * c.k, 1.5 * c.k, 1.5, margin=0.8, avoid=keep_out):
+        cones.append(_poly(_teardrop(x, y, r, 2.4 * r, c.rng.uniform(0, 360))))
+    moss = [_blob(x, y, r, c.rng) for x, y, r in
+            c.scatter(max(2, int(c.area / 350)), 1.5 * c.k, 3.0 * c.k, 1.0, avoid=keep_out)]
+    return Design("green", [
+        Layer("dark_green", _union(moss), c.hgt(0.4), taper=20),
+        Layer("brown", _union(cones), c.hgt(1.0), taper=25),
+        Layer("brown", patch),
+        Layer("brown", _union(roots), c.hgt(0.7), taper=25),
+        Layer("dark_brown", _circle(0, y0, rt + 0.1), solids=[shift * trunk]),  # a little wider: the circle is a polygon
+        Layer("dark_green", None, solids=[shift * foliage]),
+    ])
+
+
 # --- Connector: a sleeve that joins two tiles of the same shape ---
 
 # Wall thickness and clearance are parameters (TileParams.wall, .clearance): 1.2 and 0.1 mm by
@@ -1241,6 +1291,8 @@ TILE_TYPES = {
     "star": TileType("Star (flat)", "Objects", _star_tile, "raised gold star, for a bonus or goal"),
     "star_upright": TileType("Star (upright)", "Objects", _star_upright, "gem-bevelled gold star standing on its two lower points"),
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
+    "tree": TileType("Tree", "Objects", _tree,
+                     "fir tree standing on grass, three tiers of foliage on a trunk, with roots and pine cones"),
     "connector": TileType("Connector (ledge)", "Special", _connector,
                           f"sleeve to join a tile rigidly on top of a part of the same shape: "
                           f"{CONNECTOR_HEIGHT:g} mm high, a ledge inside halfway up ({CONNECTOR_LEDGE:g} mm deep, "
