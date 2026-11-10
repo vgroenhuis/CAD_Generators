@@ -39,7 +39,7 @@ from typing import Callable
 import numpy as np
 from build123d import (
     Align, Axis, Box, Color, Compound, Cylinder, Kind, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, mirror,
-    offset, revolve,
+    loft, offset, revolve,
 )
 
 log = logging.getLogger("cad_generators.game_tiles")
@@ -1105,7 +1105,7 @@ def _tree(c: Ctx) -> Design:
     """A fir tree standing on the grass: three tiers of foliage on a brown trunk, with roots,
     a patch of bare earth, pine cones and moss round it. The underside of every tier slopes
     at 45 degrees, so it prints without supports."""
-    y0, rt = c.cy, max(1.6, 0.12 * c.inr)  # centre and trunk radius
+    y0, rt = c.cy, max(2.4, 0.18 * c.inr)  # centre and trunk radius (thick, so it is strong)
     shift = Pos(0, y0, 0)
     tiers, z_bottom = [], max(3.0, 0.2 * c.inr)  # where the lowest tier starts, on the trunk
     rim = None
@@ -1148,6 +1148,97 @@ def _tree(c: Ctx) -> Design:
         Layer("brown", _union(roots), c.hgt(0.7), taper=25),
         Layer("dark_brown", _circle(0, y0, rt + 0.1), solids=[shift * trunk]),  # a little wider: the circle is a polygon
         Layer("dark_green", None, solids=[shift * foliage]),
+    ])
+
+
+def _hull_outline(length: float, beam: float, y0: float, n: int = 16) -> np.ndarray:
+    """Outline of a hull seen from above, pointing to +y: a flat stern at y0 - length/2, straight
+    sides and a pointed bow over the front 40 %. Always 2n + 1 points (for lofting)."""
+    bow = 0.4 * length
+    t = np.linspace(-length / 2, length / 2, n + 1)
+    u = np.clip((t - (length / 2 - bow)) / bow, 0, 1)
+    half = beam / 2 * (1 - u ** 2)
+    right = np.column_stack([half[:-1], y0 + t[:-1]])
+    left = np.column_stack([-half[:-1], y0 + t[:-1]])[::-1]
+    return np.vstack([right, [[0, y0 + length / 2]], left])
+
+
+def _ship(c: Ctx) -> Design:
+    """A sailing ship on the water: a wooden hull whose sides flare out at 27 degrees (so it
+    prints without supports) with a cabin and a mast carrying a mainsail and a jib, upright
+    white plates standing on the deck. It sails to +X (to +Y on a tile longer in y), so the
+    preview shows it side-on. Waves round it and a white wake behind."""
+    along_y = c.h > c.w
+    turn = 0.0 if along_y else -90.0  # the ship is drawn sailing to +y, then turned
+
+    def place(pts):  # ship coordinates (sailing to +y, centred on 0) to tile coordinates
+        return _rotate(np.asarray(pts, dtype=float), turn) + (0, c.cy)
+
+    move = Pos(0, c.cy, 0) * Rot(0, 0, turn)
+    length, beam = 1.7 * c.inr, 0.6 * c.inr
+    while length > 10 and not all(c.inside(x, y, 1.0) for x, y in place(_hull_outline(length, beam, 0))):
+        length, beam = 0.95 * length, 0.95 * beam  # e.g. on a triangle, which narrows at the top
+    k = length / 34  # the ship's own scale (34 mm long on a 40 mm tile)
+    depth = max(3.0, 5 * k)  # hull height above the water
+    flare = 0.5 * depth
+    deck_pts = _hull_outline(length, beam, 0)
+    bottom_pts = _hull_outline(length - 2 * flare, beam - 2 * flare, 0)
+    hull = loft([Polygon(*map(tuple, bottom_pts), align=None).face(),
+                 Pos(0, 0, depth) * Polygon(*map(tuple, deck_pts), align=None).face()])
+    rail = max(1.2, 1.4 * k)
+    sink = min(0.8, 0.3 * depth)
+    well = _sk(offset(_poly(deck_pts), -rail))  # the deck lies `sink` below the rail
+    hull = Part((hull - Pos(0, 0, depth - sink) * extrude(well, amount=sink + 1)).wrapped)
+    deck = depth - sink
+    # Cabin at the stern, mast a little ahead of the middle.
+    cab_l, cab_w, cab_h = 0.2 * length, 0.45 * beam, max(2.0, 3 * k)
+    cab_y = -length / 2 + rail + 0.5 + cab_l / 2
+    cabin = Pos(0, cab_y, deck) * Box(cab_w, cab_l, cab_h, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    roof = Pos(0, cab_y, deck + cab_h) * extrude(_rect(-cab_w / 2 - 0.4, -cab_l / 2 - 0.4, cab_w / 2 + 0.4, cab_l / 2 + 0.4),
+                                                    amount=0.6, taper=40)
+    mast_y, mast_r = 0.08 * length, max(1.0, 1.1 * k)
+    top = deck + 1.05 * length
+    mast = Pos(0, mast_y, deck) * Cylinder(mast_r, top - deck, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    sail_t = max(1.2, 1.2 * k)
+
+    def plate(points):  # an upright plate along the ship (in the YZ plane), sail_t thick
+        return extrude(Plane.YZ * Polygon(*points, align=None), amount=sail_t / 2, both=True)
+
+    head = top - max(2.0, 2.5 * k)
+    clew = cab_y + cab_l / 2 + 1.0  # the mainsail stands on the deck, ahead of the cabin
+    main = plate([(mast_y, deck), (mast_y, head), (clew, deck)])
+    bow_y = length / 2 - 0.18 * length  # where the deck is still wide enough for the jib
+    jib = plate([(mast_y, deck), (mast_y, 0.78 * head + 0.22 * deck), (bow_y, deck)])
+    sails = Part((main + jib - mast).wrapped)
+    # The water: waves away from the ship, a wake behind it and bow waves along its sides.
+    keep = _sk(offset(_poly(place(deck_pts)), 1.5 * c.k))
+    length_w, pitch_y = 11 * c.k, 6.5 * c.k
+    waves = []
+    for x, y in c.grid(length_w * 1.3, pitch_y, stagger=True, jitter=0.8 * c.k):
+        if c.inside(x, y, 1.5 * c.k):
+            waves.append(_wave(x, y, length_w, 1.1 * c.k, c.line(1.5)))
+    stern = -length / 2
+    wake = []
+    for side in (-1, 1):
+        wake.append(_polyline(place([(side * (beam / 2 + 0.5), stern - 1.5 * c.k), (side * (beam / 2 + 6 * c.k), stern - 9 * c.k),
+                                     (side * (beam / 2 + 9 * c.k), stern - 16 * c.k)]), c.line(1.4)))
+        bx = side * (0.5 * beam + 2.6 * c.k)
+        wake.append(_polyline(place([(side * 1.8 * c.k, length / 2 + 1.0 * c.k), (bx, length / 2 - 0.3 * length),
+                                     (bx + side * 2 * c.k, length / 2 - 0.45 * length)]), c.line(1.2)))
+    foam = [_circle(x, y, r) for x, y, r in c.scatter(max(2, int(c.area / 300)), 0.6 * c.k, 0.9 * c.k, 1.0,
+                                                      avoid=[(x, y, beam) for x, y in place([(0, t) for t in np.linspace(-length / 2, length / 2, 7)])])]
+
+    def away(regions):
+        u = _union([r for r in regions if r is not None])
+        return _sk(u - keep) if u is not None else None
+
+    return Design("blue", [
+        Layer("light_blue", away(waves), c.hgt(0.8), taper=15),
+        Layer("white", away(wake), c.hgt(0.7), taper=20),
+        Layer("white", away(foam), c.hgt(0.9), taper=25),
+        Layer("wood", _poly(place(bottom_pts)), solids=[move * hull]),
+        Layer("dark_brown", None, solids=[move * cabin, move * Part(roof.wrapped), move * mast]),
+        Layer("white", None, solids=[move * sails]),
     ])
 
 
@@ -1291,6 +1382,8 @@ TILE_TYPES = {
     "star": TileType("Star (flat)", "Objects", _star_tile, "raised gold star, for a bonus or goal"),
     "star_upright": TileType("Star (upright)", "Objects", _star_upright, "gem-bevelled gold star standing on its two lower points"),
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
+    "ship": TileType("Ship", "Objects", _ship,
+                     "sailing ship on the waves with a mainsail and a jib, sailing along the tile (+X), with its wake behind"),
     "tree": TileType("Tree", "Objects", _tree,
                      "fir tree standing on grass, three tiers of foliage on a trunk, with roots and pine cones"),
     "connector": TileType("Connector (ledge)", "Special", _connector,
