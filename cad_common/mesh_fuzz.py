@@ -93,10 +93,13 @@ def subdivide(v: np.ndarray, t: np.ndarray, max_edge: float, active, max_iter: i
 
 
 def fuzz(v: np.ndarray, t: np.ndarray, amplitude: float, wavelength: float, mode: str = "surface",
-         top: float = 0.0, seed: int = 1) -> tuple[np.ndarray, np.ndarray]:
-    """The mesh (vertices in mm, triangles) with a rough surface; see the module docstring."""
+         top: float = 0.0, seed: int = 1, smooth_above: float | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """The mesh (vertices in mm, triangles) with a rough surface; see the module docstring.
+    smooth_above: leave everything higher than this smooth (e.g. a part standing on a rough
+    tile, rough only where it is set into it, so it still meets the rough surface below)."""
     def surface_weight(p):
-        return np.clip(p[:, 2] / 1.0, 0, 1)  # nothing at the bed, full from 1 mm up
+        w = np.clip(p[:, 2] / 1.0, 0, 1)  # nothing at the bed, full from 1 mm up
+        return w if smooth_above is None else w * (p[:, 2] <= smooth_above + 1e-6)
 
     def object_weight(p):
         return np.clip((p[:, 2] - top) / 2.0, 0, 1)  # nothing on the tile, full 2 mm above it

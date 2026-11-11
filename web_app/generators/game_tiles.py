@@ -26,7 +26,7 @@ from cad_common.mesh_export import meshes_of, meshes_to_3mf, meshes_to_glb
 from cad_common.mesh_fuzz import fuzz, hills, subdivide
 from cad_common.thumbnail import render_png
 from game_tiles_app.game_tile_model import (
-	HILLS, MAX_COUNT, PALETTE, ROUGHNESS, SHAPES, TILE_TYPES, TileParams, _layout, build_tiles, colors_used, describe,
+	HILLS, MAX_COUNT, PALETTE, ROUGHNESS, SMOOTH_ABOVE_TOP, SHAPES, TILE_TYPES, TileParams, _layout, build_tiles, colors_used, describe,
 	outline_points, validate,
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
@@ -99,8 +99,10 @@ def _makers(p: TileParams, bambu: BambuPrinter | None = None) -> dict:
 												centres=_layout(p), fade=fade, seed=p.seed)
 		if rough is not None:
 			amplitude, wavelength, mode = rough
+			smooth = SMOOTH_ABOVE_TOP.get(p.tile_type, ())
 			for m in out:  # the same seed for every body, so touching bodies stay together
-				m.vertices, m.triangles = fuzz(m.vertices, m.triangles, amplitude, wavelength, mode, top=p.thickness, seed=p.seed)
+				m.vertices, m.triangles = fuzz(m.vertices, m.triangles, amplitude, wavelength, mode, top=p.thickness, seed=p.seed,
+											   smooth_above=p.thickness if m.name in smooth else None)
 		return out
 
 	def png(model):

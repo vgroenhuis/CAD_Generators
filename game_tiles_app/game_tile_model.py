@@ -1637,6 +1637,14 @@ ROUGHNESS = {
     "fire": (0.2, 2.5, "surface"),
     "weight": (0.3, 2.5, "surface"),
     "tree": (0.45, 2.0, "both"),  # bark and foliage rough in all directions, the grass in height
+    "key": (0.2, 2.5, "surface"),
+}
+
+# Bodies that stay smooth above the tile's top face on a rough tile (only "surface" mode): a
+# made object lying on rough ground. Below the top they get the same roughness as the ground
+# they are set into, so the two still meet.
+SMOOTH_ABOVE_TOP = {
+    "key": ("gold", "white"),  # the key and the sparkles
 }
 
 
