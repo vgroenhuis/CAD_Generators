@@ -878,29 +878,103 @@ def _lava(c: Ctx) -> Design:
     corners = {(round(x, 1), round(y, 1)) for cell in full for x, y in cell}
     bubbles = [_circle(x, y, max(0.9, 1.1 * c.k)) for x, y in sorted(corners)
                if c.inside(x, y, 1.5) and c.rng.random() < 0.35]
-    rock_h, groove = c.hgt(1.5), c.hgt(0.5)
+    rock_h = c.hgt(1.5)
     rocks, glows, cut_rocks = [], [], []
     for cell in cells:
         region = _sk(c.outline & _poly(cell))
         if not region.faces():
             continue
-        rocks.append(region)
-        # Each rock as a solid with sloping sides; glowing cracks are cut into its top
-        # afterwards (cutting them into the outline first would give awkward sloped faces).
+        # Each rock as a solid with sloping sides; glowing cracks are cut into it afterwards
+        # (cutting them into the outline first would give awkward sloped faces).
         rock = _fuse(_raised(region, rock_h, 20))
         size = float(np.ptp(cell[:, 0]) + np.ptp(cell[:, 1])) / 2
-        if size > 5 * c.k and c.rng.random() < 0.7:
-            x, y = cell.mean(axis=0)
-            crack = _union(_crack(c, x, y, c.rng.uniform(0, 360), 2, 0.3 * size, branch=0.3, spread=35))
-            crack = _sk(crack & _poly(centre_shrink(cell, 0.8)) & region) if crack is not None else None  # inside the rock and the tile
-            if crack is not None and crack.faces():
-                slot = Pos(0, 0, rock_h - groove) * extrude(crack, amount=groove + 1)
-                rock = Part((rock - slot).wrapped)
-                glows.append(Pos(0, 0, rock_h - groove) * extrude(crack, amount=groove - 0.2))
+        crack = _lava_cracks(c, cell, size) if size > 4 * c.k else None
+        crack = _sk(crack & region) if crack is not None else None  # inside the rock and the tile
+        if crack is None or not crack.faces():
+            rocks.append(region)
+        else:
+            rocks.append(_sk(region - crack))  # the lava colour runs on under the crack
+            # Cut through the whole rock, so a crack that reaches the edge opens onto the lava;
+            # the glow fills it to just under the rock's top (and follows its sloping sides).
+            whole = rock
+            rock = Part((rock - Pos(0, 0, -1) * extrude(crack, amount=rock_h + 2)).wrapped)
+            glow = Part((extrude(crack, amount=rock_h - 0.2) & whole).wrapped)
+            if glow.solids():
+                glows.append(glow)
         cut_rocks.append(rock)
     return Design("orange", [Layer("dark_rock", _union(rocks), solids=cut_rocks),
                              Layer("orange", None, solids=glows),
                              Layer("yellow", _union(bubbles), c.hgt(0.6), taper=30)])
+
+
+def _tapered(points, w0: float, w1: float) -> Sketch | None:
+    """Band along a polyline whose width goes from w0 at the first point to w1 at the last."""
+    pts = np.asarray(points, dtype=float)
+    seg = np.hypot(*np.diff(pts, axis=0).T)
+    widths = w0 + (w1 - w0) * np.concatenate([[0], np.cumsum(seg)]) / max(seg.sum(), 1e-9)
+    parts = []
+    for (p0, p1), wa, wb in zip(zip(pts[:-1], pts[1:]), widths[:-1], widths[1:]):
+        d = (p1 - p0) / max(np.linalg.norm(p1 - p0), 1e-9)
+        n = np.array([-d[1], d[0]])
+        parts.append(_poly([p0 - n * wa / 2, p1 - n * wb / 2, p1 + n * wb / 2, p0 + n * wa / 2]))
+    parts += [_circle(x, y, w / 2, 12) for (x, y), w in zip(pts[1:-1], widths[1:-1])]
+    return _union(parts)
+
+
+def _lava_cracks(c: Ctx, cell: np.ndarray, size: float) -> Sketch | None:
+    """Glowing cracks in a lava rock: mostly from a point on its edge (open to the lava there)
+    jagged towards the middle, narrowing to a fine tip, with thinner side branches; sometimes
+    a crack only inside the rock, and sometimes a short second one from the edge."""
+    centre = cell.mean(axis=0)
+    mouth, tip = max(1.4, 1.5 * c.k), 0.8  # mm; the tip is just about printable
+
+    def from_edge(reach: float):
+        for _ in range(8):
+            i = c.rng.randrange(len(cell))
+            p = cell[i] + c.rng.uniform(0.25, 0.75) * (cell[(i + 1) % len(cell)] - cell[i])
+            if c.inside(*p, 1.5):  # not on the tile's own edge
+                heading = math.degrees(math.atan2(*(centre - p)[::-1])) + c.rng.uniform(-25, 25)
+                return p, heading, reach * float(np.linalg.norm(centre - p))
+        return None
+
+    def jagged(p, heading, length, steps, spread=28):
+        pts = [np.asarray(p, dtype=float)]
+        for _ in range(steps):
+            heading += c.rng.uniform(-spread, spread)
+            s = length / steps * c.rng.uniform(0.7, 1.3)
+            pts.append(pts[-1] + s * np.array([math.cos(math.radians(heading)), math.sin(math.radians(heading))]))
+        return pts, heading
+
+    parts = []
+    starts = []
+    if c.rng.random() < 0.75:
+        start = from_edge(c.rng.uniform(1.3, 1.7))
+        if start:
+            p, heading, length = start
+            p = p - 1.0 * np.array([math.cos(math.radians(heading)), math.sin(math.radians(heading))])  # begin in the lava
+            starts.append((p, heading, length + 1.0, mouth))
+            if c.rng.random() < 0.4:
+                second = from_edge(c.rng.uniform(0.5, 0.8))
+                if second:
+                    q, h2, l2 = second
+                    q = q - 1.0 * np.array([math.cos(math.radians(h2)), math.sin(math.radians(h2))])
+                    starts.append((q, h2, l2 + 1.0, 0.85 * mouth + 0.15 * tip))
+    if not starts:  # a crack inside the rock, widest in the middle
+        a = c.rng.uniform(0, 360)
+        for h in (a, a + 180 + c.rng.uniform(-30, 30)):
+            starts.append((centre, h, 0.3 * size, 0.9 * mouth))
+    for p, heading, length, width in starts:
+        steps = max(3, round(length / (1.6 * c.k)))
+        pts, _ = jagged(p, heading, length, steps)
+        parts.append(_tapered(pts, width, tip))
+        # Side branches from the wider part, thinner and short.
+        for j in range(1, len(pts) - 1):
+            if c.rng.random() < 0.35:
+                w = width + (tip - width) * j / (len(pts) - 1)
+                side = math.degrees(math.atan2(*(pts[j + 1] - pts[j])[::-1])) + c.rng.choice((-1, 1)) * c.rng.uniform(35, 65)
+                bpts, _ = jagged(pts[j], side, length * c.rng.uniform(0.2, 0.35), 2, 20)
+                parts.append(_tapered(bpts, max(tip, 0.8 * w), tip))
+    return _union([s for s in parts if s is not None])
 
 
 def centre_shrink(cell: np.ndarray, factor: float) -> np.ndarray:
