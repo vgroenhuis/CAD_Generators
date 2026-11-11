@@ -21,6 +21,7 @@ from functools import lru_cache
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 
+from cad_common.bambu import BambuPrinter, PRINTERS, printer as bambu_printer
 from cad_common.mesh_export import meshes_of, meshes_to_3mf, meshes_to_glb
 from cad_common.mesh_fuzz import fuzz, hills, subdivide
 from cad_common.thumbnail import render_png
@@ -81,9 +82,10 @@ def _key(p: TileParams) -> tuple:
 	return tuple(vars(p).values())
 
 
-def _makers(p: TileParams) -> dict:
+def _makers(p: TileParams, bambu: BambuPrinter | None = None) -> dict:
 	"""How to make each file: types with a rough surface get their meshes roughened (3MF and
-	preview); the STEP file always has the exact, smooth geometry."""
+	preview); the STEP file always has the exact, smooth geometry. With `bambu` (a printer) the
+	3MF is a Bambu Studio project for it, with the filament colours."""
 	rough = ROUGHNESS.get(p.tile_type)
 	hilly = HILLS.get(p.tile_type)
 
@@ -111,11 +113,11 @@ def _makers(p: TileParams) -> dict:
 		return render_png(out)
 
 	if rough is None and hilly is None:
-		return {**FILES, "png": png}
+		return {**FILES, "png": png, "3mf": lambda part: threemf_bytes(part, "game_tile", tolerance=0.01, bambu=bambu)}
 	return {
 		"png": png,
 		"glb": lambda model: meshes_to_glb(meshes(model, 0.02)),
-		"3mf": lambda model: meshes_to_3mf("game_tile", meshes(model, 0.01)),
+		"3mf": lambda model: meshes_to_3mf("game_tile", meshes(model, 0.01), bambu),
 		"step": step_bytes,
 	}
 
@@ -236,9 +238,27 @@ def stored() -> dict:
 	}
 
 
+@router.get("/printers")
+def printers_route() -> list[dict]:
+	"""The Bambu Lab printers a 3MF can be a Bambu Studio project for (see export.3mf)."""
+	return [{"id": pid, "name": f"Bambu Lab {b.name}"} for pid, b in PRINTERS.items()]
+
+
 @router.get("/export.3mf")
-def export_3mf(p: TileParams = Depends(_params)):
-	return download_response(_file(p, "3mf"), _filename(p, "3mf"))
+def export_3mf(p: TileParams = Depends(_params), printer: str = Query("", max_length=20)):
+	"""printer: a Bambu Lab printer id (see /printers) makes the file a Bambu Studio project for
+	that printer, which opens with the filament colours; empty for a plain 3MF."""
+	try:
+		bambu = bambu_printer(printer)
+	except ValueError as exc:
+		raise HTTPException(status_code=400, detail=str(exc))
+	if bambu is None:
+		return download_response(_file(p, "3mf"), _filename(p, "3mf"))
+	try:
+		data = cache.file(_key(p), p, f"3mf-{printer}", _makers(p, bambu)["3mf"])
+	except ValueError as exc:  # e.g. too large for the printer's plate
+		raise HTTPException(status_code=400, detail=str(exc))
+	return download_response(data, _filename(p, "3mf"))
 
 
 @router.get("/export.step")

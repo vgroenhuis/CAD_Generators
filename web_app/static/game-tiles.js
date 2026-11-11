@@ -18,6 +18,29 @@ const baseSelect = document.getElementById("base_colour");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
 const downloadStepBtn = document.getElementById("download-step-btn");
+const printerSelect = document.getElementById("printer");
+const PRINTER_KEY = "game-tiles-bambu-printer";
+
+// The Bambu Lab printers the 3MF can be a Bambu Studio project for; the choice is remembered.
+fetch(`${API}/printers`)
+	.then((r) => (r.ok ? r.json() : []))
+	.then((printers) => {
+		for (const p of printers) printerSelect.append(new Option(p.name, p.id));
+		try {
+			const saved = localStorage.getItem(PRINTER_KEY);
+			if (saved && printers.some((p) => p.id === saved)) printerSelect.value = saved;
+		} catch (e) {
+			// storage blocked: start with "any slicer"
+		}
+	})
+	.catch(() => {});
+printerSelect.addEventListener("change", () => {
+	try {
+		localStorage.setItem(PRINTER_KEY, printerSelect.value);
+	} catch (e) {
+		// not remembered
+	}
+});
 const infoEl = document.getElementById("info");
 const swatchesEl = document.getElementById("swatches");
 const meshStatsEl = document.getElementById("mesh-stats");
@@ -242,7 +265,9 @@ async function onDownload(format) {
 		return;
 	}
 	try {
-		const response = await downloadWithProgress(`${API}/export.${format}?${buildQuery(params)}`, setStatus);
+		const query = buildQuery(params);
+		if (format === "3mf" && printerSelect.value) query.set("printer", printerSelect.value);
+		const response = await downloadWithProgress(`${API}/export.${format}?${query}`, setStatus);
 		setStatus(response.ok ? `Downloaded ${response.filename}.` : await friendlyErrorMessage(response), !response.ok);
 	} catch (exc) {
 		setStatus(`Download failed: ${exc.message || exc}`, true);
