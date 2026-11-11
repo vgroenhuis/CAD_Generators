@@ -285,7 +285,8 @@ async function setup() {
 	for (const id of NUMBER_FIELDS) document.getElementById(id).value = String(defaults[id]);
 	// Settings in the address (e.g. from the list of stored tiles) override the defaults.
 	const fromUrl = new URLSearchParams(window.location.search);
-	if (fromUrl.has("tile_type") && tileTypes.some((t) => t.id === fromUrl.get("tile_type"))) typeSelect.value = fromUrl.get("tile_type");
+	const urlType = fromUrl.get("tile_type") === "connector" ? "connector_corners" : fromUrl.get("tile_type");  // the ledge connector is gone
+	if (urlType && tileTypes.some((t) => t.id === urlType)) typeSelect.value = urlType;
 	if (fromUrl.has("shape") && defaults.shapes.includes(fromUrl.get("shape"))) shapeSelect.value = fromUrl.get("shape");
 	if (fromUrl.has("base_colour") && (fromUrl.get("base_colour") === "" || defaults.colours.includes(fromUrl.get("base_colour")))) {
 		baseSelect.value = fromUrl.get("base_colour");

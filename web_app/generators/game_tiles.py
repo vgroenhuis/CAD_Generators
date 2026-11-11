@@ -61,6 +61,8 @@ def _params(
 	clearance: float = Query(TileParams.clearance, ge=0, le=100),  # connectors only
 	base_colour: str = Query(TileParams.base_colour, max_length=20),  # "" = the tile's own base colour
 ) -> TileParams:
+	if tile_type == "connector":  # the connector with a ledge is gone: old links get the one that replaced it
+		tile_type = "connector_corners"
 	if shape != "rectangle":
 		length = DEFAULT.length  # not used; keeps the cache key unique
 	if tile_type.startswith("connector"):  # thickness, colour depth and base colour don't apply

@@ -19,10 +19,9 @@
 
     The connector is no tile but a sleeve of the tile's shape, to join two tiles rigidly (one
     on top of a part of the same shape): a thin wall with a stop inside halfway up, so each
-    tile goes in CONNECTOR_SOCKET deep from either side. The stop is a ledge along the walls
-    (with gaps) or, the other type, a flat triangle across every inside corner, whose open
-    edge the printer bridges. Thickness and colour depth don't
-    apply to it.
+    tile goes in CONNECTOR_SOCKET deep from either side. The stop is a flat triangle across
+    every inside corner, whose open edge the printer bridges. Bulges on the inside of the
+    walls clamp the tiles. Thickness and colour depth don't apply to it.
 
     Can also be run standalone:  python game_tile_model.py --type bricks --shape hexagon --out tile.step
 """
@@ -40,7 +39,7 @@ from cad_common.text import printable_text
 
 import numpy as np
 from build123d import (
-    Align, Axis, Box, Color, Compound, Cylinder, Kind, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, mirror,
+    Align, Axis, Box, Color, Compound, Cylinder, Kind, Location, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, mirror,
     loft, offset, revolve,
 )
 
@@ -1446,46 +1445,19 @@ def _weight(c: Ctx) -> Design:
 # Wall thickness and clearance are parameters (TileParams.wall, .clearance): 1.2 and 0.1 mm by
 # default; 0.8 mm walls printed poorly and no clearance was too tight.
 CONNECTOR_SOCKET = 2.4  # mm, how deep a tile goes in from either side (all heights multiples of 0.2 mm layers)
-CONNECTOR_LEDGE = 0.3  # mm, how far the ledge inside sticks out (short, so it prints over the wall below)
-CONNECTOR_LEDGE_HEIGHT = 0.6  # mm, its height: three layers of 0.2 mm
-CONNECTOR_HEIGHT = 2 * CONNECTOR_SOCKET + CONNECTOR_LEDGE_HEIGHT  # mm, total height
-CONNECTOR_GAP = 1 / 3  # gap in the ledge at the middle of every edge, as a fraction of the edge length
-CONNECTOR_CIRCLE_GAPS = 8  # a round connector's ledge has this many gaps, evenly spread
+CONNECTOR_STOP_HEIGHT = 0.6  # mm, height of the stops halfway up: three layers of 0.2 mm
+CONNECTOR_HEIGHT = 2 * CONNECTOR_SOCKET + CONNECTOR_STOP_HEIGHT  # mm, total height
 CONNECTOR_CORNER = 5.0  # mm, how far a corner stop reaches along each wall from the corner
 CONNECTOR_CIRCLE_STOPS = 4  # a round connector gets this many flat stops, cut off by a straight bridge
 CONNECTOR_CIRCLE_DEPTH = 1.0  # mm, how far such a stop reaches in, at its middle
-CONNECTOR_TYPES = ("connector", "connector_corners")
+CONNECTOR_BULGE = 0.5  # mm, how far a clamping bulge sticks out of the wall
+CONNECTOR_BULGE_LENGTH = 10.0  # mm, its length along the wall at most (a third of a shorter edge)
+CONNECTOR_TYPES = ("connector_corners",)
 CONNECTOR_COLOUR = "grey"
 
 
 def _connector(c: Ctx) -> Design:
     return Design(CONNECTOR_COLOUR, [])  # the sleeve itself is made by _connector_body
-
-
-def _ledge_gaps(p: TileParams) -> list[Sketch]:
-    """Where the ledge is left out: a stretch of CONNECTOR_GAP of every edge, at its middle
-    (evenly spread round a circle). A short ledge in a corner prints more reliably than one
-    overhanging all the way round."""
-    pts = outline_points(p)
-    if p.shape == "circle":
-        n = CONNECTOR_CIRCLE_GAPS
-        a = np.radians(np.arange(n) * 360 / n + 180 / n)
-        r = p.size / 2
-        pts_mid = np.column_stack([r * np.cos(a), r * np.sin(a)])
-        spans = [(m, np.array([-math.sin(t), math.cos(t)]), CONNECTOR_GAP * 2 * math.pi * r / n) for m, t in zip(pts_mid, a)]
-    else:
-        spans = []
-        for p0, p1 in zip(pts, np.roll(pts, -1, axis=0)):
-            d = p1 - p0
-            length = float(np.hypot(*d))
-            spans.append(((p0 + p1) / 2, d / length, CONNECTOR_GAP * length))
-    reach = CONNECTOR_LEDGE + p.clearance + p.wall + 1.0  # across the ledge, both ways
-    gaps = []
-    for m, d, width in spans:
-        nrm = np.array([-d[1], d[0]])
-        corners = [m + s * width / 2 * d + t * reach * nrm for s, t in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
-        gaps.append(_poly(corners))
-    return gaps
 
 
 def _grow_polygon(pts: np.ndarray, d: float) -> np.ndarray:
@@ -1529,22 +1501,67 @@ def _corner_stops(p: TileParams) -> list[Sketch]:
     return stops
 
 
+def _bulge(length: float, z0: float, z1: float) -> Part:
+    """A clamping bulge on the inside of a wall, in its own frame: x along the wall (centred),
+    y inwards from the wall's inner face, z up from z0 to z1. CONNECTOR_BULGE high, with 45
+    degree slopes all round, so a tile slides over it and it prints without support; it
+    reaches 0.4 mm into the wall to join it."""
+    d, sink = CONNECTOR_BULGE, 0.4
+    side = Plane.YZ * Polygon(*[(-sink, z0), (0, z0), (d, z0 + d), (d, z1 - d), (0, z1), (-sink, z1)],
+                               align=None)  # across the wall: (y, z)
+    plan = _poly([(-length / 2, -sink), (-length / 2, 0), (-length / 2 + d, d), (length / 2 - d, d),
+                  (length / 2, 0), (length / 2, -sink)])  # seen from above: (x, y), counterclockwise
+    across = extrude(side, amount=length / 2 + 1, both=True)
+    along = Pos(0, 0, z0 - 1) * extrude(plan, amount=z1 - z0 + 2)
+    return Part((across & along).wrapped)
+
+
+def _connector_bulges(p: TileParams) -> list[Part]:
+    """Clamping bulges on the inside of the walls, at the middle of the edges: two opposite
+    edges get one in the lower socket, two others one in the upper socket, so each tile is
+    clamped from two directions and the sleeve flexes. A hexagon has three pairs of opposite
+    edges: the third pair gets none. A triangle has no opposite edges: every edge gets one in
+    both sockets. A circle gets four, a quarter turn apart."""
+    lower = (0.2, CONNECTOR_SOCKET)
+    upper = (CONNECTOR_SOCKET + CONNECTOR_STOP_HEIGHT, CONNECTOR_HEIGHT - 0.2)
+    if p.shape == "circle":
+        r = p.size / 2 + p.clearance
+        length = min(CONNECTOR_BULGE_LENGTH, 0.3 * r)  # short, as the wall curves away from it
+        places = [((r * math.cos(t), r * math.sin(t)), math.degrees(t) + 90, [lower if k % 2 == 0 else upper], length)
+                  for k, t in enumerate(np.radians(np.arange(4) * 90.0))]
+    else:
+        pts = _grow_polygon(outline_points(p), p.clearance)
+        n = len(pts)
+        places = []
+        for i in range(n):
+            p0, p1 = pts[i], pts[(i + 1) % n]
+            edge = float(np.hypot(*(p1 - p0)))
+            if n == 3:
+                halves = [lower, upper]
+            elif n == 6:
+                halves = [[lower], [upper], []][i % 3]
+            else:
+                halves = [lower if i % 2 == 0 else upper]
+            places.append(((p0 + p1) / 2, math.degrees(math.atan2(*(p1 - p0)[::-1])),
+                           halves, min(CONNECTOR_BULGE_LENGTH, edge / 3)))
+    out = []
+    for (x, y), angle, halves, length in places:
+        for z0, z1 in halves:  # the edge runs along x, counterclockwise: inwards is +y
+            out.append(Location((float(x), float(y), 0), (0, 0, angle)) * _bulge(length, z0, z1))
+    return out
+
+
 def _connector_body(c: Ctx) -> Part:
     """The sleeve, bottom at z = 0: the tile outline grown by the clearance inside, a wall
-    around it, and halfway up the stop: the ledge, with gaps at the middle of the edges
-    (_ledge_gaps), or for "connector_corners" the corner stops (_corner_stops). Corners stay
-    sharp, like the tile's."""
+    around it, halfway up the corner stops (_corner_stops), and the clamping bulges
+    (_connector_bulges). Corners stay sharp, like the tile's."""
     p = c.p
     inner = _sk(offset(c.outline, p.clearance, kind=Kind.INTERSECTION)) if p.clearance else c.outline
     outer = _sk(offset(inner, p.wall, kind=Kind.INTERSECTION))
     wall = extrude(_sk(outer - inner), amount=CONNECTOR_HEIGHT)
-    if c.p.tile_type == "connector_corners":
-        stop = _sk(inner & _union(_corner_stops(c.p)))
-    else:
-        ledge_inner = _sk(offset(inner, -CONNECTOR_LEDGE, kind=Kind.INTERSECTION))
-        stop = _sk(_sk(inner - ledge_inner) - _union(_ledge_gaps(c.p)))
-    ledge = Pos(0, 0, CONNECTOR_SOCKET) * extrude(stop, amount=CONNECTOR_LEDGE_HEIGHT)
-    return _fuse([Part(wall.wrapped), Part(ledge.wrapped)])
+    stop = _sk(inner & _union(_corner_stops(c.p)))
+    stops = Pos(0, 0, CONNECTOR_SOCKET) * extrude(stop, amount=CONNECTOR_STOP_HEIGHT)
+    return _fuse([Part(wall.wrapped), Part(stops.wrapped)] + _connector_bulges(p))
 
 
 @dataclass
@@ -1588,17 +1605,15 @@ TILE_TYPES = {
     "weight": TileType("100t weight", "Objects", _weight, "cartoon iron weight marked 100t, landed on cracked earth"),
     "tree": TileType("Tree", "Objects", _tree,
                      "fir tree standing on grass, three tiers of foliage on a trunk, with roots and pine cones"),
-    "connector": TileType("Connector (ledge)", "Special", _connector,
-                          f"sleeve to join a tile rigidly on top of a part of the same shape: "
-                          f"{CONNECTOR_HEIGHT:g} mm high, a ledge inside halfway up ({CONNECTOR_LEDGE:g} mm deep, "
-                          f"{CONNECTOR_LEDGE_HEIGHT:g} mm high), so each tile "
-                          f"goes in {CONNECTOR_SOCKET:g} mm from either side; the ledge has gaps at the middle of the edges. "
-                          "Wall thickness and clearance can be set"),
-    "connector_corners": TileType("Connector (corner bridges)", "Special", _connector,
-                                  f"sleeve like the connector with a ledge, but the tiles stop on a flat triangle in "
-                                  f"every inside corner ({CONNECTOR_CORNER:g} mm along each wall, "
-                                  f"{CONNECTOR_LEDGE_HEIGHT:g} mm high), whose open edge is printed as a bridge; "
-                                  f"a round one has {CONNECTOR_CIRCLE_STOPS} flat stops instead"),
+    "connector_corners": TileType("Connector", "Special", _connector,
+                                  f"sleeve to join a tile rigidly on top of a part of the same shape: "
+                                  f"{CONNECTOR_HEIGHT:g} mm high, each tile goes in {CONNECTOR_SOCKET:g} mm from either side "
+                                  f"and stops on a flat triangle in every inside corner ({CONNECTOR_CORNER:g} mm along each wall, "
+                                  f"{CONNECTOR_STOP_HEIGHT:g} mm high), whose open edge is printed as a bridge "
+                                  f"(a round one has {CONNECTOR_CIRCLE_STOPS} flat stops); "
+                                  f"{CONNECTOR_BULGE:g} mm bulges inside the walls clamp the tiles, "
+                                  "in the lower half on two opposite edges and in the upper half on two others. "
+                                  "Wall thickness and clearance can be set"),
 }
 
 
