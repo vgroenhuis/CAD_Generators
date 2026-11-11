@@ -872,6 +872,9 @@ def _ice(c: Ctx) -> Design:
                           Layer("white", _union(drifts), c.hgt(0.9), taper=25)])
 
 
+LAVA_CRACK = 0.5  # mm; width of the glowing cracks in lava rock
+
+
 def _lava(c: Ctx) -> Design:
     """Dark rock plates floating on glowing lava; the plates have glowing cracks, the lava bubbles."""
     cells, full = _stones(c, 9 * c.k, c.line(1.8))
@@ -888,7 +891,7 @@ def _lava(c: Ctx) -> Design:
         # (cutting them into the outline first would give awkward sloped faces).
         rock = _fuse(_raised(region, rock_h, 20))
         size = float(np.ptp(cell[:, 0]) + np.ptp(cell[:, 1])) / 2
-        crack = _lava_cracks(c, cell, size) if size > 4 * c.k else None
+        crack = _lava_cracks(c, cell, size) if size > 4 * c.k and c.rng.random() < 0.2 else None  # about 1 in 5
         crack = _sk(crack & region) if crack is not None else None  # inside the rock and the tile
         if crack is None or not crack.faces():
             rocks.append(region)
@@ -923,10 +926,10 @@ def _tapered(points, w0: float, w1: float) -> Sketch | None:
 
 def _lava_cracks(c: Ctx, cell: np.ndarray, size: float) -> Sketch | None:
     """Glowing cracks in a lava rock: mostly from a point on its edge (open to the lava there)
-    jagged towards the middle, narrowing to a fine tip, with thinner side branches; sometimes
+    jagged towards the middle, with short side branches; sometimes
     a crack only inside the rock, and sometimes a short second one from the edge."""
     centre = cell.mean(axis=0)
-    mouth, tip = max(1.4, 1.5 * c.k), 0.8  # mm; the tip is just about printable
+    mouth = tip = LAVA_CRACK  # one width all along
 
     def from_edge(reach: float):
         for _ in range(8):
