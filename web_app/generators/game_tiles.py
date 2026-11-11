@@ -3,7 +3,8 @@ the list of tile types and shapes, a summary with the colours (filaments) needed
 preview, 3MF and STEP, a thumbnail, and the list of stored tiles (/stored).
 
 All endpoints except /defaults take the tile parameters as query parameters: tile_type,
-shape, size, length (rectangle only), thickness, inlay_depth, count and seed. The files
+shape, size, length (rectangle only), thickness, inlay_depth, count, seed and base_colour
+(and wall and clearance for connectors). The files
 hold one body per colour, named after it. Built models and their files are cached (see
 web_app/model_cache.py); the default tile is made when the server starts.
 """
@@ -12,6 +13,8 @@ import io
 import json
 import re
 import zipfile
+
+import numpy as np
 from dataclasses import asdict
 from functools import lru_cache
 
@@ -19,10 +22,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 
 from cad_common.mesh_export import meshes_of, meshes_to_3mf, meshes_to_glb
-from cad_common.mesh_fuzz import fuzz
+from cad_common.mesh_fuzz import fuzz, hills, subdivide
 from cad_common.thumbnail import render_png
 from game_tiles_app.game_tile_model import (
-	MAX_COUNT, PALETTE, ROUGHNESS, SHAPES, TILE_TYPES, TileParams, build_tiles, colors_used, describe, validate,
+	HILLS, MAX_COUNT, PALETTE, ROUGHNESS, SHAPES, TILE_TYPES, TileParams, _layout, build_tiles, colors_used, describe,
+	outline_points, validate,
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, disk, warm as warm_entry
@@ -55,14 +59,15 @@ def _params(
 	seed: int = Query(1, ge=0, le=1_000_000),
 	wall: float = Query(TileParams.wall, gt=0, le=100),  # connectors only
 	clearance: float = Query(TileParams.clearance, ge=0, le=100),  # connectors only
+	base_colour: str = Query(TileParams.base_colour, max_length=20),  # "" = the tile's own base colour
 ) -> TileParams:
 	if shape != "rectangle":
 		length = DEFAULT.length  # not used; keeps the cache key unique
-	if tile_type.startswith("connector"):  # thickness and colour depth don't apply
-		thickness, inlay_depth = DEFAULT.thickness, DEFAULT.inlay_depth
+	if tile_type.startswith("connector"):  # thickness, colour depth and base colour don't apply
+		thickness, inlay_depth, base_colour = DEFAULT.thickness, DEFAULT.inlay_depth, DEFAULT.base_colour
 	else:  # wall and clearance only apply to connectors
 		wall, clearance = DEFAULT.wall, DEFAULT.clearance
-	p = TileParams(tile_type, shape, size, length, thickness, inlay_depth, count, seed, wall, clearance)
+	p = TileParams(tile_type, shape, size, length, thickness, inlay_depth, count, seed, wall, clearance, base_colour)
 	try:
 		validate(p)
 	except ValueError as exc:
@@ -78,17 +83,32 @@ def _makers(p: TileParams) -> dict:
 	"""How to make each file: types with a rough surface get their meshes roughened (3MF and
 	preview); the STEP file always has the exact, smooth geometry."""
 	rough = ROUGHNESS.get(p.tile_type)
+	hilly = HILLS.get(p.tile_type)
 
 	def meshes(model, tolerance):
 		out = meshes_of(model, tolerance, 0.2)
+		if hilly is not None:  # gentle hills first, then the rough surface on top of them
+			pts = outline_points(p)
+			fade = min(8.0, 0.25 * min(float(np.ptp(pts[:, 0])), float(np.ptp(pts[:, 1]))))
+			for m in out:
+				m.vertices, m.triangles = hills(m.vertices, m.triangles, *hilly, top=p.thickness, outline=pts,
+												centres=_layout(p), fade=fade, seed=p.seed)
 		if rough is not None:
 			amplitude, wavelength, mode = rough
 			for m in out:  # the same seed for every body, so touching bodies stay together
 				m.vertices, m.triangles = fuzz(m.vertices, m.triangles, amplitude, wavelength, mode, top=p.thickness, seed=p.seed)
 		return out
 
-	png = lambda model: render_png(meshes(model, 0.05))  # noqa: E731
-	if rough is None:
+	def png(model):
+		# The thumbnail sorts whole triangles by depth: split the large flat ones (e.g. the top of
+		# the bottom body, inside the tile) so none is drawn over what stands in front of it.
+		out = meshes(model, 0.05)
+		for m in out:
+			m.vertices, m.triangles = subdivide(np.asarray(m.vertices, dtype=np.float64), np.asarray(m.triangles, dtype=np.int64),
+												2.0, lambda v: np.ones(len(v), dtype=bool))
+		return render_png(out)
+
+	if rough is None and hilly is None:
 		return {**FILES, "png": png}
 	return {
 		"png": png,
@@ -118,6 +138,7 @@ def defaults_route() -> dict:
 		**asdict(DEFAULT),
 		"types": [{"id": k, "title": t.title, "group": t.group, "description": t.description} for k, t in TILE_TYPES.items()],
 		"shapes": list(SHAPES),
+		"colours": list(PALETTE),
 	}
 
 
@@ -173,7 +194,7 @@ def _colour_use() -> tuple:
 	use: dict[str, dict] = {}
 	for type_id, t in TILE_TYPES.items():
 		for shape in SHAPES:
-			for i, name in enumerate(colors_used(TileParams(tile_type=type_id, shape=shape))):
+			for i, name in enumerate(colors_used(TileParams(tile_type=type_id, shape=shape, base_colour=""))):
 				entry = use.setdefault(name, {"types": {}, "base": set()})
 				entry["types"][type_id] = t.title
 				if i == 0:

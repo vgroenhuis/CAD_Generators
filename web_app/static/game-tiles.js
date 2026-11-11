@@ -14,6 +14,7 @@ const typeDescription = document.getElementById("type-description");
 const sizeLabel = document.getElementById("size-label");
 const lengthBox = document.getElementById("length-box");
 const seedInput = document.getElementById("seed");
+const baseSelect = document.getElementById("base_colour");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
 const downloadStepBtn = document.getElementById("download-step-btn");
@@ -98,7 +99,7 @@ function parseNumber(text) {
 }
 
 function readParams() {
-	const params = { tile_type: typeSelect.value, shape: shapeSelect.value };
+	const params = { tile_type: typeSelect.value, shape: shapeSelect.value, base_colour: baseSelect.value };
 	for (const id of NUMBER_FIELDS) {
 		if (id === "length" && shapeSelect.value !== "rectangle") continue;
 		const value = parseNumber(document.getElementById(id).value);
@@ -276,6 +277,9 @@ async function setup() {
 		groups.get(t.group).append(new Option(t.title, t.id));
 	}
 	for (const shape of defaults.shapes) shapeSelect.add(new Option(shape[0].toUpperCase() + shape.slice(1), shape));
+	baseSelect.add(new Option("Same as the tile", ""));
+	for (const name of defaults.colours) baseSelect.add(new Option(name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()), name));
+	baseSelect.value = defaults.base_colour;
 	typeSelect.value = defaults.tile_type;
 	shapeSelect.value = defaults.shape;
 	for (const id of NUMBER_FIELDS) document.getElementById(id).value = String(defaults[id]);
@@ -283,6 +287,9 @@ async function setup() {
 	const fromUrl = new URLSearchParams(window.location.search);
 	if (fromUrl.has("tile_type") && tileTypes.some((t) => t.id === fromUrl.get("tile_type"))) typeSelect.value = fromUrl.get("tile_type");
 	if (fromUrl.has("shape") && defaults.shapes.includes(fromUrl.get("shape"))) shapeSelect.value = fromUrl.get("shape");
+	if (fromUrl.has("base_colour") && (fromUrl.get("base_colour") === "" || defaults.colours.includes(fromUrl.get("base_colour")))) {
+		baseSelect.value = fromUrl.get("base_colour");
+	}
 	for (const id of NUMBER_FIELDS) {
 		if (fromUrl.has(id) && Number.isFinite(parseNumber(fromUrl.get(id)))) document.getElementById(id).value = fromUrl.get(id);
 	}
@@ -301,6 +308,7 @@ function updateTypeFields() {
 	const connector = typeSelect.value.startsWith("connector");
 	document.getElementById("tile-row").hidden = connector;
 	document.getElementById("connector-row").hidden = !connector;
+	document.getElementById("base-box").hidden = connector;
 }
 
 typeSelect.addEventListener("change", () => {
@@ -308,6 +316,7 @@ typeSelect.addEventListener("change", () => {
 	updateDescription();
 	onGenerate();
 });
+baseSelect.addEventListener("change", onGenerate);
 shapeSelect.addEventListener("change", () => {
 	updateShape();
 	onGenerate();

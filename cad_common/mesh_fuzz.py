@@ -118,3 +118,32 @@ def fuzz(v: np.ndarray, t: np.ndarray, amplitude: float, wavelength: float, mode
         d = np.column_stack([fractal_noise(q, seed + 10 * i) for i in range(3)])
         v = v + w[:, None] * d
     return v, t
+
+
+def hills(v: np.ndarray, t: np.ndarray, amplitude: float, wavelength: float, top: float,
+          outline: np.ndarray, centres, fade: float, seed: int = 1) -> tuple[np.ndarray, np.ndarray]:
+    """The mesh with gentle hills: heights raised or lowered by up to `amplitude` (mm) by smooth
+    noise with hills about `wavelength` apart. The shift grows with the height (none at the bed,
+    all of it from the tile's `top` up), so the bottom stays flat and what stands on the tile
+    moves with the ground; and it fades out within `fade` of the tile's edges, so tiles laid side
+    by side still meet level. outline: the (convex) outline of one tile around (0, 0); centres:
+    where the tiles are."""
+    pts = np.asarray(outline, dtype=np.float64)
+    edge = np.roll(pts, -1, axis=0) - pts
+    normals = np.column_stack([edge[:, 1], -edge[:, 0]]) / np.linalg.norm(edge, axis=1)[:, None]
+    limits = np.einsum("ij,ij->i", normals, pts)
+
+    def weight(p):
+        inside = np.full(len(p), -np.inf)
+        for cx, cy in centres:  # distance inside the nearest tile's outline
+            d = limits[None, :] - (p[:, :2] - (cx, cy)) @ normals.T
+            inside = np.maximum(inside, d.min(axis=1))
+        s = np.clip(inside / fade, 0, 1)
+        return s * s * (3 - 2 * s) * np.clip(p[:, 2] / top, 0, 1)
+
+    v, t = subdivide(np.asarray(v, dtype=np.float64), np.asarray(t, dtype=np.int64), wavelength / 8,
+                     lambda p: weight(p) > 0)
+    q = v[:, :2] / wavelength
+    v = v.copy()
+    v[:, 2] += amplitude * weight(v) * value_noise(np.column_stack([q, np.zeros(len(q))]), seed + 77)
+    return v, t

@@ -36,6 +36,8 @@ import random
 from dataclasses import dataclass, field
 from typing import Callable
 
+from cad_common.text import printable_text
+
 import numpy as np
 from build123d import (
     Align, Axis, Box, Color, Compound, Cylinder, Kind, Part, Plane, Polygon, Pos, Rectangle, Rot, Sketch, export_step, extrude, mirror,
@@ -62,6 +64,7 @@ class TileParams:
     seed: int = 1
     wall: float = 1.2  # connectors only: wall thickness
     clearance: float = 0.1  # connectors only: gap between tile and wall on every side
+    base_colour: str = "white"  # the bottom of the tile, below everything visible on top; "" = the tile's own base colour
 
 
 # Colour names (also the body names in the 3MF and STEP files) and their preview colours.
@@ -573,8 +576,8 @@ def _spikes(c: Ctx) -> Design:
     nx, ny = max(1, round(c.w / (10 * c.k))), max(1, round(c.h / (10 * c.k)))
     pitch = min(c.w / nx, c.h / ny)
     a = 0.68 * pitch  # base of each spike
-    height = 0.9 * a
-    taper = math.degrees(math.atan((a / 2 - 0.2) / height))
+    height = 1.4 * a  # tall and sharp: the tip is 0.2 mm wide
+    taper = math.degrees(math.atan((a / 2 - 0.1) / height))
     plates, spikes = [], []
     for j in range(ny):
         for i in range(nx):
@@ -690,7 +693,7 @@ def _door_upright(c: Ctx) -> Design:
     strap_len, strap_h, strap_t = 0.62 * leaf_w, max(1.6, 2.0 * c.k), 0.6
     straps = [Pos(-leaf_w / 2 + strap_len / 2, side * (t_leaf / 2 + strap_t / 2 - 0.1), z) * Box(strap_len, strap_t + 0.2, strap_h)
               for z in (0.22 * height, 0.62 * height) for side in (-1, 1)]
-    straps = _fuse(straps) - knob
+    straps = _fuse(straps) - knob - leaf - frame  # on the faces, not in the wood
     shift = Pos(0, c.cy, 0)
     footprint = _rect(-w / 2, c.cy - t_frame / 2, w / 2, c.cy + t_frame / 2)
     pitch, joint = 10 * c.k, c.line(1.0)
@@ -1101,40 +1104,45 @@ def _star_upright(c: Ctx) -> Design:
     ])
 
 
+TREE_UNDERSIDE = 70.0  # degrees from upright: how flat the underside of a tier of foliage may be (75 prints fine)
+
+
 def _tree(c: Ctx) -> Design:
     """A fir tree standing on the grass: three tiers of foliage on a brown trunk, with roots,
-    a patch of bare earth, pine cones and moss round it. The underside of every tier slopes
-    at 45 degrees, so it prints without supports."""
+    a patch of bare earth, pine cones and moss round it. The undersides of the tiers are
+    flat overhangs (TREE_UNDERSIDE), which print without supports. The trunk stops where the
+    foliage starts: above that every layer is all foliage, printed in one colour."""
     y0, rt = c.cy, max(2.4, 0.18 * c.inr)  # centre and trunk radius (thick, so it is strong)
     shift = Pos(0, y0, 0)
-    tiers, z_bottom = [], max(3.0, 0.2 * c.inr)  # where the lowest tier starts, on the trunk
-    rim = None
-    for i, frac in enumerate((0.74, 0.55, 0.37)):
+    rise = 1 / math.tan(math.radians(TREE_UNDERSIDE))  # the underside rises this much per mm outwards
+    z_bottom = max(4.0, 0.3 * c.inr)  # where the lowest tier starts, on the trunk
+    tiers, rim, prev_cone = [], None, 0.0
+    for frac in (0.74, 0.55, 0.37):
         r = frac * c.inr
         cone = 1.2 * r  # height of the cone above the tier's rim
-        if rim is None:
-            rim = z_bottom + (r - rt)
-        else:  # rim of the tier below plus half its cone
-            rim += 0.55 * prev_cone
-        zb = rim - (r - rt)  # the underside rises from the trunk to the rim at 45 degrees
+        rim = z_bottom + rise * (r - rt) if rim is None else rim + 0.55 * prev_cone
+        zb = rim - rise * (r - rt)
         profile = Plane.XZ * Polygon((0, zb), (rt, zb), (r, rim), (r - 0.4, rim + 0.4), (0, rim + cone), align=None)
         tiers.append(revolve(profile, Axis.Z))
         prev_cone = cone
-    trunk_top = z_bottom + 0.5 * (0.74 * c.inr - rt)
-    trunk = Cylinder(rt, trunk_top, align=(Align.CENTER, Align.CENTER, Align.MIN))
-    foliage = Part((_fuse(tiers) - trunk).wrapped)
-    # On the ground: bare earth round the trunk with roots, pine cones and moss further out.
-    patch = _blob(0, y0, rt + 3.0 * c.k, c.rng, n=11, jitter=0.2)
+    trunk = Cylinder(rt, z_bottom, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    foliage = _fuse(tiers)
+    # Roots: raised, and fused with the trunk (they start inside it), so they are joined to it.
     roots = []
     a0 = c.rng.uniform(0, 360)
     for j in range(5):
         a = math.radians(a0 + j * 72 + c.rng.uniform(-15, 15))
         length = c.rng.uniform(3.5, 5.5) * c.k
         bend = math.radians(c.rng.uniform(-20, 20))
-        pts = [((rt - 0.3) * math.cos(a), y0 + (rt - 0.3) * math.sin(a)),
+        pts = [((rt - 1.0) * math.cos(a), y0 + (rt - 1.0) * math.sin(a)),
                ((rt + 0.5 * length) * math.cos(a), y0 + (rt + 0.5 * length) * math.sin(a)),
                ((rt + length) * math.cos(a + bend / 2), y0 + (rt + length) * math.sin(a + bend / 2))]
         roots.append(_polyline(pts, c.line(1.4)))
+    roots_region = _union(roots)
+    wood = _fuse([shift * trunk] + _raised(roots_region, c.hgt(0.7), 25))
+    footprint = _union([_circle(0, y0, rt + 0.1), roots_region])  # (a little wider: the circle is a polygon)
+    # Bare earth round the trunk, pine cones and moss further out.
+    patch = _blob(0, y0, rt + 3.0 * c.k, c.rng, n=11, jitter=0.2)
     keep_out = [(0, y0, rt + 6.5 * c.k)]
     cones = []
     for x, y, r in c.scatter(max(2, int(c.area / 450)), 1.2 * c.k, 1.5 * c.k, 1.5, margin=0.8, avoid=keep_out):
@@ -1145,8 +1153,7 @@ def _tree(c: Ctx) -> Design:
         Layer("dark_green", _union(moss), c.hgt(0.4), taper=20),
         Layer("brown", _union(cones), c.hgt(1.0), taper=25),
         Layer("brown", patch),
-        Layer("brown", _union(roots), c.hgt(0.7), taper=25),
-        Layer("dark_brown", _circle(0, y0, rt + 0.1), solids=[shift * trunk]),  # a little wider: the circle is a polygon
+        Layer("dark_brown", footprint, solids=[wood]),
         Layer("dark_green", None, solids=[shift * foliage]),
     ])
 
@@ -1239,6 +1246,121 @@ def _ship(c: Ctx) -> Design:
         Layer("wood", _poly(place(bottom_pts)), solids=[move * hull]),
         Layer("dark_brown", None, solids=[move * cabin, move * Part(roof.wrapped), move * mast]),
         Layer("white", None, solids=[move * sails]),
+    ])
+
+
+def _bulb(c: Ctx) -> Design:
+    """A light bulb standing on its screw socket (black insulator, steel thread), shining:
+    yellow rays on a dark floor. The glass is round on top; below its widest point it
+    narrows to the socket, no flatter than 50 degrees from upright, so it prints without
+    supports."""
+    y0 = c.cy
+    shift = Pos(0, y0, 0)
+    big = 0.45 * c.inr  # radius of the glass
+    rs = 0.5 * big  # radius of the socket
+    band = max(1.0, 0.15 * big)  # black insulator at the bottom
+    sock_h = 0.8 * big
+    n = max(2, round((sock_h - band) / max(1.2, 0.25 * big)))
+    pitch = (sock_h - band) / n
+    groove = min(0.5, 0.4 * pitch)
+    prof = [(0, band), (rs, band)]
+    for i in range(n):  # the thread: the outward slopes are 40 degrees from upright at most
+        z = band + i * pitch
+        prof += [(rs - groove, z + pitch / 2), (rs, z + pitch)]
+    prof.append((0, sock_h))
+    socket = revolve(Plane.XZ * Polygon(*prof, align=None), Axis.Z)
+    insulator = Cylinder(rs, band, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    neck = 0.85 * rs
+    low = math.radians(50)  # where the neck meets the round glass, below its middle
+    zc = sock_h + (big * math.cos(low) - neck) + big * math.sin(low)  # the neck widens at 45 degrees
+    glass = [(0, sock_h), (neck, sock_h)] + [(big * math.cos(t), zc + big * math.sin(t))
+                                             for t in np.linspace(-low, math.pi / 2, 28)]
+    bulb = revolve(Plane.XZ * Polygon(*glass, align=None), Axis.Z)
+    rays = []
+    r0 = rs + max(1.5, 2.0 * c.k)
+    for i in range(16):  # long and short rays in turn
+        a = math.radians(i * 22.5 + 11.25)
+        r1 = (0.95 if i % 2 == 0 else 0.72) * c.inr
+        half = (0.07 if i % 2 == 0 else 0.06) * r1
+        tip = (r0 * math.cos(a), y0 + r0 * math.sin(a))
+        side = np.array([-math.sin(a), math.cos(a)]) * half
+        end = np.array([r1 * math.cos(a), y0 + r1 * math.sin(a)])
+        rays.append(_poly([tip, tuple(end + side), tuple(end - side)]))
+    return Design("dark_grey", [
+        Layer("yellow", _union(rays), c.hgt(0.6), taper=20),
+        Layer("black", _circle(0, y0, rs + 0.1), solids=[shift * insulator]),
+        Layer("steel", None, solids=[shift * Pos(0, 0, 0) * socket]),
+        Layer("yellow", None, solids=[shift * bulb]),
+    ])
+
+
+def _key(c: Ctx) -> Design:
+    """An old gold key lying flat, raised, on a dark red cushion with a few sparkles: a ring
+    bow with a hole, a collar, the shaft and a bit with notches."""
+    y0 = c.cy
+    length = 1.7 * c.inr
+
+    def corners(n):
+        bow_r, bit_h, sw = 0.2 * n, 0.2 * n, max(2.0, 0.075 * n)
+        return [(-n / 2, y0 - bow_r), (-n / 2, y0 + bow_r), (n / 2, y0 + sw / 2), (n / 2, y0 - sw / 2 - bit_h)]
+
+    while length > 12 and not all(c.inside(x, y, 1.0) for x, y in corners(length)):
+        length *= 0.95  # e.g. on a triangle
+    bow_r, sw = 0.2 * length, max(2.0, 0.075 * length)
+    bx = -length / 2 + bow_r
+    bow = _sk(_circle(bx, y0, bow_r) - _circle(bx, y0, 0.55 * bow_r))
+    shaft = _rect(bx + 0.8 * bow_r, y0 - sw / 2, length / 2, y0 + sw / 2)
+    bit_l, bit_h = 0.25 * length, 0.2 * length
+    x1 = length / 2
+    bit = _rect(x1 - bit_l, y0 - sw / 2 - bit_h, x1, y0)
+    notch = max(1.2, bit_l / 5)
+    bit = _sk(bit - _rect(x1 - 0.66 * bit_l - notch / 2, y0 - sw / 2 - bit_h - 1, x1 - 0.66 * bit_l + notch / 2, y0 - sw / 2 - 0.45 * bit_h)
+              - _rect(x1 - 0.3 * bit_l - notch / 2, y0 - sw / 2 - bit_h - 1, x1 - 0.3 * bit_l + notch / 2, y0 - sw / 2 - 0.7 * bit_h))
+    cx = bx + bow_r + 0.05 * length
+    collar = _union([_rect(cx + d, y0 - 0.085 * length, cx + d + max(1.2, 0.035 * length), y0 + 0.085 * length)
+                     for d in (0.0, 0.07 * length)])
+    gold = _union([bow, shaft, bit])
+    avoid = [(x, y0 - 0.05 * length, 0.25 * length) for x in np.linspace(-length / 2 + bow_r, length / 2 - 0.1 * length, 5)]
+    sparkles = [_star(x, y, rr, 0.32 * rr, 4, 0) for x, y, rr in
+                c.scatter(int(c.area / 450), 2.0 * max(1, c.k), 2.6 * max(1, c.k), 0.5, avoid=avoid)]
+    return Design("dark_red", [Layer("white", _union(sparkles), c.hgt(0.6)),
+                               Layer("gold", gold, c.hgt(1.6), taper=15),
+                               Layer("gold", collar, c.hgt(2.2), taper=20)])
+
+
+def _weight(c: Ctx) -> Design:
+    """A cartoon "100t" weight that has just landed: a dark iron block narrowing upwards with
+    a handle on top and "100t" set into its front face (white), on cracked earth with chips."""
+    y0 = c.cy
+    shift = Pos(0, y0, 0)
+    b = 1.25 * c.inr  # bottom side (fits in the largest circle inside the tile)
+    t, h = 0.62 * b, 0.62 * b
+    block = loft([Rectangle(b, b).face(), Pos(0, 0, h) * Rectangle(t, t).face()])
+    hw, hh = 0.55 * t, 0.34 * t  # the handle: an arch across the top
+    bar = max(2.0, 0.13 * t)
+    arch = _sk(_rect(-hw / 2, 0, hw / 2, hh) - _rect(-hw / 2 + bar, -1, hw / 2 - bar, hh - bar))
+    handle = Pos(0, 0, h) * extrude(Plane.XZ * arch, amount=max(2.0, 0.12 * t), both=True)
+    iron = _fuse([block, handle])
+    # "100t" set into the sloping front face (towards -y), flush.
+    up = np.array([0.0, (b - t) / 2, h])
+    normal = np.array([0.0, -h, (b - t) / 2])
+    face = Plane(origin=(0, -(b + t) / 4, h / 2), x_dir=(1, 0, 0), z_dir=tuple(normal / np.linalg.norm(normal)))
+    size = 0.25 * b
+    letters = extrude(face * printable_text("100t", size), amount=-0.8) & block
+    iron = Part((iron - letters).wrapped)
+    cracks = []
+    for i in range(8):
+        side = i % 4
+        u = c.rng.uniform(-0.4, 0.4) * b
+        x, y, ang = [(u, -b / 2, -90), (b / 2, u, 0), (u, b / 2, 90), (-b / 2, u, 180)][side]
+        cracks += _crack(c, x, y0 + y, ang + c.rng.uniform(-30, 30), 4, 3.0 * c.k)
+    chips = [_blob(x, y, r, c.rng, n=6) for x, y, r in c.scatter(max(3, int(c.area / 200)), 0.7 * c.k, 1.3 * c.k, 1.0,
+                                                                avoid=[(0, y0, 0.75 * b)])]
+    return Design("brown", [
+        Layer("black", _union(cracks), height=-0.6),
+        Layer("dark_grey", _union(chips), c.hgt(0.8), taper=25),
+        Layer("dark_grey", _rect(-b / 2, y0 - b / 2, b / 2, y0 + b / 2), solids=[shift * iron]),
+        Layer("white", None, solids=[shift * Part(letters.wrapped)]),
     ])
 
 
@@ -1384,6 +1506,9 @@ TILE_TYPES = {
     "finish": TileType("Finish", "Objects", _finish, "chequered start or finish"),
     "ship": TileType("Ship", "Objects", _ship,
                      "sailing ship on the waves with a mainsail and a jib, sailing along the tile (+X), with its wake behind"),
+    "bulb": TileType("Light bulb", "Objects", _bulb, "light bulb standing on its screw socket, shining yellow rays on the floor"),
+    "key": TileType("Key", "Objects", _key, "old gold key lying on a dark red cushion"),
+    "weight": TileType("100t weight", "Objects", _weight, "cartoon iron weight marked 100t, landed on cracked earth"),
     "tree": TileType("Tree", "Objects", _tree,
                      "fir tree standing on grass, three tiers of foliage on a trunk, with roots and pine cones"),
     "connector": TileType("Connector (ledge)", "Special", _connector,
@@ -1416,7 +1541,21 @@ ROUGHNESS = {
     "pit": (0.15, 2.5, "surface"),
     "portal": (0.15, 2.0, "surface"),
     "portal_upright": (0.35, 2.0, "both"),
+    "rain": (0.15, 3.0, "surface"),
+    "fire": (0.2, 2.5, "surface"),
+    "weight": (0.3, 2.5, "surface"),
     "tree": (0.45, 2.0, "both"),  # bark and foliage rough in all directions, the grass in height
+}
+
+
+# Gentle hills in the printed mesh (3MF, preview), per type: (amplitude mm, wavelength mm), see
+# cad_common/mesh_fuzz.hills. They fade out towards the tile's edges, so tiles still meet level.
+HILLS = {
+    "earth": (0.6, 22.0),
+    "sand": (0.6, 22.0),
+    "grass": (0.6, 22.0),
+    "cobblestone": (0.5, 22.0),
+    "tree": (0.6, 22.0),
 }
 
 
@@ -1440,6 +1579,8 @@ def validate(p: TileParams) -> None:
         raise ValueError("Thickness must be at least 1.5 mm.")
     elif not 0.2 <= p.inlay_depth <= p.thickness - 1.0:
         raise ValueError("Colour depth must be at least 0.2 mm and leave at least 1 mm of base below it.")
+    if p.base_colour and p.base_colour not in PALETTE:
+        raise ValueError(f"Unknown base colour '{p.base_colour}'; choose one of: {', '.join(PALETTE)}.")
     if not 1 <= p.count <= MAX_COUNT:
         raise ValueError(f"Number of tiles must be between 1 and {MAX_COUNT}.")
 
@@ -1544,7 +1685,28 @@ def _bodies(p: TileParams, seed: int) -> dict[str, list[Part]]:
             bodies[design.base] = [base] + base_raised
     else:
         bodies[design.base] = [base]
+    # The bottom of the tile as a body of its own (base_colour), up to just below the lowest
+    # visible point of the top (inlays, grooves, sunk parts), on a 0.2 mm layer.
+    split = _base_split(p, design, min((s.bounding_box().min.Z for s in cuts), default=top))
+    if split:
+        slab = Part(extrude(c.outline, amount=split).wrapped)
+        bodies[design.base][0] = Part((bodies[design.base][0] - slab).wrapped)
+        # The bottom body first; joined to other parts in that colour (e.g. white foam), if any.
+        bodies = {p.base_colour: [slab] + bodies.get(p.base_colour, []),
+                  **{name: parts for name, parts in bodies.items() if name != p.base_colour}}
     return {name: parts for name, parts in bodies.items() if parts}
+
+
+BASE_LAYER = 0.2  # mm; the bottom body ends on a multiple of this
+
+
+def _base_split(p: TileParams, design: Design, lowest: float) -> float:
+    """Height of the bottom body in base_colour (0: none): below `lowest` (the lowest point of
+    the top) by at least one layer, on a layer boundary, and at least two layers thick."""
+    if not p.base_colour or p.base_colour == design.base:
+        return 0.0
+    split = math.floor((lowest - BASE_LAYER) / BASE_LAYER + 1e-6) * BASE_LAYER
+    return round(split, 3) if split >= 2 * BASE_LAYER - 1e-9 else 0.0
 
 
 def _layout(p: TileParams) -> list[tuple[float, float]]:
@@ -1568,6 +1730,8 @@ def colors_used(p: TileParams) -> list[str]:
     for layer in design.layers:
         if layer.color not in names and (layer.region is not None or layer.solids):
             names.append(layer.color)
+    if p.tile_type not in CONNECTOR_TYPES and p.base_colour and p.base_colour != design.base:
+        names = [p.base_colour] + [n for n in names if n != p.base_colour]
     return names
 
 
@@ -1602,8 +1766,10 @@ def describe(p: TileParams) -> str:
         return (f"{n}: {t.description}; for {p.shape} tiles, {dims}: {p.wall:g} mm wall, {p.clearance:g} mm clearance, "
                 f"so the outside is {p.clearance + p.wall:g} mm larger on every side. Print it standing as shown.")
     colors = colors_used(p)
+    bottom = (f" The bottom (below everything you see on top) is a body of its own in {p.base_colour.replace('_', ' ')}, "
+              f"to save the scarcer colours." if colors[0] == p.base_colour and p.base_colour else "")
     return (f"{n}: {t.title.lower()}, {t.description}; {p.shape}, {dims}, {p.thickness:g} mm thick. "
-            f"{len(colors)} colours: {', '.join(c.replace('_', ' ') for c in colors)} (base first).")
+            f"{len(colors)} colours: {', '.join(c.replace('_', ' ') for c in colors)} (bottom first).{bottom}")
 
 
 def main() -> None:
@@ -1618,9 +1784,10 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--wall", type=float, default=1.2, help="connector wall thickness (mm)")
     ap.add_argument("--clearance", type=float, default=0.1, help="connector clearance round the tile (mm)")
+    ap.add_argument("--base-colour", default="white", help="colour of the tile's bottom body ('' = the tile's own)")
     ap.add_argument("--out", default="game_tile.step")
     a = ap.parse_args()
-    p = TileParams(a.type, a.shape, a.size, a.length, a.thickness, a.inlay_depth, a.count, a.seed, a.wall, a.clearance)
+    p = TileParams(a.type, a.shape, a.size, a.length, a.thickness, a.inlay_depth, a.count, a.seed, a.wall, a.clearance, a.base_colour)
     export_step(build_tiles(p), a.out)
     print(describe(p))
     print(f"Wrote {a.out}")
