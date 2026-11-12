@@ -1483,8 +1483,14 @@ def _sea(c: Ctx) -> Design:
         ridges.append(_clip_to_tile(c, _lofted_ridge(xs, profile), 2 * height))
         ends = np.array([(profile(x)[0][0], profile(x)[-1][0]) for x in xs])
         feet.append(_poly(np.vstack([np.column_stack([xs, ends[:, 1] - 0.2]), np.column_stack([xs, ends[:, 0] + 0.2])[::-1]])))
-    caps = [Part((r & Pos(-c.w, -c.h, 1.08 * height) * Box(2 * c.w, 2 * c.h, 2 * height, align=Align.MIN)).wrapped)
-            for r in ridges]
+
+    def crest(r):  # the foam: the part above 1.08 * height, if any (none where the tile cuts a wave low)
+        top = r & Pos(-c.w, -c.h, 1.08 * height) * Box(2 * c.w, 2 * c.h, 2 * height, align=Align.MIN)
+        try:
+            return Part(top.wrapped)
+        except AssertionError:  # an empty result
+            return Part()
+    caps = [crest(r) for r in ridges]
     waves = [Part((r - cap).wrapped) if cap.solids() else r for r, cap in zip(ridges, caps)]
     caps = [cap for cap in caps if cap.solids()]
     # Ripples and a few foam flecks in the flat troughs between the waves.
