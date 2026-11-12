@@ -2102,7 +2102,9 @@ def build_tiles(p: TileParams) -> Compound:
     return Compound(children=children, label=f"game_tile_{p.tile_type}")
 
 
-def describe(p: TileParams) -> str:
+def describe(p: TileParams, colors: list[str] | None = None) -> str:
+    """A sentence about the tile; `colors` (colors_used) when already known, as working them
+    out makes the whole design."""
     t = TILE_TYPES[p.tile_type]
     if p.shape == "rectangle":
         dims = f"{p.size:g} x {p.length:g} mm"
@@ -2117,7 +2119,7 @@ def describe(p: TileParams) -> str:
         n = f"{p.count} connectors" if p.count > 1 else "Connector"
         return (f"{n}: {t.description}; for {p.shape} tiles, {dims}: {p.wall:g} mm wall, {p.clearance:g} mm clearance, "
                 f"so the outside is {p.clearance + p.wall:g} mm larger on every side. Print it standing as shown.")
-    colors = colors_used(p)
+    colors = colors if colors is not None else colors_used(p)
     bottom = (f" The bottom (below everything you see on top) is a body of its own in {p.base_colour.replace('_', ' ')}, "
               f"to save the scarcer colours." if colors[0] == p.base_colour and p.base_colour else "")
     return (f"{n}: {t.title.lower()}, {t.description}; {p.shape}, {dims}, {p.thickness:g} mm thick. "

@@ -197,9 +197,10 @@ def defaults_route() -> dict:
 
 @router.get("/info")
 def info(p: TileParams = Depends(_params)) -> dict:
+	colours = _colours(p)
 	return {
-		"summary": describe(p),
-		"colors": [{"name": name.replace("_", " "), "hex": _hex(PALETTE[name])} for name in _colours(p)],
+		"summary": describe(p, colours),
+		"colors": [{"name": name.replace("_", " "), "hex": _hex(PALETTE[name])} for name in colours],
 	}
 
 
