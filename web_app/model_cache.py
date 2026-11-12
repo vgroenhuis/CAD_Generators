@@ -27,6 +27,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -71,14 +72,15 @@ class DiskCache:
     Lives in $CAD_CACHE_DIR (default ~/.cache/cad-generators); CAD_DISK_CACHE=0 turns it off.
     Files are written atomically (temp file + rename), so worker processes can share the
     folder. Reading a file refreshes its time stamp; when the folder grows beyond
-    $CAD_DISK_CACHE_MB (default 2000) the least recently used files are deleted, which also
-    clears out files of older code versions.
+    $CAD_DISK_CACHE_MB (default 20000) the least recently used files are deleted, which also
+    clears out files of older code versions. Files of older code versions are not served for
+    a request, but can be listed and fetched as they are (see entries and stored_file).
     """
 
     def __init__(self) -> None:
         self.enabled = os.environ.get("CAD_DISK_CACHE", "1") != "0"
         self.root = Path(os.environ.get("CAD_CACHE_DIR", Path.home() / ".cache" / "cad-generators"))
-        self.limit = int(float(os.environ.get("CAD_DISK_CACHE_MB", "2000")) * 1e6)
+        self.limit = int(float(os.environ.get("CAD_DISK_CACHE_MB", "20000")) * 1e6)
         self.version = _code_version() if self.enabled else ""
         self._lock = threading.Lock()
 
@@ -126,10 +128,10 @@ class DiskCache:
         except OSError:
             log.exception("disk cache: could not write %s", path)
 
-    def entries(self, name: str) -> list[dict]:
-        """The stored entries of one cache made by the current code, most recently used first:
-        their meta data, which files are there (kind -> size in bytes) and when they were made
-        and last used."""
+    def entries(self, name: str, all_versions: bool = False) -> list[dict]:
+        """The stored entries of one cache made by the current code (or by any code, with
+        all_versions), most recently used first: their id, meta data, code version, which files
+        are there (kind -> size in bytes) and when they were made and last used."""
         out = []
         if not self.enabled:
             return out
@@ -138,7 +140,7 @@ class DiskCache:
                 record = json.loads(meta_path.read_text())
             except (OSError, ValueError):
                 continue
-            if record.get("version") != self.version:
+            if record.get("version") != self.version and not all_versions:
                 continue
             files, used = {}, 0.0
             for f in meta_path.parent.glob(meta_path.stem + ".*"):
@@ -149,9 +151,18 @@ class DiskCache:
                 files[kind] = st.st_size
                 used = max(used, st.st_mtime)
             if files:
-                out.append({"id": meta_path.stem, "meta": record.get("meta", {}), "files": files,
+                out.append({"id": meta_path.stem, "meta": record.get("meta", {}), "files": files, "version": record.get("version"),
                             "created": record.get("created"), "used": used})
         return sorted(out, key=lambda e: e["used"], reverse=True)
+
+    def stored_file(self, name: str, entry_id: str, kind: str) -> bytes | None:
+        """A stored file by entry id (see entries) and kind, whatever code made it."""
+        if not self.enabled or not re.fullmatch(r"[0-9a-f]{32}", entry_id) or not re.fullmatch(r"[a-z0-9_-]{1,20}", kind) or kind == "json":
+            return None
+        try:
+            return (self.root / name / f"{entry_id}.{kind}").read_bytes()
+        except OSError:
+            return None
 
     def usage(self, name: str | None = None) -> int:
         """Bytes on disk, of one cache (all code versions) or of the whole store."""

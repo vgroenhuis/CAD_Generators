@@ -29,6 +29,7 @@ from game_tiles_app.game_tile_model import (
 	DEFAULT_ROUGH_SIZE, HILLS, MAX_COUNT, PALETTE, ROUGHNESS, SMOOTH_ABOVE_TOP, hilliness, roughness, SHAPES, TILE_TYPES, TileParams, _layout, build_tiles, colors_used, describe,
 	outline_points, validate,
 )
+from web_app import code_versions
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, disk, warm as warm_entry
 
@@ -240,22 +241,50 @@ def colours() -> dict:
 
 
 @router.get("/stored")
-def stored() -> dict:
-	"""The tiles stored on disk (made by the current code), most recently used first: their
-	parameters, title, colours, which files are ready (kind -> bytes) and when they were made
-	and last used (Unix time); and the space used on disk (bytes): by the listed tiles, by all
-	game tile files (older versions included), by the whole store, and its limit."""
+def stored(older: bool = Query(True)) -> dict:
+	"""The tiles stored on disk, most recently used first: their id, parameters, title, colours,
+	which files are ready (kind -> bytes), when they were made and last used (Unix time), and
+	the code that made them (version, the git commit and its date when known, and whether it
+	is the current code); with older=false only those made by the current code. Also the space
+	used on disk (bytes): by the listed tiles of the current code, by all game tile files, by
+	the whole store, and its limit. Files of older code are fetched with /stored/{id}/{kind}."""
+	commits = code_versions.commits() if older else {}
 	tiles = []
-	for e in disk.entries(cache.name):
+	for e in disk.entries(cache.name, all_versions=older):
 		meta = e["meta"]
 		if "params" not in meta:
 			continue
-		tiles.append({**meta, "files": e["files"], "created": e["created"], "used": e["used"]})
-	listed = sum(sum(t["files"].values()) for t in tiles)
+		c = commits.get(e["version"], {})
+		tiles.append({**meta, "id": e["id"], "files": e["files"], "created": e["created"], "used": e["used"],
+					  "version": e["version"], "current": e["version"] == disk.version,
+					  "commit": c.get("commit"), "commit_date": c.get("date")})
+	listed = sum(sum(t["files"].values()) for t in tiles if t["current"])
 	return {
-		"enabled": disk.enabled, "tiles": tiles,
+		"enabled": disk.enabled, "tiles": tiles, "version": disk.version,
 		"bytes": {"listed": listed, "game_tiles": disk.usage(cache.name), "store": disk.usage(), "limit": disk.limit},
 	}
+
+
+_STORED_TYPES = {"png": "image/png", "glb": "model/gltf-binary"}
+
+
+@router.get("/stored/{entry_id}/{kind}")
+def stored_file(entry_id: str, kind: str):
+	"""A stored file as it was made, also by older code (ids from /stored): png, glb, 3mf, step."""
+	if kind not in ("png", "glb", "3mf", "step"):
+		raise HTTPException(status_code=404, detail="No such file.")
+	data = disk.stored_file(cache.name, entry_id, kind)
+	if data is None:
+		raise HTTPException(status_code=404, detail="That file is not stored (any more).")
+	if kind in _STORED_TYPES:
+		return Response(content=data, media_type=_STORED_TYPES[kind], headers={"Cache-Control": "max-age=86400"})
+	name = f"game_tile_{entry_id[:8]}.{kind}"
+	try:
+		meta = json.loads((disk.root / cache.name / f"{entry_id}.json").read_text())
+		name = _filename(TileParams(**meta["meta"]["params"]), kind)
+	except (OSError, ValueError, KeyError, TypeError):
+		pass
+	return download_response(data, name)
 
 
 @router.get("/printers")

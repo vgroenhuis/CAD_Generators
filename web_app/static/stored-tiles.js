@@ -51,12 +51,34 @@ function fileLink(label, href, bytes) {
 	return a;
 }
 
+// A file as stored (made by older code): there or not, it is not made again.
+function storedLink(label, tile, kind) {
+	const bytes = tile.files[kind];
+	if (!bytes) return el("span", { class: "later" }, `${label}: not stored`);
+	return el("a", { href: `${API}/stored/${tile.id}/${kind}` }, `${label} `, el("span", { class: "ready" }, size(bytes)));
+}
+
+function day(seconds) {
+	return new Date(seconds * 1000).toLocaleDateString(undefined, { dateStyle: "medium" });
+}
+
+function versionCell(tile) {
+	const td = el("td", { class: "when" });
+	td.append(tile.commit ? el("span", { class: "commit", title: `code version ${tile.version}` }, tile.commit)
+		: el("span", { class: "commit", title: "code that was not committed to git" }, tile.version.slice(0, 7)));
+	if (tile.commit_date) td.append(el("div", { class: "sub" }, day(tile.commit_date)));
+	td.append(el("div", {}, tile.current ? el("span", { class: "current" }, "current") : el("span", { class: "older" }, "older")));
+	return td;
+}
+
 function row(tile, palette) {
 	const p = tile.params;
 	const q = query(p);
 	const open = `game-tiles.html?${q}`;
+	const thumbSrc = tile.current ? `${API}/thumbnail.png?${q}` : `${API}/stored/${tile.id}/png`;
 	const thumb = tile.files.png
-		? el("a", { href: open, title: "Open in the generator" }, el("img", { src: `${API}/thumbnail.png?${q}`, alt: tile.title, loading: "lazy" }))
+		? el("a", { href: tile.current ? open : thumbSrc, title: tile.current ? "Open in the generator" : "The stored picture" },
+			el("img", { src: thumbSrc, alt: tile.title, loading: "lazy" }))
 		: el("div", { class: "none" }, "no picture yet");
 	const colours = el("div", { class: "colours" });
 	for (const name of tile.colours || []) {
@@ -64,11 +86,16 @@ function row(tile, palette) {
 		if (palette[name]) sw.style.background = palette[name];
 		colours.append(el("div", {}, sw, name.replace(/_/g, " ")));
 	}
-	const links = el("div", { class: "links" },
-		el("a", { href: open }, "Open in the generator"),
-		fileLink("3MF", `${API}/export.3mf?${q}`, tile.files["3mf"]),
-		fileLink("STEP", `${API}/export.step?${q}`, tile.files.step));
-	return el("tr", {},
+	const links = tile.current
+		? el("div", { class: "links" },
+			el("a", { href: open }, "Open in the generator"),
+			fileLink("3MF", `${API}/export.3mf?${q}`, tile.files["3mf"]),
+			fileLink("STEP", `${API}/export.step?${q}`, tile.files.step))
+		: el("div", { class: "links" },
+			storedLink("3MF", tile, "3mf"),
+			storedLink("STEP", tile, "step"),
+			el("a", { href: open, title: "Made with the current code: it can differ from this one" }, "Open in the generator (current version)"));
+	const tr = el("tr", { class: tile.current ? "" : "old" },
 		el("td", { class: "thumb" }, thumb),
 		el("td", {}, tile.title),
 		el("td", {}, p.shape),
@@ -79,10 +106,29 @@ function row(tile, palette) {
 		el("td", { class: "num" }, `${p.count}`),
 		el("td", { class: "num" }, `${p.seed}`),
 		el("td", {}, colours),
+		versionCell(tile),
 		el("td", { class: "when" }, when(tile.created)),
 		el("td", { class: "when" }, when(tile.used)),
 		el("td", {}, links));
+	return tr;
 }
+
+const olderBox = document.getElementById("older");
+let allTiles = [], thePalette = {};
+
+function show() {
+	const tiles = olderBox.checked ? allTiles : allTiles.filter((t) => t.current);
+	rows.replaceChildren(...tiles.map((t) => row(t, thePalette)));
+	table.hidden = !tiles.length;
+}
+
+try {
+	olderBox.checked = localStorage.getItem("stored-tiles-older") !== "0";
+} catch { /* no storage: show them */ }
+olderBox.addEventListener("change", () => {
+	try { localStorage.setItem("stored-tiles-older", olderBox.checked ? "1" : "0"); } catch { /* fine */ }
+	show();
+});
 
 async function load() {
 	try {
@@ -95,15 +141,18 @@ async function load() {
 			return;
 		}
 		const b = stored.bytes;
+		const current = stored.tiles.filter((t) => t.current).length;
+		const older = stored.tiles.length - current;
 		let text = stored.tiles.length
-			? `${stored.tiles.length} stored tile${stored.tiles.length === 1 ? "" : "s"}, ${size(b.listed)} on disk.`
+			? `${current} tile${current === 1 ? "" : "s"} made by the current version` + (current ? ` (${size(b.listed)})` : "") +
+				(older ? `, and ${older} made by older versions.` : ".")
 			: "No stored tiles yet. Tiles you generate are added here.";
-		if (b.game_tiles > b.listed * 1.01) text += ` All game tile files, older versions included: ${size(b.game_tiles)}.`;
-		text += ` The whole store (all generators): ${size(b.store)} of ${size(b.limit)}.`;
+		text += ` All game tile files: ${size(b.game_tiles)}; the whole store (all generators): ${size(b.store)} of ${size(b.limit)}.`;
 		statusEl.textContent = text;
-		if (!stored.tiles.length) return;
-		rows.replaceChildren(...stored.tiles.map((t) => row(t, palette)));
-		table.hidden = false;
+		allTiles = stored.tiles;
+		thePalette = palette;
+		document.getElementById("filter").hidden = !older;
+		show();
 	} catch (exc) {
 		statusEl.textContent = exc.message || String(exc);
 		statusEl.classList.add("error");

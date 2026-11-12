@@ -6,7 +6,8 @@ run_web.bat shortcut at the repo root, or manually with:
 
 At startup the default model of every generator is built in the background (with its
 preview, 3MF and STEP file) and kept in the cache, so a visitor who opens a page with
-its default settings gets them immediately. Set CAD_WARM_CACHE=0 to skip that.
+its default settings gets them immediately. Set CAD_WARM_CACHE=0 to skip that. After that,
+every game tile type in every shape is made whenever the server is idle (see pregenerate.py).
 """
 
 import logging
@@ -19,7 +20,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
-from web_app import progress
+from web_app import pregenerate, progress
 from web_app.generators import (
 	apriltag_cube, cable_clip, calibration_plate, game_tiles, orifice, pneumatic, powerbank_holder, ring, sanding_rack,
 )
@@ -42,17 +43,21 @@ def warm_defaults() -> None:
 		except Exception:
 			log.exception("warming the default %s failed", module.__name__)
 	log.info("default models are ready")
+	pregenerate.start()  # then the missing game tiles, whenever the server is idle
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
 	if os.environ.get("CAD_WARM_CACHE", "1") != "0":
 		threading.Thread(target=warm_defaults, name="warm-defaults", daemon=True).start()
+	else:
+		pregenerate.start()  # (only with CAD_PREGENERATE=1)
 	yield
 
 
 app = FastAPI(title="CAD Generators", lifespan=lifespan)
 app.add_middleware(progress.ProgressMiddleware)
+app.add_middleware(pregenerate.ActivityMiddleware)  # tells the pre-generating process when the server is idle
 
 # Registered before the static mount below, so these specific API paths are
 # matched first -- a StaticFiles mount at "/" would otherwise try (and fail)
