@@ -20,6 +20,9 @@
 	.controls label { display: block; margin-top: 12px; font-size: 13px; color: #c0c4c9; }
 	.controls input { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; background: #2a2e33; border: 1px solid #3a3f45; color: #e8e8e8; border-radius: 4px; }
 	.controls button { margin-top: 16px; width: 100%; padding: 8px; border-radius: 4px; border: none; cursor: pointer; font-size: 14px; }
+	#defaults-btn { background: #3a3f45; color: #e8e8e8; }
+	#defaults-btn:hover { background: #4a4f55; }
+	#defaults-btn + #generate-btn { margin-top: 8px; }
 	#generate-btn { background: #5a8cd2; color: white; }
 	#generate-btn:hover { background: #4a7cc2; }
 	#download-btn { background: #3a3f45; color: #e8e8e8; margin-top: 8px; }
@@ -125,13 +128,14 @@
 				</div>
 			</div>
 
+			<button id="defaults-btn" type="button" title="Every setting back to its default; the tile type stays">Restore default settings</button>
 			<button id="generate-btn">Generate</button>
 			<label for="printer">3MF for Bambu Studio</label>
 			<select id="printer" title="Every 3MF puts each colour on its own filament slot in Bambu Studio and OrcaSlicer, in the order of the colour list. With your Bambu Lab printer chosen, the 3MF is also a Bambu Studio project for it: open it as a project and the filament colours come along, with the printer's standard presets (0.20mm Standard, Bambu PLA Basic) and the tiles in the middle of the plate. Other slicers read either kind."><option value="">Any slicer (slots only, no colours)</option></select>
 			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
 			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
 
-			<div id="status">Choose a tile and click Generate.</div>
+			<div id="status">Loading the settings...</div>
 			<div id="info"></div>
 			<div class="swatches" id="swatches"></div>
 			<div class="hint" id="mesh-stats"></div>

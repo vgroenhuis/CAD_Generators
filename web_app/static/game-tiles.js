@@ -203,6 +203,45 @@ async function showMeshStats(query, mine) {
 	}
 }
 
+// Puts a model (a glTF file) in the viewer, in place of the one shown.
+async function showModel(buffer) {
+	const gltf = await new Promise((resolve, reject) => gltfLoader.parse(buffer, "", resolve, reject));
+	if (currentModel) scene.remove(currentModel);
+	currentModel = gltf.scene;
+	currentModel.traverse((child) => {
+		if (child.isMesh) {
+			const color = child.material && child.material.color ? child.material.color : new THREE.Color(0xdddddd);
+			// Rough (fuzzy) tiles come without normals: shade their triangles flat.
+			const flatShading = !child.geometry.attributes.normal;
+			child.material = new THREE.MeshStandardMaterial({ color, metalness: 0.0, roughness: 0.7, flatShading });
+		}
+	});
+	scene.add(currentModel);
+	if (!cameraFitted) {
+		fitCameraToObject(currentModel);
+		cameraFitted = true;
+	}
+	placeholderEl.style.display = "none";
+}
+
+// A tile opened from the list of stored tiles that an older version made: its stored preview is
+// shown at once, while the current version makes it again.
+let storedId = new URLSearchParams(window.location.search).get("stored");
+if (storedId && !/^[0-9a-f]{32}$/.test(storedId)) storedId = null;
+
+async function showStored(id, mine) {
+	try {
+		const response = await fetch(`${API}/stored/${id}/glb`);
+		if (!response.ok || mine !== generation) return false;
+		const buffer = await response.arrayBuffer();
+		if (mine !== generation) return false;
+		await showModel(buffer);
+		return true;
+	} catch (exc) {
+		return false;  // then just wait for the new one
+	}
+}
+
 async function onGenerate() {
 	let params;
 	try {
@@ -215,11 +254,20 @@ async function onGenerate() {
 	generateBtn.disabled = true;
 	downloadBtn.disabled = true;
 	downloadStepBtn.disabled = true;
+	setStatus("Starting...");  // at once, so it is clear something happens
 	const query = buildQuery(params);
+	const stored = storedId;
+	storedId = null;  // only for the tile as opened
+	let note = "";
 	try {
-		// The summary is cheap and validates the parameters before the build.
+		if (stored && await showStored(stored, mine)) {
+			note = "Showing the stored tile, made by an older version. ";
+			setStatus(`${note}Making it with the current version...`);
+		}
+		const status = (text) => { if (mine === generation) setStatus(note + text); };
+		// The summary validates the parameters before the build.
 		meshStatsEl.textContent = "";
-		const infoResponse = await fetch(`${API}/info?${query}`);
+		const infoResponse = await fetchWithProgress(`${API}/info?${query}`, status);
 		if (mine !== generation) return;
 		if (!infoResponse.ok) {
 			infoEl.textContent = "";
@@ -228,40 +276,27 @@ async function onGenerate() {
 			return;
 		}
 		const info = await infoResponse.json();
+		if (mine !== generation) return;
 		infoEl.textContent = info.summary;
 		showColors(info.colors);
 
-		const response = await fetchWithProgress(`${API}/preview.glb?${query}`, setStatus);
+		const response = await fetchWithProgress(`${API}/preview.glb?${query}`, status);
 		if (mine !== generation) return;
 		if (!response.ok) {
 			setStatus(await friendlyErrorMessage(response), true);
 			return;
 		}
 		const buffer = await response.arrayBuffer();
-		const gltf = await new Promise((resolve, reject) => gltfLoader.parse(buffer, "", resolve, reject));
 		if (mine !== generation) return;
-		if (currentModel) scene.remove(currentModel);
-		currentModel = gltf.scene;
-		currentModel.traverse((child) => {
-			if (child.isMesh) {
-				const color = child.material && child.material.color ? child.material.color : new THREE.Color(0xdddddd);
-				// Rough (fuzzy) tiles come without normals: shade their triangles flat.
-				const flatShading = !child.geometry.attributes.normal;
-				child.material = new THREE.MeshStandardMaterial({ color, metalness: 0.0, roughness: 0.7, flatShading });
-			}
-		});
-		scene.add(currentModel);
-		if (!cameraFitted) {
-			fitCameraToObject(currentModel);
-			cameraFitted = true;
-		}
-		placeholderEl.style.display = "none";
+		setStatus("Showing the model...");
+		await showModel(buffer);
+		if (mine !== generation) return;
 		downloadBtn.disabled = false;
 		downloadStepBtn.disabled = false;
 		setStatus(`Generated, ${info.colors.length} colours. Drag to rotate.`);
 		showMeshStats(query, mine);
 	} catch (exc) {
-		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
+		if (mine === generation) setStatus(`Failed to load preview: ${exc.message || exc}`, true);
 	} finally {
 		if (mine === generation) generateBtn.disabled = false;
 	}
@@ -309,6 +344,7 @@ async function setup() {
 	const response = await fetch(`${API}/defaults`, { cache: "no-store" });
 	if (!response.ok) throw new Error(`Could not load the default settings (${response.status}).`);
 	const defaults = await response.json();
+	startDefaults = defaults;
 	tileTypes = defaults.types;
 	const groups = new Map();
 	for (const t of tileTypes) {
@@ -349,6 +385,23 @@ async function setup() {
 	onGenerate();
 }
 
+let startDefaults = null;
+
+// Every setting back to its default, except the tile type; the roughness fields go back to the
+// type's own. Then the tile is made with them.
+function restoreDefaults() {
+	if (!startDefaults) return;
+	shapeSelect.value = startDefaults.shape;
+	baseSelect.value = startDefaults.base_colour;
+	for (const id of NUMBER_FIELDS) document.getElementById(id).value = String(startDefaults[id]);
+	for (const id of SURFACE_FIELDS) document.getElementById(id).value = "";
+	// The address no longer describes the tile shown (it may have come from the stored tiles).
+	history.replaceState(null, "", `${location.pathname}?tile_type=${encodeURIComponent(typeSelect.value)}`);
+	updateShape();
+	onGenerate();
+}
+
+document.getElementById("defaults-btn").addEventListener("click", restoreDefaults);
 generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));

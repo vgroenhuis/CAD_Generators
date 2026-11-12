@@ -72,7 +72,7 @@ function row(tile, palette) {
 	const open = `game-tiles.html?${q}`;
 	const thumbSrc = tile.current ? `${API}/thumbnail.png?${q}` : `${API}/stored/${tile.id}/png`;
 	const thumb = tile.files.png
-		? el("a", { href: tile.current ? open : thumbSrc, title: tile.current ? "Open in the generator" : "The stored picture" },
+		? el("a", { href: tile.current ? open : `${open}&stored=${tile.id}`, title: "Open in the generator" },
 			el("img", { src: thumbSrc, alt: tile.title, loading: "lazy" }))
 		: el("div", { class: "none" }, "no picture yet");
 	const colours = el("div", { class: "colours" });
@@ -89,7 +89,7 @@ function row(tile, palette) {
 		: el("div", { class: "links" },
 			storedLink("3MF", tile, "3mf"),
 			storedLink("STEP", tile, "step"),
-			el("a", { href: open, title: "Made with the current code: it can differ from this one" }, "Open in the generator (current version)"));
+			el("a", { href: `${open}&stored=${tile.id}`, title: "Shows this stored tile at once, then makes it with the current version, which can differ" }, "Open in the generator"));
 	const tr = el("tr", { class: tile.current ? "" : "old" },
 		el("td", { class: "thumb" }, thumb),
 		el("td", {}, tile.title),

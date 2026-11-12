@@ -31,6 +31,7 @@ from game_tiles_app.game_tile_model import (
 )
 from web_app import code_versions
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
+from web_app.progress import report
 from web_app.model_cache import ModelCache, disk, warm as warm_entry
 
 router = APIRouter()
@@ -38,7 +39,34 @@ router = APIRouter()
 
 def _meta(p: TileParams) -> dict:
 	"""What the list of stored tiles shows about a tile."""
-	return {"params": asdict(p), "title": TILE_TYPES[p.tile_type].title, "colours": colors_used(p)}
+	return {"params": asdict(p), "title": TILE_TYPES[p.tile_type].title, "colours": _colours(p)}
+
+
+_colour_memo: dict[tuple, list[str]] = {}
+
+
+def _colours(p: TileParams) -> list[str]:
+	"""The tile's colours (colors_used). Working them out means making the tile's whole design,
+	which takes up to a minute for some types: taken from the stored tile when there is one,
+	and remembered for the most recent tiles."""
+	key = _key(p)
+	if key in _colour_memo:
+		return _colour_memo[key]
+	names = None
+	try:
+		names = json.loads(disk.path(cache.name, key, "json").read_text())["meta"]["colours"]
+	except (OSError, ValueError, KeyError, TypeError):
+		pass
+	if not isinstance(names, list):
+		report("Working out the colours")
+		names = colors_used(p)
+	while len(_colour_memo) >= 64:
+		try:
+			_colour_memo.pop(next(iter(_colour_memo)))
+		except (StopIteration, KeyError, RuntimeError):  # another request trimmed it at the same time
+			break
+	_colour_memo[key] = names
+	return names
 
 
 cache = ModelCache("game_tiles", build_tiles, size=8, meta=_meta)
@@ -171,7 +199,7 @@ def defaults_route() -> dict:
 def info(p: TileParams = Depends(_params)) -> dict:
 	return {
 		"summary": describe(p),
-		"colors": [{"name": name.replace("_", " "), "hex": _hex(PALETTE[name])} for name in colors_used(p)],
+		"colors": [{"name": name.replace("_", " "), "hex": _hex(PALETTE[name])} for name in _colours(p)],
 	}
 
 
