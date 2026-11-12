@@ -1,6 +1,6 @@
 """Pre-generating game tiles while the server has nothing to do.
 
-Every tile type in every shape (but the rectangle), with all other settings at their defaults, gets all its files
+Every tile type as a 40 mm square, with all other settings at their defaults, gets all its files
 (thumbnail, 3D preview, 3MF, STEP) in the disk cache, so the list of stored tiles is complete
 and those tiles download at once. Older versions of a tile made again are deleted. The code version is part of every cache key, so after an
 update the tiles are made again, one by one, in idle time.
@@ -128,11 +128,11 @@ def start() -> None:
 
 
 def wanted() -> list:
-	"""Every tile type in every shape but the rectangle (its default size, 40 x 60 mm, is rarely
-	wanted), with all other settings at their defaults (squares first)."""
-	from game_tiles_app.game_tile_model import SHAPES, TILE_TYPES, TileParams
+	"""Every tile type as a square, with all other settings at their defaults (the other shapes
+	are rarely wanted)."""
+	from game_tiles_app.game_tile_model import TILE_TYPES, TileParams
 
-	return [TileParams(tile_type=t, shape=s) for s in SHAPES if s != "rectangle" for t in TILE_TYPES]
+	return [TileParams(tile_type=t, shape="square") for t in TILE_TYPES]
 
 
 def missing() -> list:
