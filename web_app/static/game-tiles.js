@@ -8,6 +8,8 @@ const API = "api/game-tiles";
 // Input ids = query parameter names.
 const NUMBER_FIELDS = ["size", "length", "thickness", "inlay_depth", "count", "seed", "wall", "clearance"];
 const INTEGER_FIELDS = ["count", "seed"];
+// The rough top and the hills: empty means the type's own (sent as -1), shown as the placeholder.
+const SURFACE_FIELDS = ["rough_depth", "rough_size", "hill_height"];
 const typeSelect = document.getElementById("tile_type");
 const shapeSelect = document.getElementById("shape");
 const typeDescription = document.getElementById("type-description");
@@ -130,6 +132,16 @@ function readParams() {
 		if (!Number.isFinite(value)) throw new Error(`${label} must be a number (use a dot as decimal separator).`);
 		if (INTEGER_FIELDS.includes(id) && !Number.isInteger(value)) throw new Error(`${label} must be a whole number.`);
 		params[id] = value;
+	}
+	if (!typeSelect.value.startsWith("connector")) {
+		for (const id of SURFACE_FIELDS) {
+			const text = document.getElementById(id).value.trim();
+			if (text === "") continue;  // the type's own
+			const value = parseNumber(text);
+			const label = document.querySelector(`label[for="${id}"]`).textContent;
+			if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be a number of 0 or more, or empty for the type's own.`);
+			params[id] = value;
+		}
 	}
 	return params;
 }
@@ -280,6 +292,13 @@ function updateShape() {
 	lengthBox.style.visibility = shape === "rectangle" ? "visible" : "hidden";
 }
 
+// The type's own rough top and hills, as placeholders of the empty fields.
+function updateSurfacePlaceholders() {
+	const t = tileTypes.find((x) => x.id === typeSelect.value);
+	if (!t) return;
+	for (const id of SURFACE_FIELDS) document.getElementById(id).placeholder = String(t[id]);
+}
+
 function updateDescription() {
 	const t = tileTypes.find((x) => x.id === typeSelect.value);
 	typeDescription.textContent = t ? `${t.description[0].toUpperCase()}${t.description.slice(1)}.` : "";
@@ -319,6 +338,11 @@ async function setup() {
 	for (const id of NUMBER_FIELDS) {
 		if (fromUrl.has(id) && Number.isFinite(parseNumber(fromUrl.get(id)))) document.getElementById(id).value = fromUrl.get(id);
 	}
+	for (const id of SURFACE_FIELDS) {
+		const v = parseNumber(fromUrl.get(id) ?? "");
+		if (Number.isFinite(v) && v >= 0) document.getElementById(id).value = fromUrl.get(id);
+	}
+	updateSurfacePlaceholders();
 	updateShape();
 	updateTypeFields();
 	updateDescription();
@@ -335,9 +359,12 @@ function updateTypeFields() {
 	document.getElementById("tile-row").hidden = connector;
 	document.getElementById("connector-row").hidden = !connector;
 	document.getElementById("base-box").hidden = connector;
+	document.getElementById("rough-box").hidden = connector;
 }
 
 typeSelect.addEventListener("change", () => {
+	for (const id of SURFACE_FIELDS) document.getElementById(id).value = "";  // the new type's own
+	updateSurfacePlaceholders();
 	updateTypeFields();
 	updateDescription();
 	onGenerate();
@@ -352,7 +379,7 @@ document.getElementById("next-seed").addEventListener("click", () => {
 	seedInput.value = String(Number.isInteger(seed) ? seed + 1 : 1);
 	onGenerate();
 });
-NUMBER_FIELDS.forEach((id) => {
+[...NUMBER_FIELDS, ...SURFACE_FIELDS].forEach((id) => {
 	const el = document.getElementById(id);
 	el.addEventListener("input", () => {
 		downloadBtn.disabled = true;

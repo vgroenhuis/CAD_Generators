@@ -26,7 +26,7 @@ from cad_common.mesh_export import meshes_of, meshes_to_3mf, meshes_to_glb
 from cad_common.mesh_fuzz import fuzz, hills, subdivide
 from cad_common.thumbnail import render_png
 from game_tiles_app.game_tile_model import (
-	HILLS, MAX_COUNT, PALETTE, ROUGHNESS, SMOOTH_ABOVE_TOP, SHAPES, TILE_TYPES, TileParams, _layout, build_tiles, colors_used, describe,
+	DEFAULT_ROUGH_SIZE, HILLS, MAX_COUNT, PALETTE, ROUGHNESS, SMOOTH_ABOVE_TOP, hilliness, roughness, SHAPES, TILE_TYPES, TileParams, _layout, build_tiles, colors_used, describe,
 	outline_points, validate,
 )
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
@@ -61,6 +61,9 @@ def _params(
 	wall: float = Query(TileParams.wall, gt=0, le=100),  # connectors only
 	clearance: float = Query(TileParams.clearance, ge=0, le=100),  # connectors only
 	base_colour: str = Query(TileParams.base_colour, max_length=20),  # "" = the tile's own base colour
+	rough_depth: float = Query(TileParams.rough_depth, ge=-1, le=100),  # negative: the type's own
+	rough_size: float = Query(TileParams.rough_size, ge=-1, le=1000),
+	hill_height: float = Query(TileParams.hill_height, ge=-1, le=100),
 ) -> TileParams:
 	if tile_type == "connector":  # the connector with a ledge is gone: old links get the one that replaced it
 		tile_type = "connector_corners"
@@ -68,9 +71,21 @@ def _params(
 		length = DEFAULT.length  # not used; keeps the cache key unique
 	if tile_type.startswith("connector"):  # thickness, colour depth and base colour don't apply
 		thickness, inlay_depth, base_colour = DEFAULT.thickness, DEFAULT.inlay_depth, DEFAULT.base_colour
+		rough_depth, rough_size, hill_height = DEFAULT.rough_depth, DEFAULT.rough_size, DEFAULT.hill_height
 	else:  # wall and clearance only apply to connectors
 		wall, clearance = DEFAULT.wall, DEFAULT.clearance
-	p = TileParams(tile_type, shape, size, length, thickness, inlay_depth, count, seed, wall, clearance, base_colour)
+	# The type's own values given explicitly make the same tile: store them as "own" (-1), so
+	# it is one cache entry.
+	own_rough = ROUGHNESS.get(tile_type, (0.0, DEFAULT_ROUGH_SIZE))
+	own_hills = HILLS.get(tile_type, (0.0,))
+	if rough_depth < 0 or rough_depth == own_rough[0]:
+		rough_depth = -1.0
+	if rough_size <= 0 or rough_size == own_rough[1] or rough_depth == 0 or (rough_depth < 0 and own_rough[0] == 0):
+		rough_size = -1.0  # also when there is no rough top to size
+	if hill_height < 0 or hill_height == own_hills[0]:
+		hill_height = -1.0
+	p = TileParams(tile_type, shape, size, length, thickness, inlay_depth, count, seed, wall, clearance, base_colour,
+				   rough_depth, rough_size, hill_height)
 	try:
 		validate(p)
 	except ValueError as exc:
@@ -86,8 +101,8 @@ def _makers(p: TileParams, bambu: BambuPrinter | None = None) -> dict:
 	"""How to make each file: types with a rough surface get their meshes roughened (3MF and
 	preview); the STEP file always has the exact, smooth geometry. With `bambu` (a printer) the
 	3MF is a Bambu Studio project for it, with the filament colours."""
-	rough = ROUGHNESS.get(p.tile_type)
-	hilly = HILLS.get(p.tile_type)
+	rough = roughness(p)
+	hilly = hilliness(p)
 
 	def meshes(model, tolerance):
 		out = meshes_of(model, tolerance, 0.2)
@@ -142,7 +157,10 @@ def defaults_route() -> dict:
 	"""Starting values (by input id), plus the tile types (grouped) and shapes for the drop-downs."""
 	return {
 		**asdict(DEFAULT),
-		"types": [{"id": k, "title": t.title, "group": t.group, "description": t.description} for k, t in TILE_TYPES.items()],
+		"types": [{"id": k, "title": t.title, "group": t.group, "description": t.description,
+				   # the type's own rough top and hills (mm), shown when those fields are left empty
+				   "rough_depth": ROUGHNESS[k][0] if k in ROUGHNESS else 0, "rough_size": ROUGHNESS[k][1] if k in ROUGHNESS else DEFAULT_ROUGH_SIZE,
+				   "hill_height": HILLS[k][0] if k in HILLS else 0} for k, t in TILE_TYPES.items()],
 		"shapes": list(SHAPES),
 		"colours": list(PALETTE),
 	}

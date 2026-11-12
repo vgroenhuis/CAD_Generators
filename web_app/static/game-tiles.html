@@ -100,6 +100,17 @@
 				<div><label for="inlay_depth">Colour depth (mm)</label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="inlay_depth"></div>
 			</div>
+			<div id="rough-box">
+				<div class="row">
+					<div><label for="rough_depth">Roughness</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="rough_depth" title="How far the rough top goes up and down. Empty: this type's own; 0: smooth."></div>
+					<div><label for="rough_size">Bump size</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="rough_size" title="The size of the bumps of the rough top. Empty: this type's own."></div>
+					<div><label for="hill_height">Hills</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="hill_height" title="How far the gentle hills go up and down (they stay level at the edges, so tiles still fit). Empty: this type's own; 0: flat."></div>
+				</div>
+				<div class="hint">In mm; empty: the type's own (shown greyed), 0: smooth or flat. Only in the 3MF and the preview; the STEP file stays smooth.</div>
+			</div>
 			<div id="base-box">
 				<label for="base_colour">Bottom colour</label>
 				<select id="base_colour" title="The bottom of the tile, below everything you see on top, is a body of its own in this colour: print it in a filament you have plenty of."></select>

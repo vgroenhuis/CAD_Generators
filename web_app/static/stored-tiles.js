@@ -6,7 +6,7 @@ const table = document.getElementById("table");
 const rows = document.getElementById("rows");
 
 // Query parameters of a tile, in the order the generator's endpoints take them.
-const PARAM_KEYS = ["tile_type", "shape", "size", "length", "thickness", "inlay_depth", "count", "seed", "wall", "clearance", "base_colour"];
+const PARAM_KEYS = ["tile_type", "shape", "size", "length", "thickness", "inlay_depth", "count", "seed", "wall", "clearance", "base_colour", "rough_depth", "rough_size", "hill_height"];
 
 function el(tag, attrs = {}, ...children) {
 	const e = document.createElement(tag);

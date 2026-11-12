@@ -64,6 +64,11 @@ class TileParams:
     wall: float = 1.2  # connectors only: wall thickness
     clearance: float = 0.1  # connectors only: gap between tile and wall on every side
     base_colour: str = "white"  # the bottom of the tile, below everything visible on top; "" = the tile's own base colour
+    # The rough, hilly top in the printed mesh (3MF, preview; not the STEP file). Negative: the
+    # type's own value (ROUGHNESS, HILLS); a depth or hill height of 0 leaves it smooth or flat.
+    rough_depth: float = -1.0  # mm, how far the surface goes up and down
+    rough_size: float = -1.0  # mm, the size of the bumps (wavelength)
+    hill_height: float = -1.0  # mm, how far the gentle hills go up and down
 
 
 # Colour names (also the body names in the 3MF and STEP files) and their preview colours.
@@ -1440,6 +1445,202 @@ def _weight(c: Ctx) -> Design:
     ])
 
 
+# --- Large 3D shapes: sea waves, a dune, a mountain, a lightning bolt ---
+
+def _lofted_ridge(xs, profile) -> Part:
+    """A ridge running along x: the (y, z) polygon profile(x) (always the same number of
+    points) at every x in xs, joined by flat faces."""
+    sections = [Plane.YZ.offset(float(x)) * Polygon(*[(float(y), float(z)) for y, z in profile(x)], align=None) for x in xs]
+    return Part(loft(sections, ruled=True).wrapped)
+
+
+def _clip_to_tile(c: Ctx, part, top: float) -> Part:
+    """`part` cut off at the tile's outline (up to `top`, from 2 mm below the top face)."""
+    return Part((part & Pos(0, 0, -2) * extrude(c.outline, amount=top + 3)).wrapped)
+
+
+def _sea(c: Ctx) -> Design:
+    """Rolling sea: big waves across the tile, a gentle back and a steep front, with white
+    foam on the highest crests and small ripples in the troughs. The waves repeat from tile
+    to tile in both directions."""
+    n = max(2, round(c.h / (13 * c.k)))
+    pitch = c.h / n
+    height = c.hgt(3.5)
+    back, front = 0.5 * pitch, 0.35 * pitch
+    xs = np.linspace(-c.w / 2 - 1, c.w / 2 + 1, 25)
+    ridges, feet = [], []
+    for j in range(n):
+        yc = -c.h / 2 + front + j * pitch  # the crest; the steep front faces -y (the viewer)
+        m, phase, shift = c.rng.choice((1, 2)), c.rng.uniform(0, 2 * math.pi), c.rng.uniform(0, 2 * math.pi)
+
+        def profile(x, yc=yc, m=m, phase=phase, shift=shift):
+            h = height * (1 + 0.28 * math.cos(2 * math.pi * m * x / c.w + phase))
+            y0 = yc + 0.03 * pitch * math.sin(2 * math.pi * x / c.w + shift)
+            s = np.linspace(0, 1, 9)
+            rise = [(y0 + back * (1 - t), h * (0.5 - 0.5 * math.cos(math.pi * t))) for t in s]  # gentle back
+            fall = [(y0 - front * t, h * (1 - t) ** 1.6) for t in s[1:]]  # steep front
+            return [(y0 + back, -0.4)] + rise + fall + [(y0 - front, -0.4)]
+        ridges.append(_clip_to_tile(c, _lofted_ridge(xs, profile), 2 * height))
+        ends = np.array([(profile(x)[0][0], profile(x)[-1][0]) for x in xs])
+        feet.append(_poly(np.vstack([np.column_stack([xs, ends[:, 1] - 0.2]), np.column_stack([xs, ends[:, 0] + 0.2])[::-1]])))
+    caps = [Part((r & Pos(-c.w, -c.h, 1.08 * height) * Box(2 * c.w, 2 * c.h, 2 * height, align=Align.MIN)).wrapped)
+            for r in ridges]
+    waves = [Part((r - cap).wrapped) if cap.solids() else r for r, cap in zip(ridges, caps)]
+    caps = [cap for cap in caps if cap.solids()]
+    # Ripples and a few foam flecks in the flat troughs between the waves.
+    ripples, flecks = [], []
+    for j in range(n):
+        y = -c.h / 2 + j * pitch + back + front + 0.075 * pitch  # middle of the trough after wave j
+        if not -c.h / 2 < y < c.h / 2:
+            continue
+        x = np.linspace(-c.w / 2 - 2, c.w / 2 + 2, 60)
+        ripples.append(_stroke(np.column_stack([x, y + 0.25 * c.k * np.sin(2 * math.pi * 3 * x / c.w + j)]), 0.8))
+    ripples = _union(ripples)
+    ripples = _sk(ripples - _union(feet)) if ripples is not None else None  # in the troughs only
+    return Design("blue", [Layer("light_blue", ripples, c.hgt(0.4)),
+                           Layer("blue", None, solids=waves),
+                           Layer("white", None, solids=caps)])
+
+
+def _dune(c: Ctx) -> Design:
+    """A sand dune across the tile: a long, gentle windward slope with wind ripples and a sharp
+    crest above a steep slip face; pebbles and a shell on the flat sand. The dune continues on
+    the tiles to the left and right."""
+    height = max(1.5, 6 * c.k)
+    windward, slip = 3.4 * height, height / math.tan(math.radians(32))
+    amp = 0.06 * c.h
+    yc0 = (windward - slip) / 2 * 0.9 + c.cy
+    ph1, ph2 = c.rng.uniform(0, 2 * math.pi), c.rng.uniform(0, 2 * math.pi)
+    xs = np.linspace(-c.w / 2 - 1, c.w / 2 + 1, 25)
+
+    def crest(x):
+        return (yc0 + amp * math.sin(2 * math.pi * x / c.w + ph1),
+                height * (1 + 0.12 * math.cos(4 * math.pi * x / c.w + ph2)))
+
+    def profile(x):
+        yc, h = crest(x)
+        s = np.linspace(0, 1, 12)
+        rise = [(yc - windward * (1 - t), h * (3 * t * t - 2 * t ** 3) ** 0.85) for t in s]
+        fall = [(yc + slip * h / height * t, h * (1 - t) ** 1.15) for t in s[1:5:1]] + [(yc + slip * h / height, 0.0)]
+        return [(yc - windward, -0.4)] + rise + fall + [(yc + slip * h / height, -0.4)]
+    dune = _clip_to_tile(c, _lofted_ridge(xs, profile), 2 * height)
+    # Wind ripples across the windward slope, following the surface; none on the slip face,
+    # nor on the flat sand (its pebbles and shell stand there).
+    crest_pts = np.array([crest(x) for x in xs])
+    foot = _sk(_poly(np.vstack([np.column_stack([xs, crest_pts[:, 0] - windward - 1]),
+                                np.column_stack([xs, crest_pts[:, 0] + slip * crest_pts[:, 1] / height + 1])[::-1]])))
+    slip_face = _poly(np.vstack([np.column_stack([xs, crest_pts[:, 0] - 0.3]),
+                                 np.column_stack([xs, crest_pts[:, 0] + slip * crest_pts[:, 1] / height + 0.6])[::-1]]))
+    pitch = 3.6 * c.k
+    xr = np.linspace(-c.w / 2 - 2, c.w / 2 + 2, 70)
+    ripples = [_stroke(np.column_stack([xr, y0 + 0.6 * c.k * np.sin(2 * math.pi * 2 * xr / c.w + 0.9 * j)]), c.line(1.0))
+               for j, y0 in enumerate(np.arange(-c.h / 2, c.h / 2 + pitch, pitch))]
+    ripples = _sk(_sk(_sk(_union(ripples) - slip_face) & foot) & c.outline)
+    lift = c.hgt(0.5)
+    ground = dune + Pos(0, 0, -1) * extrude(_rect(-c.w, -c.h, c.w, c.h), amount=1)
+    skin = Part((((Pos(0, 0, lift) * ground) & (Pos(0, 0, -1) * extrude(ripples, amount=3 * height))) - ground).wrapped)
+    ys = crest_pts[:, 0]
+    keep_out = [(x, y, 0.6 * windward) for x, y in zip(xs[::3], ys[::3] - 0.3 * windward)]
+    keep_out += [(x, y, 0.5 * slip + 1) for x, y in zip(xs[::3], ys[::3] + 0.5 * slip)]
+    dots = [_circle(x, y, r) for x, y, r in c.scatter(int(c.area / 200), 0.6, 0.9 * max(1, c.k), 1.0, avoid=keep_out)]
+    shells, ribs = [], []
+    for x, y, r in c.scatter(1, 2.4 * c.k, 3.0 * c.k, 2.0, avoid=keep_out):
+        s, rb = _shell(x, y, r, c.rng.uniform(0, 360))
+        shells.append(s)
+        ribs += rb
+    off = lambda sk: _sk(sk - foot) if sk is not None else None  # flat sand only
+    return Design("sand", [Layer("sand", None, solids=[dune]),
+                           Layer("tan", None, solids=[skin] if skin.solids() else []),
+                           Layer("tan", off(_union(dots)), c.hgt(0.5), taper=30),
+                           Layer("white", off(_union(shells)), c.hgt(0.9), taper=15),
+                           Layer("white", off(_union(ribs)), c.hgt(0.5))])
+
+
+def _peak(c: Ctx, x0: float, y0: float, radius: float, height: float, below: float) -> Part:
+    """A rocky peak: irregular polygons, each inside the one below, joined by flat faces;
+    standing on the top face and reaching `below` into the tile."""
+    n, levels = 13, 7
+    angles = np.linspace(0, 2 * math.pi, n, endpoint=False) + c.rng.uniform(0, 1)
+    prev = None
+    sections = []
+    for i in range(levels + 1):
+        t = i / levels
+        base = radius * max(0.04, (1 - t) ** 1.25)
+        r = np.array([base * c.rng.uniform(0.72, 1.08) for _ in range(n)])
+        if prev is not None:
+            r = np.minimum(r, 0.94 * prev)  # every level inside the one below: no overhangs
+        prev = r
+        z = height * t
+        pts = [(x0 + rr * math.cos(a), y0 + rr * math.sin(a)) for rr, a in zip(r, angles)]
+        if i == 0:
+            sections.append(Plane.XY.offset(-below) * Polygon(*pts, align=None))
+        sections.append(Plane.XY.offset(z) * Polygon(*pts, align=None))
+    return Part(loft(sections, ruled=True).wrapped)
+
+
+def _mountain(c: Ctx) -> Design:
+    """A rocky mountain with a snowy top and a lower second peak, on grassland with tufts and
+    boulders."""
+    depth = c.p.inlay_depth
+    big_r, big_h = 0.6 * c.inr, 0.95 * c.inr
+    x1, y1 = -0.12 * c.inr, c.cy + 0.06 * c.inr
+    x2, y2 = x1 + 0.62 * c.inr, y1 - 0.3 * c.inr
+    rock = _peak(c, x1, y1, big_r, big_h, depth) + _peak(c, x2, y2, 0.42 * c.inr, 0.55 * big_h, depth)
+    rock = _clip_to_tile(c, rock, big_h + 1)
+    snow = Part((rock & Pos(-c.w, -c.h, 0.66 * big_h) * Box(2 * c.w, 2 * c.h, big_h, align=Align.MIN)).wrapped)
+    rock = Part((rock - snow).wrapped)
+    keep_out = [(x1, y1, big_r + 0.8), (x2, y2, 0.42 * c.inr + 0.8)]
+    tufts = [_blob(x, y, r, c.rng, 8, 0.3) for x, y, r in c.scatter(int(c.area / 110), 0.9 * c.k, 1.6 * c.k, 1.2, avoid=keep_out)]
+    boulders = [_blob(x, y, r, c.rng, 7, 0.25) for x, y, r in c.scatter(max(2, int(c.area / 500)), 1.2 * c.k, 2.0 * c.k, 1.5,
+                                                                           avoid=keep_out)]
+    return Design("green", [Layer("dark_green", _union(tufts), c.hgt(0.6), taper=25),
+                            Layer("grey", _union(boulders), c.hgt(1.2), taper=30),
+                            Layer("grey", None, solids=[rock]),
+                            Layer("white", None, solids=[snow] if snow.solids() else [])])
+
+
+def _thunderstorm(c: Ctx) -> Design:
+    """A lightning bolt standing on the wet ground where it strikes, with a scorch mark round
+    it; slanting rain and puddles with splash rings."""
+    h = 0.95 * c.inr
+    sink = min(0.6, c.p.thickness - 1.0)
+    # The bolt in its own plane (u across, z up), as fractions of its height. Every underside
+    # slopes at least 34 degrees from horizontal, so it prints standing.
+    shape = [(-0.02, 0.0), (0.05, 0.0), (0.30, 0.45), (0.12, 0.47), (0.36, 1.0), (0.10, 1.0), (-0.08, 0.62), (0.0, 0.50)]
+    du = -0.14  # centre the bolt over its foot
+    profile = [((u + du) * h, z * h) for u, z in shape]
+    profile = [(profile[0][0], -sink), (profile[1][0], -sink)] + profile[2:]
+    thick = max(2.4, 2.4 * c.k)
+    bx, by = 0.0, c.cy
+    bolt = _fin(profile, thick, 0, bx, by)
+    foot_r = 4.5 * c.k
+    a = np.radians(np.linspace(0, 360, 16, endpoint=False) + c.rng.uniform(0, 20))
+    rr = foot_r * np.array([c.rng.uniform(1.0, 1.6) if i % 2 == 0 else c.rng.uniform(0.45, 0.6) for i in range(16)])
+    scorch = _sk(_poly(np.column_stack([bx + rr * np.cos(a), by + rr * np.sin(a)]))
+                 - _rect(bx + (-0.02 + du) * h - 0.5, by - thick / 2 - 0.5, bx + (0.05 + du) * h + 0.5, by + thick / 2 + 0.5))
+    avoid = [(bx, by, 1.6 * foot_r)]
+    puddle_xy = c.scatter(max(1, int(c.area / 700)), 3.5 * c.k, 5.0 * c.k, 3.0, avoid=avoid)
+    puddles = [_blob(x, y, r, c.rng, 12, 0.15) for x, y, r in puddle_xy]
+    rings = []
+    for x, y, r in puddle_xy:
+        for q in (0.35, 0.7):
+            a0 = c.rng.uniform(0, 360)
+            rings += [_arc(x, y, q * r, MIN_LINE, a0, a0 + 150), _arc(x, y, q * r, MIN_LINE, a0 + 190, a0 + 330)]
+    streaks = []
+    pitch = 4.2 * c.k
+    for x, y in c.grid(pitch, pitch * 1.4, stagger=True, jitter=1.0 * c.k):
+        if (c.inside(x, y, 2.5 * c.k) and math.hypot(x - bx, y - by) > 1.7 * foot_r
+                and all(math.hypot(x - px, y - py) > pr + 2.5 * c.k for px, py, pr in puddle_xy)):
+            d = _rotate(np.array([[0.0, -2.0 * c.k], [0.0, 2.0 * c.k]]), 25) + (x, y)
+            streaks.append(_polyline(d, MIN_LINE))
+    sunk = c.hgt(0.6)
+    return Design("dark_grey", [Layer("dark_grey", _union(puddles), height=-sunk),
+                                Layer("light_blue", _union(rings), height=-sunk + 0.3),
+                                Layer("light_blue", _union(streaks), c.hgt(0.6)),
+                                Layer("black", scorch),
+                                Layer("yellow", None, solids=[bolt])])
+
+
 # --- Connector: a sleeve that joins two tiles of the same shape ---
 
 # Wall thickness and clearance are parameters (TileParams.wall, .clearance): 1.2 and 0.1 mm by
@@ -1579,8 +1780,13 @@ TILE_TYPES = {
     "asphalt": TileType("Asphalt", "Terrain", _asphalt, "flat road with a dashed centre line and edge lines"),
     "cobblestone": TileType("Cobblestone", "Terrain", _cobblestone, "uneven cobbles with sunken, mossy joints"),
     "wood": TileType("Wooden floor", "Terrain", _wood, "planks with sunken seams and grain, raised nail heads"),
+    "dune": TileType("Dune", "Terrain", _dune, "a sand dune across the tile: rippled windward slope, sharp crest, steep slip face"),
+    "mountain": TileType("Mountain", "Terrain", _mountain, "rocky mountain with a snowy top and a second peak, on grassland"),
     "bricks": TileType("Bricks", "Terrain", _bricks, "brick wall in running bond with deep mortar joints"),
     "water": TileType("Water", "Elements", _water, "raised waves with white foam"),
+    "sea": TileType("Sea", "Elements", _sea, "rolling sea: big waves across the tile with foam on the crests"),
+    "thunderstorm": TileType("Thunderstorm", "Elements", _thunderstorm,
+                             "a lightning bolt striking the wet ground, with a scorch mark, slanting rain and puddles"),
     "rain": TileType("Rain", "Elements", _rain, "raised drops and streaks"),
     "ice": TileType("Ice", "Elements", _ice, "ice with sunken cracks and shine"),
     "fire": TileType("Fire", "Elements", _fire, "standing flames (crossed plates) and embers"),
@@ -1638,6 +1844,10 @@ ROUGHNESS = {
     "weight": (0.3, 2.5, "surface"),
     "tree": (0.45, 2.0, "both"),  # bark and foliage rough in all directions, the grass in height
     "key": (0.2, 2.5, "surface"),
+    "sea": (0.15, 4.0, "surface"),
+    "dune": (0.12, 3.0, "surface"),
+    "mountain": (0.4, 2.5, "both"),  # rock and snow rough in all directions, the grass in height
+    "thunderstorm": (0.15, 3.0, "surface"),
     "bulb": (0.15, 2.5, "surface"),
     "ship": (0.15, 4.0, "surface"),  # like the water tile
 }
@@ -1648,7 +1858,8 @@ ROUGHNESS = {
 SMOOTH_ABOVE_TOP = {
     "key": ("gold", "white"),  # the key and the sparkles
     "bulb": ("yellow", "black", "steel"),  # the bulb and its socket (the yellow rays on the floor too)
-    "ship": ("wood", "dark_brown", "white"),  # the ship and its sails (the white foam too); the waves are rough
+    "ship": ("wood", "dark_brown", "white"),
+    "thunderstorm": ("yellow",),  # the lightning bolt  # the ship and its sails (the white foam too); the waves are rough
 }
 
 
@@ -1660,7 +1871,28 @@ HILLS = {
     "grass": (0.6, 22.0),
     "cobblestone": (0.5, 22.0),
     "tree": (0.6, 22.0),
+    "mountain": (0.6, 22.0),
 }
+
+
+DEFAULT_ROUGH_SIZE = 2.5  # mm, bump size for a type that is smooth unless asked
+DEFAULT_HILL_SIZE = 22.0  # mm, hill size for a type that is flat unless asked
+
+
+def roughness(p: TileParams) -> tuple[float, float, str] | None:
+    """(amplitude mm, wavelength mm, mode) of the rough top, or None: the type's own
+    (ROUGHNESS) unless the parameters say otherwise."""
+    own = ROUGHNESS.get(p.tile_type)
+    amp = p.rough_depth if p.rough_depth >= 0 else (own[0] if own else 0.0)
+    size = p.rough_size if p.rough_size > 0 else (own[1] if own else DEFAULT_ROUGH_SIZE)
+    return (amp, size, own[2] if own else "surface") if amp > 0 else None
+
+
+def hilliness(p: TileParams) -> tuple[float, float] | None:
+    """(amplitude mm, wavelength mm) of the gentle hills, or None (see roughness)."""
+    own = HILLS.get(p.tile_type)
+    amp = p.hill_height if p.hill_height >= 0 else (own[0] if own else 0.0)
+    return (amp, own[1] if own else DEFAULT_HILL_SIZE) if amp > 0 else None
 
 
 # --- Building ---
@@ -1670,6 +1902,12 @@ def validate(p: TileParams) -> None:
         raise ValueError(f"Unknown tile type '{p.tile_type}'; choose one of: {', '.join(TILE_TYPES)}.")
     if p.shape not in SHAPES:
         raise ValueError(f"Unknown shape '{p.shape}'; choose one of: {', '.join(SHAPES)}.")
+    if p.rough_depth > 2:
+        raise ValueError("Roughness depth can be at most 2 mm.")
+    if p.rough_size > 0 and not 0.5 <= p.rough_size <= 50:
+        raise ValueError("Roughness size must be between 0.5 and 50 mm.")
+    if p.hill_height > 5:
+        raise ValueError("Hill height can be at most 5 mm.")
     if not 15 <= p.size <= 200:
         raise ValueError("Tile size must be between 15 and 200 mm.")
     if p.shape == "rectangle" and not 15 <= p.length <= 200:
