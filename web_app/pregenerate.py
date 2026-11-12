@@ -10,8 +10,10 @@ How it works:
 * ActivityMiddleware keeps, per server worker process, a small file with the number of
   requests that worker is answering; the file's time stamp is that of the last request start
   or end. The server is idle when no worker answers a request and none did for IDLE_SECONDS.
-* One worker (whichever gets the lock) starts `python -m web_app.pregenerate` at the lowest
-  CPU priority, after the default models are built, and again every RECHECK_SECONDS. That
+* One worker (whichever gets the lock) starts `python -m web_app.pregenerate --warm` at the
+  lowest CPU priority when the server starts: it first builds the default model of every
+  generator (server.warm_defaults), so the workers themselves stay free to answer requests.
+  Without --warm it is started again every RECHECK_SECONDS. That
   process makes the missing tiles one at a time, each only when the server is idle, and exits
   when all are there. A visitor arriving during a tile gets the CPU first (nice 19); the tile
   is finished, the next one waits until the server is idle again.
@@ -101,9 +103,14 @@ def enabled() -> bool:
 	return os.environ.get("CAD_PREGENERATE", default) != "0" and disk.enabled
 
 
-def start() -> None:
-	"""In one server worker: run the pre-generating process now and every RECHECK_SECONDS."""
-	if not enabled():
+def start(warm: bool = False) -> None:
+	"""In one server worker: run the pre-generating process now and every RECHECK_SECONDS; with
+	warm=True it first builds the default model of every generator (server.warm_defaults), also
+	when pre-generating tiles is off. Needs the disk cache."""
+	from web_app.model_cache import disk
+
+	tiles = enabled()
+	if not disk.enabled or not (warm or tiles):
 		return
 	try:
 		_DIR.mkdir(parents=True, exist_ok=True)
@@ -113,17 +120,21 @@ def start() -> None:
 		return  # another worker does it
 
 	def loop() -> None:
-		while True:
+		first = True
+		while first or tiles:
+			args = (["--warm"] if first and warm else []) + ([] if tiles else ["--no-tiles"])
+			first = False
 			try:
-				result = subprocess.run([sys.executable, "-m", "web_app.pregenerate"], cwd=Path(__file__).resolve().parent.parent,
+				result = subprocess.run([sys.executable, "-m", "web_app.pregenerate", *args], cwd=Path(__file__).resolve().parent.parent,
 										preexec_fn=lambda: os.nice(19))
 				if result.returncode:
-					log.warning("pre-generating game tiles stopped with code %d", result.returncode)
+					log.warning("pre-generating stopped with code %d", result.returncode)
 			except Exception:
-				log.exception("pre-generating game tiles failed")
-			time.sleep(RECHECK_SECONDS)
+				log.exception("pre-generating failed")
+			if tiles:
+				time.sleep(RECHECK_SECONDS)
 
-	threading.Thread(target=loop, name="pregenerate", daemon=True, args=()).start()
+	threading.Thread(target=loop, name="pregenerate", daemon=True).start()
 	start.lock = lock  # held as long as this worker lives
 
 
@@ -159,7 +170,14 @@ def main() -> int:
 	handler.setFormatter(logging.Formatter("%(asctime)s %(name)s: %(message)s"))
 	log.addHandler(handler)
 	log.setLevel(logging.INFO)
+	log.propagate = False  # (its own handler)
 	logging.getLogger("cad_generators.cache").setLevel(logging.WARNING)  # one line per tile is enough
+	if "--warm" in sys.argv:  # the default model of every generator first
+		from web_app.server import warm_defaults  # (its import sets up the "cad_generators" log)
+
+		warm_defaults()
+	if "--no-tiles" in sys.argv:
+		return 0
 	from web_app.generators import game_tiles as g
 	from web_app.model_cache import disk
 

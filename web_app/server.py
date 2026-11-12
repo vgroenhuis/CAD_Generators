@@ -5,7 +5,7 @@ run_web.bat shortcut at the repo root, or manually with:
 	uvicorn web_app.server:app --host 0.0.0.0 --port 8000
 
 At startup the default model of every generator is built in the background (with its
-preview, 3MF and STEP file) and kept in the cache, so a visitor who opens a page with
+preview, 3MF and STEP file), in one low-priority process of its own, and kept in the disk cache, so a visitor who opens a page with
 its default settings gets them immediately. Set CAD_WARM_CACHE=0 to skip that. After that,
 every game tile type in every shape is made whenever the server is idle (see pregenerate.py).
 """
@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from web_app import pregenerate, progress
+from web_app.model_cache import disk
 from web_app.generators import (
 	apriltag_cube, cable_clip, calibration_plate, game_tiles, orifice, pneumatic, powerbank_holder, ring, sanding_rack,
 )
@@ -36,22 +37,27 @@ if not log.handlers:
 
 
 def warm_defaults() -> None:
-	"""Build the default model of every generator, one after another."""
+	"""Build the default model of every generator (with its files), one after another."""
 	for module in (ring, powerbank_holder, apriltag_cube, orifice, cable_clip, pneumatic, game_tiles, calibration_plate, sanding_rack):
 		try:
 			module.warm()
 		except Exception:
 			log.exception("warming the default %s failed", module.__name__)
 	log.info("default models are ready")
-	pregenerate.start()  # then the missing game tiles, whenever the server is idle
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-	if os.environ.get("CAD_WARM_CACHE", "1") != "0":
+	warm = os.environ.get("CAD_WARM_CACHE", "1") != "0"
+	if warm and disk.enabled:
+		# Once, in a process of its own at the lowest CPU priority (see pregenerate.py): the
+		# files land in the disk cache, which every worker reads, and the workers stay free to
+		# answer requests. Then the missing game tiles, whenever the server is idle.
+		pregenerate.start(warm=True)
+	elif warm:  # no disk cache to share: each worker warms its own memory cache
 		threading.Thread(target=warm_defaults, name="warm-defaults", daemon=True).start()
 	else:
-		pregenerate.start()  # (only with CAD_PREGENERATE=1)
+		pregenerate.start(warm=False)  # (only with CAD_PREGENERATE=1)
 	yield
 
 
