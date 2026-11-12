@@ -1609,16 +1609,20 @@ def _thunderstorm(c: Ctx) -> Design:
     shape = [(-0.02, 0.0), (0.05, 0.0), (0.30, 0.45), (0.12, 0.47), (0.36, 1.0), (0.10, 1.0), (-0.08, 0.62), (0.0, 0.50)]
     du = -0.14  # centre the bolt over its foot
     profile = [((u + du) * h, z * h) for u, z in shape]
-    profile = [(profile[0][0], -sink), (profile[1][0], -sink)] + profile[2:]
+    # Sunk straight down from its foot, so at the top face it is exactly the foot.
+    profile = [(profile[0][0], -sink), (profile[1][0], -sink)] + profile[1:] + [profile[0]]
     thick = max(2.4, 2.4 * c.k)
     bx, by = 0.0, c.cy
     bolt = _fin(profile, thick, 0, bx, by)
+    # Where the bolt strikes: its foot, a small rectangle in the middle of the scorch mark. The
+    # foot is an inlay of its own in yellow, so the black meets the bolt with no ground between.
+    foot = _rect(bx + (-0.02 + du) * h, by - thick / 2, bx + (0.05 + du) * h, by + thick / 2)
+    sx, sy = bx + (0.015 + du) * h, by
     foot_r = 4.5 * c.k
     a = np.radians(np.linspace(0, 360, 16, endpoint=False) + c.rng.uniform(0, 20))
     rr = foot_r * np.array([c.rng.uniform(1.0, 1.6) if i % 2 == 0 else c.rng.uniform(0.45, 0.6) for i in range(16)])
-    scorch = _sk(_poly(np.column_stack([bx + rr * np.cos(a), by + rr * np.sin(a)]))
-                 - _rect(bx + (-0.02 + du) * h - 0.5, by - thick / 2 - 0.5, bx + (0.05 + du) * h + 0.5, by + thick / 2 + 0.5))
-    avoid = [(bx, by, 1.6 * foot_r)]
+    scorch = _poly(np.column_stack([sx + rr * np.cos(a), sy + rr * np.sin(a)]))
+    avoid = [(sx, sy, 1.6 * foot_r)]
     puddle_xy = c.scatter(max(1, int(c.area / 700)), 3.5 * c.k, 5.0 * c.k, 3.0, avoid=avoid)
     puddles = [_blob(x, y, r, c.rng, 12, 0.15) for x, y, r in puddle_xy]
     rings = []
@@ -1629,7 +1633,7 @@ def _thunderstorm(c: Ctx) -> Design:
     streaks = []
     pitch = 4.2 * c.k
     for x, y in c.grid(pitch, pitch * 1.4, stagger=True, jitter=1.0 * c.k):
-        if (c.inside(x, y, 2.5 * c.k) and math.hypot(x - bx, y - by) > 1.7 * foot_r
+        if (c.inside(x, y, 2.5 * c.k) and math.hypot(x - sx, y - sy) > 1.7 * foot_r
                 and all(math.hypot(x - px, y - py) > pr + 2.5 * c.k for px, py, pr in puddle_xy)):
             d = _rotate(np.array([[0.0, -2.0 * c.k], [0.0, 2.0 * c.k]]), 25) + (x, y)
             streaks.append(_polyline(d, MIN_LINE))
@@ -1638,7 +1642,7 @@ def _thunderstorm(c: Ctx) -> Design:
                                 Layer("light_blue", _union(rings), height=-sunk + 0.3),
                                 Layer("light_blue", _union(streaks), c.hgt(0.6)),
                                 Layer("black", scorch),
-                                Layer("yellow", None, solids=[bolt])])
+                                Layer("yellow", foot, solids=[bolt])])
 
 
 # --- Connector: a sleeve that joins two tiles of the same shape ---
