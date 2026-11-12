@@ -2,7 +2,7 @@
 
 Every tile type in every shape, with all other settings at their defaults, gets all its files
 (thumbnail, 3D preview, 3MF, STEP) in the disk cache, so the list of stored tiles is complete
-and those tiles download at once. The code version is part of every cache key, so after an
+and those tiles download at once. Older versions of a tile made again are deleted. The code version is part of every cache key, so after an
 update the tiles are made again, one by one, in idle time.
 
 How it works:
@@ -168,6 +168,9 @@ def main() -> int:
 			print(p.tile_type, p.shape)
 		print(f"{len(todo)} of {len(wanted())} missing")
 		return 0
+	gone = g.discard_superseded()
+	if gone:
+		log.info("deleted %d game tiles of older versions that a newer version replaces", gone)
 	if not todo:
 		return 0
 	log.info("%d game tiles to pre-generate", len(todo))
@@ -188,6 +191,7 @@ def main() -> int:
 			log.exception("could not pre-generate %s %s", p.tile_type, p.shape)
 			continue
 		log.info("pre-generated %s %s in %.0f s", p.tile_type, p.shape, time.monotonic() - start)
+		g.discard_superseded()  # its older versions
 	return 0
 
 

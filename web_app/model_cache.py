@@ -164,6 +164,20 @@ class DiskCache:
         except OSError:
             return None
 
+    def delete_entry(self, name: str, entry_id: str) -> int:
+        """Delete a stored entry (all its files and its description); returns the bytes freed."""
+        if not self.enabled or not re.fullmatch(r"[0-9a-f]{32}", entry_id):
+            return 0
+        freed = 0
+        for f in (self.root / name).glob(entry_id + ".*"):
+            try:
+                size = f.stat().st_size
+                f.unlink()
+                freed += size
+            except OSError:
+                pass
+        return freed
+
     def usage(self, name: str | None = None) -> int:
         """Bytes on disk, of one cache (all code versions) or of the whole store."""
         if not self.enabled:

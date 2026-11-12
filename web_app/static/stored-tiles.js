@@ -58,15 +58,10 @@ function storedLink(label, tile, kind) {
 	return el("a", { href: `${API}/stored/${tile.id}/${kind}` }, `${label} `, el("span", { class: "ready" }, size(bytes)));
 }
 
-function day(seconds) {
-	return new Date(seconds * 1000).toLocaleDateString(undefined, { dateStyle: "medium" });
-}
-
 function versionCell(tile) {
 	const td = el("td", { class: "when" });
 	td.append(tile.commit ? el("span", { class: "commit", title: `code version ${tile.version}` }, tile.commit)
 		: el("span", { class: "commit", title: "code that was not committed to git" }, tile.version.slice(0, 7)));
-	if (tile.commit_date) td.append(el("div", { class: "sub" }, day(tile.commit_date)));
 	td.append(el("div", {}, tile.current ? el("span", { class: "current" }, "current") : el("span", { class: "older" }, "older")));
 	return td;
 }
@@ -108,7 +103,6 @@ function row(tile, palette) {
 		el("td", {}, colours),
 		versionCell(tile),
 		el("td", { class: "when" }, when(tile.created)),
-		el("td", { class: "when" }, when(tile.used)),
 		el("td", {}, links));
 	return tr;
 }
@@ -116,9 +110,54 @@ function row(tile, palette) {
 const olderBox = document.getElementById("older");
 let allTiles = [], thePalette = {};
 
+// Sorting: a click on a column heading sorts by it, a second click the other way round.
+const SORT_KEYS = {
+	type: (t) => t.title.toLowerCase(),
+	shape: (t) => t.params.shape,
+	size: (t) => t.params.size * 1e4 + (t.params.shape === "rectangle" ? t.params.length : 0),
+	thickness: (t) => (t.params.tile_type.startsWith("connector") ? -1 : t.params.thickness),
+	depth: (t) => (t.params.tile_type.startsWith("connector") ? -1 : t.params.inlay_depth),
+	count: (t) => t.params.count,
+	seed: (t) => t.params.seed,
+	colours: (t) => (t.colours || []).length * 1000 + (t.colours || []).join(" ").length,
+	version: (t) => (t.current ? 2e10 : t.commit_date || t.created || 0),
+	made: (t) => t.created || 0,
+};
+let sort = { key: "made", descending: true };
+try {
+	const saved = JSON.parse(localStorage.getItem("stored-tiles-sort") || "null");
+	if (saved && SORT_KEYS[saved.key]) sort = saved;
+} catch { /* no storage, or nothing saved */ }
+
+function sorted(tiles) {
+	const key = SORT_KEYS[sort.key];
+	const dir = sort.descending ? -1 : 1;
+	return tiles.map((t, i) => [key(t), t.created || 0, i, t])
+		.sort((a, b) => (a[0] < b[0] ? -dir : a[0] > b[0] ? dir : b[1] - a[1] || a[2] - b[2]))  // ties: newest first
+		.map((x) => x[3]);
+}
+
+for (const th of document.querySelectorAll("th[data-sort]")) {
+	th.tabIndex = 0;
+	const go = () => {
+		const key = th.dataset.sort;
+		sort = sort.key === key ? { key, descending: !sort.descending } : { key, descending: key === "made" || key === "version" };
+		try { localStorage.setItem("stored-tiles-sort", JSON.stringify(sort)); } catch { /* fine */ }
+		show();
+	};
+	th.addEventListener("click", go);
+	th.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+}
+
 function show() {
 	const tiles = olderBox.checked ? allTiles : allTiles.filter((t) => t.current);
-	rows.replaceChildren(...tiles.map((t) => row(t, thePalette)));
+	for (const th of document.querySelectorAll("th[data-sort]")) {
+		const on = th.dataset.sort === sort.key;
+		th.classList.toggle("sorted", on);
+		th.setAttribute("aria-sort", on ? (sort.descending ? "descending" : "ascending") : "none");
+		th.querySelector(".arrow").textContent = on ? (sort.descending ? " \u25BC" : " \u25B2") : "";
+	}
+	rows.replaceChildren(...sorted(tiles).map((t) => row(t, thePalette)));
 	table.hidden = !tiles.length;
 }
 

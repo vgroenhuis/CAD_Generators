@@ -37,6 +37,9 @@
 	.sub { color: #a0a5ab; font-size: 12px; }
 	.current { color: #8fd29a; font-size: 11px; }
 	.older { color: #e0b070; font-size: 11px; }
+	th[data-sort] { cursor: pointer; user-select: none; }
+	th[data-sort]:hover, th.sorted { color: #e8e8e8; }
+	.arrow { font-size: 10px; }
 	tr.old td.thumb img { opacity: 0.85; }
 	#status.error { color: #e08a8a; }
 </style>
@@ -47,13 +50,12 @@
 		<h1>Stored Game Tiles</h1>
 	</header>
 	<main>
-		<p class="note">Tiles generated before and kept on the server, most recently used first. Open a tile to change it in the generator; files marked "ready" download at once, others are made when you ask for them. Every tile type in every shape is also made with the default settings while the server has nothing else to do. Tiles made by an older version of the generator are kept too, marked "older": their files are as they were made then, and opening one in the generator makes it with the current version, which can differ. The least recently used files are deleted when the store gets full.</p>
+		<p class="note">Tiles generated before and kept on the server, most recently made first; click a column heading to sort by it. Open a tile to change it in the generator; files marked "ready" download at once, others are made when you ask for them. Every tile type in every shape is also made with the default settings while the server has nothing else to do. Tiles made by an older version of the generator are kept too, marked "older", until a newer version of the same tile (all settings the same) is made: their files are as they were made then, and opening one in the generator makes it with the current version, which can differ. The least recently used files are deleted when the store gets full.</p>
 		<div id="status">Loading...</div>
 		<label id="filter" hidden><input type="checkbox" id="older" checked> Show tiles made by older versions</label>
 		<div class="wrap"><table id="table" hidden>
 			<thead><tr>
-				<th>Preview</th><th>Type</th><th>Shape</th><th>Size (mm)</th><th>Thickness</th><th>Colour depth</th>
-				<th>Tiles</th><th>Variation</th><th>Colours</th><th>Version</th><th>Made</th><th>Last used</th><th>Files</th>
+				<th>Preview</th><th data-sort="type" title="Sort by type">Type<span class="arrow"></span></th><th data-sort="shape" title="Sort by shape">Shape<span class="arrow"></span></th><th data-sort="size" title="Sort by size">Size (mm)<span class="arrow"></span></th><th data-sort="thickness" title="Sort by thickness">Thickness<span class="arrow"></span></th><th data-sort="depth" title="Sort by colour depth">Colour depth<span class="arrow"></span></th><th data-sort="count" title="Sort by tiles">Tiles<span class="arrow"></span></th><th data-sort="seed" title="Sort by variation">Variation<span class="arrow"></span></th><th data-sort="colours" title="Sort by colours">Colours<span class="arrow"></span></th><th data-sort="version" title="Sort by version">Version<span class="arrow"></span></th><th data-sort="made" title="Sort by date made">Made<span class="arrow"></span></th><th>Files</th>
 			</tr></thead>
 			<tbody id="rows"></tbody>
 		</table></div>

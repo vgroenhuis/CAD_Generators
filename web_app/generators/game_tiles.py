@@ -240,14 +240,47 @@ def colours() -> dict:
 	return {"colours": list(_colour_use())}
 
 
+def _identity(params: dict) -> str:
+	"""What makes two stored tiles the same tile, whatever code made them: all their settings
+	(settings added since an older tile was made take their defaults)."""
+	try:
+		params = asdict(TileParams(**params))
+	except TypeError:  # a setting that no longer exists: compare as stored
+		pass
+	return json.dumps(params, sort_keys=True)
+
+
+def discard_superseded() -> int:
+	"""Delete stored tiles made by older code when a newer version of the same tile (same
+	settings) is stored; returns the number deleted."""
+	newest: dict[str, dict] = {}
+	gone = 0
+	for e in disk.entries(cache.name, all_versions=True):
+		if "params" not in e["meta"]:
+			continue
+		e["rank"] = (e["version"] == disk.version, e["created"] or 0)
+		key = _identity(e["meta"]["params"])
+		other = newest.get(key)
+		if other is None:
+			newest[key] = e
+			continue
+		older = min(other, e, key=lambda x: x["rank"])
+		newest[key] = e if older is other else other
+		disk.delete_entry(cache.name, older["id"])
+		gone += 1
+	return gone
+
+
 @router.get("/stored")
 def stored(older: bool = Query(True)) -> dict:
-	"""The tiles stored on disk, most recently used first: their id, parameters, title, colours,
-	which files are ready (kind -> bytes), when they were made and last used (Unix time), and
-	the code that made them (version, the git commit and its date when known, and whether it
-	is the current code); with older=false only those made by the current code. Also the space
+	"""The tiles stored on disk, most recently made first: their id, parameters, title, colours,
+	which files are ready (kind -> bytes), when they were made (Unix time), and the code that
+	made them (version, the git commit and its date when known, and whether it is the current
+	code); with older=false only those made by the current code. Older versions of a tile that
+	is stored in a newer version too are deleted first (see discard_superseded). Also the space
 	used on disk (bytes): by the listed tiles of the current code, by all game tile files, by
 	the whole store, and its limit. Files of older code are fetched with /stored/{id}/{kind}."""
+	discard_superseded()
 	commits = code_versions.commits() if older else {}
 	tiles = []
 	for e in disk.entries(cache.name, all_versions=older):
@@ -258,6 +291,7 @@ def stored(older: bool = Query(True)) -> dict:
 		tiles.append({**meta, "id": e["id"], "files": e["files"], "created": e["created"], "used": e["used"],
 					  "version": e["version"], "current": e["version"] == disk.version,
 					  "commit": c.get("commit"), "commit_date": c.get("date")})
+	tiles.sort(key=lambda t: t["created"] or 0, reverse=True)
 	listed = sum(sum(t["files"].values()) for t in tiles if t["current"])
 	return {
 		"enabled": disk.enabled, "tiles": tiles, "version": disk.version,
