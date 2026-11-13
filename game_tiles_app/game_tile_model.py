@@ -1668,7 +1668,7 @@ def _laser(c: Ctx) -> Design:
 def _mirror(c: Ctx) -> Design:
     """An upright steel mirror standing along the diagonal."""
     sink = min(0.6, c.p.thickness - 1.0)
-    thick = max(1.2, 1.2 * c.k)
+    thick = max(2.4, 2.4 * c.k)  # twice as thick as before, so it does not break when printed
     height = c.hgt(14.0)  # twice as high as before
     d = np.array([1.0, 1.0]) / math.sqrt(2)  # along the diagonal
     length = 2.1 * c.inr  # half as long again as before
