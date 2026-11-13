@@ -1669,9 +1669,9 @@ def _mirror(c: Ctx) -> Design:
     """An upright steel mirror standing along the diagonal."""
     sink = min(0.6, c.p.thickness - 1.0)
     thick = max(1.2, 1.2 * c.k)
-    height = c.hgt(7.0)
+    height = c.hgt(14.0)  # twice as high as before
     d = np.array([1.0, 1.0]) / math.sqrt(2)  # along the diagonal
-    length = 1.4 * c.inr
+    length = 2.1 * c.inr  # half as long again as before
     # Shorter when the tile is narrow, so that both ends of the mirror stay on the tile.
     while length > 2 and not all(c.inside(*(sg * length / 2 * d), 1.0) for sg in (-1, 1)):
         length -= 1
@@ -1892,8 +1892,6 @@ ROUGHNESS = {
     "thunderstorm": (0.15, 3.0, "surface"),
     "bulb": (0.15, 2.5, "surface"),
     "ship": (0.15, 4.0, "surface"),  # like the water tile
-    "laser": (0.1, 2.5, "surface"),
-    "mirror": (0.1, 2.5, "surface"),
 }
 
 # Bodies that stay smooth above the tile's top face on a rough tile (only "surface" mode): a
@@ -1903,8 +1901,6 @@ SMOOTH_ABOVE_TOP = {
     "key": ("gold", "white"),  # the key and the sparkles
     "bulb": ("yellow", "black", "steel"),  # the bulb and its socket (the yellow rays on the floor too)
     "ship": ("wood", "dark_brown", "white"),
-    "laser": ("steel", "black"),
-    "mirror": ("steel",),
     "thunderstorm": ("yellow",),  # the lightning bolt  # the ship and its sails (the white foam too); the waves are rough
 }
 
