@@ -1651,6 +1651,49 @@ def _thunderstorm(c: Ctx) -> Design:
                                 Layer("yellow", foot, solids=[bolt])])
 
 
+def _laser(c: Ctx) -> Design:
+    """A horizontal laser: a steel emitter with a black lens on its right face, a red beam
+    running across the tile to a white target with a red bull's-eye."""
+    y0 = c.cy
+    x0 = -c.w / 2 + 2.5 * c.k
+    x1 = x0 + 6 * c.k
+    body = _rect(x0, y0 - 4.5 * c.k, x1, y0 + 4.5 * c.k)
+    lens = _rect(x1 - 1.4 * c.k, y0 - 1.8 * c.k, x1, y0 + 1.8 * c.k)
+    tx = c.w / 2 - 4 * c.k
+    beam = _rect(x1, y0 - c.line(1.6) / 2, tx, y0 + c.line(1.6) / 2)
+    target = _circle(tx, y0, 3.2 * c.k)
+    bull = _circle(tx, y0, 1.4 * c.k)
+    return Design("dark_grey", [Layer("steel", body, c.hgt(4.0)),
+                                Layer("black", lens, c.hgt(4.0)),
+                                Layer("red", beam, c.hgt(0.8)),
+                                Layer("white", target, c.hgt(0.6)),
+                                Layer("red", bull, c.hgt(1.0))])
+
+
+def _mirror(c: Ctx) -> Design:
+    """An upright steel mirror along the diagonal. A red beam comes in along the tile from the
+    left and is reflected off the mirror, out towards the top edge."""
+    sink = min(0.6, c.p.thickness - 1.0)
+    thick = max(1.2, 1.2 * c.k)
+    height = c.hgt(7.0)
+    d = np.array([1.0, 1.0]) / math.sqrt(2)  # along the diagonal
+    length = 1.4 * c.inr
+    # Shorter when the tile is narrow, so that both ends of the mirror stay on the tile.
+    while length > 2 and not all(c.inside(*(sg * length / 2 * d), 1.0) for sg in (-1, 1)):
+        length -= 1
+    profile = [(-length / 2, -sink), (length / 2, -sink), (length / 2, height), (-length / 2, height)]
+    plate = _fin(profile, thick, 45, 0.0, c.cy)
+    lw = c.line(1.6)
+    half = thick / 2 + lw  # the beams stop short of the mirror's foot, with no sliver left
+    foot = _poly(_rotate(np.array([[length / 2, half], [length / 2, -half], [-length / 2, -half], [-length / 2, half]]), 45)
+                 + (0, c.cy))
+    incoming = _rect(-c.w / 2 - 1, c.cy - lw / 2, 0, c.cy + lw / 2)
+    outgoing = _rect(-lw / 2, c.cy - lw / 2, lw / 2, c.h / 2 + 1)
+    beam = _sk(_union([incoming, outgoing]) - foot)
+    return Design("dark_grey", [Layer("red", beam, c.hgt(0.8)),
+                                Layer("steel", None, solids=[plate])])
+
+
 # --- Connector: a sleeve that joins two tiles of the same shape ---
 
 # Wall thickness and clearance are parameters (TileParams.wall, .clearance): 1.2 and 0.1 mm by
@@ -1819,6 +1862,9 @@ TILE_TYPES = {
     "bulb": TileType("Light bulb", "Objects", _bulb, "light bulb standing on its screw socket, shining yellow rays on the floor"),
     "key": TileType("Key", "Objects", _key, "old gold key lying on a dark red cushion"),
     "weight": TileType("100t weight", "Objects", _weight, "cartoon iron weight marked 100t, landed on cracked earth"),
+    "laser": TileType("Laser", "Objects", _laser, "a horizontal red laser beam from a steel emitter with a black lens, across the tile to a target"),
+    "mirror": TileType("Mirror (diagonal)", "Objects", _mirror,
+                       "upright steel mirror along the diagonal, with a red laser beam reflected off it"),
     "tree": TileType("Tree", "Objects", _tree,
                      "fir tree standing on grass, three tiers of foliage on a trunk, with roots and pine cones"),
     "connector_corners": TileType("Connector", "Special", _connector,
@@ -1860,6 +1906,8 @@ ROUGHNESS = {
     "thunderstorm": (0.15, 3.0, "surface"),
     "bulb": (0.15, 2.5, "surface"),
     "ship": (0.15, 4.0, "surface"),  # like the water tile
+    "laser": (0.1, 2.5, "surface"),
+    "mirror": (0.1, 2.5, "surface"),
 }
 
 # Bodies that stay smooth above the tile's top face on a rough tile (only "surface" mode): a
@@ -1869,6 +1917,8 @@ SMOOTH_ABOVE_TOP = {
     "key": ("gold", "white"),  # the key and the sparkles
     "bulb": ("yellow", "black", "steel"),  # the bulb and its socket (the yellow rays on the floor too)
     "ship": ("wood", "dark_brown", "white"),
+    "laser": ("steel", "black"),
+    "mirror": ("steel",),
     "thunderstorm": ("yellow",),  # the lightning bolt  # the ship and its sails (the white foam too); the waves are rough
 }
 
