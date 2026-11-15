@@ -26,7 +26,8 @@
     Optionally (edge_dots=True), a red half disc (a "dot", radius DEFAULT_DOT_RADIUS) in the middle of the
     bottom edge of the +X face and a green one on the +Y face, inlaid flush in the same white margin: each
     dot sits on the axis it names, which the strips (running perpendicular to it) do not.
-    Optionally (bottom_axes=True), red (+X) and green (+Y) arrows inlaid in the bottom face from its centre;
+    Optionally (bottom_axes=True), red (+X) and green (+Y) arrows inlaid in the bottom face from its centre
+    to its edges (where they meet the dots, if on);
     the bottom label then moves to the half of the face the arrows leave free (towards -Y), so they never
     overlap. (Not with a tag on the bottom face, nor with the IDs along the bottom edges.)
 
@@ -158,7 +159,7 @@ DEFAULT_EDGE_HEIGHT = 1.0  # mm, red/green bottom-edge strips
 DEFAULT_EDGE_DEPTH = 1.0  # mm
 DEFAULT_DOT_RADIUS = 2.0  # mm, red/green half disc in the middle of the bottom edge
 _DOT_CLEARANCE = 0.3  # mm, least gap between a dot and the tag
-_BOTTOM_ARROW_LENGTH = 0.26  # red/green axis arrows on the bottom face, from its centre, x cube size
+_BOTTOM_ARROW_LENGTH = 0.5  # red/green axis arrows on the bottom face: from its centre to the edges, x cube size
 _BOTTOM_ARROW_SHAFT = 0.06  # their shaft width, x cube size (at least 1 mm)
 _BOTTOM_ARROW_CLEARANCE = 0.02  # gap between those arrows and the bottom label, x cube size
 _LABEL_AREA = 0.8  # label width and height at most this x cube size
@@ -408,7 +409,8 @@ def _bottom_arrow_dims(size: float) -> tuple[float, float, float, float, float]:
 
 def _bottom_arrows(size: float, depth: float) -> tuple[Part, Part]:
     """Red (+X) and green (+Y) arrows `depth` deep, inlaid flush in the bottom face. They point away
-    from the centre, tails a little apart so the two never touch. Each is made from scratch."""
+    from the centre, tails a little apart so the two never touch, and reach the edges of the face.
+    Each is made from scratch."""
     shaft, head_w, head_len, tail, length = _bottom_arrow_dims(size)
     end = length - head_len
     red = [(tail, -shaft / 2), (end, -shaft / 2), (end, -head_w / 2), (length, 0), (end, head_w / 2), (end, shaft / 2), (tail, shaft / 2)]
