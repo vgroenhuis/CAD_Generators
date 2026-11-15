@@ -95,6 +95,15 @@
 				<input type="text" inputmode="decimal" autocomplete="off" id="edge_depth"></div>
 			</div>
 
+			<label class="check" for="edge_dots"><input type="checkbox" id="edge_dots"> Red/green dot at bottom edge <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">A red half disc in the middle of the bottom edge of the +X face and a green one on the +Y face, inlaid flush in the white margin below the tag, so the cube keeps its size. Each dot sits on the axis it names. It is as deep as the black parts.</span></button></label>
+			<div class="pair">
+				<div><label for="dot_radius">Radius (mm) <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">Radius of the dots, 2 mm by default (less on a cube smaller than 20 mm). At most the white margin below the tag, 1/8 of the cube size, less 0.3 mm.</span></button></label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="dot_radius"></div>
+				<div></div>
+			</div>
+
+			<label class="check" for="bottom_axes"><input type="checkbox" id="bottom_axes"> Red/green axes (X/Y) on bottom face <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip" id="bottom-axes-hint">A red (+X) and a green (+Y) arrow inlaid in the bottom face, from its centre. The label moves to the half of the face the arrows leave free (towards -Y: the top half when you look at the bottom face from below, label upright), so they never overlap. Not available with a tag on the bottom face or with the IDs along the edges.</span></button></label>
+
 			<label class="check" for="axes"><input type="checkbox" id="axes"> Red/green axes (X/Y) on the floor <button type="button" class="tip" aria-label="Help">?<span class="tip-text" role="tooltip">Flat red (+X) and green (+Y) arrows on the floor beside the cube, on its X and Y axes, to show the world frame. They stick out beside the cube.</span></button></label>
 
 			<button id="generate-btn">Generate</button>
@@ -103,7 +112,7 @@
 			<button id="download-btn" disabled>Download 3MF (for slicing)</button>
 			<button id="download-step-btn" disabled>Download STEP (for CAD)</button>
 
-			<div class="fixed-info">One body per colour in the files <button type="button" class="tip up" aria-label="Help">?<span class="tip-text" role="tooltip">The 3MF and STEP files contain one body per colour, for multimaterial printing: "white" (cube with pockets) and "black" (tag cells and bottom label or tag, inlaid flush), plus "red" (+X) and "green" (+Y) with the red/green edges and/or the axes arrows, so two or four bodies.</span></button></div>
+			<div class="fixed-info">One body per colour in the files <button type="button" class="tip up" aria-label="Help">?<span class="tip-text" role="tooltip">The 3MF and STEP files contain one body per colour, for multimaterial printing: "white" (cube with pockets) and "black" (tag cells and bottom label or tag, inlaid flush), plus "red" (+X) and "green" (+Y) with the red/green edges, dots and/or axes (on the bottom face or the floor), so two or four bodies.</span></button></div>
 
 			<div id="status">Enter dimensions and click Generate.</div>
 		</div>

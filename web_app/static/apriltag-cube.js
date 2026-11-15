@@ -13,6 +13,11 @@ const rotateInput = document.getElementById("rotate_sides");
 const edgeColoursInput = document.getElementById("edge_colours");
 const edgeHeightInput = document.getElementById("edge_height");
 const edgeDepthInput = document.getElementById("edge_depth");
+const edgeDotsInput = document.getElementById("edge_dots");
+const dotRadiusInput = document.getElementById("dot_radius");
+const bottomAxesInput = document.getElementById("bottom_axes");
+const bottomAxesHint = document.getElementById("bottom-axes-hint");
+const bottomAxesHintText = bottomAxesHint.textContent;
 const bottomLabelInput = document.getElementById("bottom_label");
 const labelInput = document.getElementById("label");
 const labelHint = document.getElementById("label-hint");
@@ -202,6 +207,7 @@ function updateLabel() {
 	} else {
 		labelHint.textContent = grid ? "Each cube in the grid is labelled with its tag ID." : labelHintText;
 	}
+	updateBottomAxes();
 }
 
 const MAX_CUBES = 64;
@@ -229,20 +235,36 @@ function readTagIds() {
 	return mode === "faces" ? parseTagIds(tagIdsInput.value, true) : parseTagIds(tagIdInput.value, false);
 }
 
-// An optional positive number (empty: the default, null); only read while the red/green edges are on.
-function optionalNumber(input, name) {
+// An optional positive number (empty: the default, null); only read while its option is on.
+function optionalNumber(input, name, fallback) {
 	if (input.disabled || !input.value.trim()) return null;
 	const value = parseNumber(input.value);
-	if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a number greater than 0 (or empty for ${EDGE_DEFAULT} mm).`);
+	if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a number greater than 0 (or empty for ${fallback} mm).`);
 	return value;
 }
 
-// Default height and depth of the red/green edges (mm), used when a field is empty; mirrors
-// DEFAULT_EDGE_HEIGHT and DEFAULT_EDGE_DEPTH in apriltag_cube_model.py.
+// Default height and depth of the red/green edges and radius of the red/green dots (mm), used
+// when a field is empty; mirrors DEFAULT_EDGE_HEIGHT, DEFAULT_EDGE_DEPTH and DEFAULT_DOT_RADIUS
+// in apriltag_cube_model.py.
 const EDGE_DEFAULT = 1;
+const DOT_DEFAULT = 2;
 function updateEdgeFields() {
 	edgeHeightInput.disabled = edgeDepthInput.disabled = !edgeColoursInput.checked;
 	edgeHeightInput.placeholder = edgeDepthInput.placeholder = String(EDGE_DEFAULT);
+	dotRadiusInput.disabled = !edgeDotsInput.checked;
+	dotRadiusInput.placeholder = String(DOT_DEFAULT);
+}
+
+// The axes on the bottom face need room for the label: not with a tag on that face, nor with the
+// IDs along the edges (different tags and no label typed).
+function updateBottomAxes() {
+	const ids = currentIds();
+	const idsAlongEdges = tagMode() === "faces" && ids && new Set(ids).size > 1 && !labelInput.value.trim();
+	const unavailable = !bottomLabelInput.checked || idsAlongEdges;
+	bottomAxesInput.disabled = unavailable;
+	bottomAxesHint.textContent = !unavailable ? bottomAxesHintText
+		: !bottomLabelInput.checked ? "Not available while the bottom face carries a tag. Tick \"Bottom face: label\" to use it."
+		: "Not available with the IDs along the edges: type a label, or use the same tag on all faces.";
 }
 
 function readParams() {
@@ -261,8 +283,11 @@ function readParams() {
 		perFace: mode !== "same",
 		rotateSides: mode === "world" || (mode === "same" && rotateInput.checked),
 		edgeColours: edgeColoursInput.checked,
-		edgeHeight: optionalNumber(edgeHeightInput, "Edge height"),
-		edgeDepth: optionalNumber(edgeDepthInput, "Edge depth"),
+		edgeHeight: optionalNumber(edgeHeightInput, "Edge height", EDGE_DEFAULT),
+		edgeDepth: optionalNumber(edgeDepthInput, "Edge depth", EDGE_DEFAULT),
+		edgeDots: edgeDotsInput.checked,
+		dotRadius: optionalNumber(dotRadiusInput, "Dot radius", DOT_DEFAULT),
+		bottomAxes: bottomAxesInput.checked && !bottomAxesInput.disabled,
 		bottomLabel: bottomLabelInput.checked,
 		label: labelInput.disabled ? "" : labelInput.value.trim() || (mode === "world" ? worldFrameLabel : ""),
 	};
@@ -316,7 +341,10 @@ function buildQuery(params) {
 		label: params.label,
 		rotate_sides: params.rotateSides,
 		edge_colours: params.edgeColours,
+		edge_dots: params.edgeDots,
+		bottom_axes: params.bottomAxes,
 	});
+	if (params.edgeDots && params.dotRadius !== null) query.set("dot_radius", params.dotRadius);
 	if (params.edgeColours && params.edgeHeight !== null) query.set("edge_height", params.edgeHeight);
 	if (params.edgeColours && params.edgeDepth !== null) query.set("edge_depth", params.edgeDepth);
 	return query;
@@ -383,6 +411,8 @@ async function onGenerate() {
 		if (params.edgeColours) {
 			what += `, red/green bottom edges ${params.edgeHeight ?? EDGE_DEFAULT} x ${params.edgeDepth ?? EDGE_DEFAULT} mm`;
 		}
+		if (params.edgeDots) what += `, red/green dots at the bottom edges, radius ${params.dotRadius ?? DOT_DEFAULT} mm`;
+		if (params.bottomAxes) what += ", red/green axes on the bottom face";
 		setStatus(`Generated ${what}, ${params.size} mm, black depth ${params.depth} mm`);
 	} catch (exc) {
 		setStatus(`Failed to load preview: ${exc.message || exc}`, true);
@@ -424,13 +454,19 @@ edgeColoursInput.addEventListener("change", () => {
 	updateEdgeFields();
 	onGenerate();
 });
+edgeDotsInput.addEventListener("change", () => {
+	updateEdgeFields();
+	onGenerate();
+});
+bottomAxesInput.addEventListener("change", onGenerate);
+labelInput.addEventListener("input", updateBottomAxes);
 bottomLabelInput.addEventListener("change", () => {
 	setBottomLabel(bottomLabelInput.checked);
 	updateLabel();
 	onGenerate();
 });
 [tagIdInput, tagIdsInput].forEach((el) => el.addEventListener("input", updateLabel));
-[tagIdInput, tagIdsInput, labelInput, sizeInput, tagSizeInput, depthInput, edgeHeightInput, edgeDepthInput].forEach((el) => {
+[tagIdInput, tagIdsInput, labelInput, sizeInput, tagSizeInput, depthInput, edgeHeightInput, edgeDepthInput, dotRadiusInput].forEach((el) => {
 	el.addEventListener("keydown", (e) => {
 		if (e.key === "Enter") onGenerate();
 	});
