@@ -136,7 +136,7 @@ function facesText() {
 }
 // Set from the server's defaults (see loadDefaults below).
 let worldFrameIds = [29, 29, 29, 29, 29];
-let worldFrameLabel = "World frame";
+let worldFrameLabel = "World frame 29";
 
 function tagMode() {
 	return document.querySelector('input[name="tag_mode"]:checked')?.value || "same";

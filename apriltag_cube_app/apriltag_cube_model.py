@@ -18,7 +18,7 @@
     text is centred; long labels are split over two lines when that gives a larger font.
     Optionally, short red (+X) and green (+Y) arrows lying on the floor beside the cube show the world frame.
     The world-frame cube (build_world_frame_cube) has tag WORLD_FRAME_ID on all five faces with the
-    side tags turned, the label "World frame" and the arrows.
+    side tags turned, the label "World frame 29" (with the tag ID) and the arrows.
     Optionally (edge_colours=True), a red strip along the bottom edge of the +X face and a green
     one along the bottom edge of the +Y face show the cube's own axes; they are inlaid flush like
     the tag, in the lower part of the white margin below the tag, so the cube keeps its size, with
@@ -154,7 +154,7 @@ _EDGE_MARGIN = 0.06  # gap between the cube edge and the ids along it, x cube si
 
 WORLD_FRAME_ID = 29  # on all five faces, the side tags turned so the cube's heading can be read
 WORLD_FRAME_IDS = (WORLD_FRAME_ID,) * 5  # +X, +Y, -X, -Y, +Z
-WORLD_FRAME_LABEL = "World frame"
+WORLD_FRAME_LABEL = f"World frame {WORLD_FRAME_ID}"  # with the tag ID; split over two lines
 DEFAULT_EDGE_HEIGHT = 1.0  # mm, red/green bottom-edge strips
 DEFAULT_EDGE_DEPTH = 1.0  # mm
 DEFAULT_DOT_RADIUS = 2.0  # mm, red/green half disc in the middle of the bottom edge
@@ -571,7 +571,7 @@ def build_world_frame_cube(size: float, depth: float = DEFAULT_DEPTH, label: str
                            edge_depth: float | None = None, edge_dots: bool = False,
                            dot_radius: float | None = None, bottom_axes: bool = False) -> Compound:
     """The world-frame cube: WORLD_FRAME_ID on all five faces with the side tags turned, the
-    label "World frame" (or `label`) and the red/green arrows on the floor."""
+    label "World frame 29" (or `label`) and the red/green arrows on the floor."""
     return build_apriltag_cube(list(WORLD_FRAME_IDS), size, depth, True, label or WORLD_FRAME_LABEL,
                                rotate_sides=True, edge_colours=edge_colours, edge_height=edge_height,
                                edge_depth=edge_depth, edge_dots=edge_dots, dot_radius=dot_radius,
@@ -658,7 +658,7 @@ def main() -> None:
                     "and 270 degrees (+X, +Y, -X, -Y) so a camera can tell the sides apart")
     ap.add_argument("--world-frame", action="store_true", help=f"world-frame cube: id {WORLD_FRAME_ID} on all faces, side tags "
                     f"turned, label '{WORLD_FRAME_LABEL}' and axes; used instead of --id")
-    ap.add_argument("--label", help="bottom label (default: the tag id, 'World frame', or five different ids along "
+    ap.add_argument("--label", help="bottom label (default: the tag id, 'World frame 29', or five different ids along "
                     "the edges); '|' is a line break, empty for none")
     ap.add_argument("--size", type=float, default=40.0, help="cube edge length (mm)")
     ap.add_argument("--depth", type=float, default=DEFAULT_DEPTH, help="black layer depth (mm)")
