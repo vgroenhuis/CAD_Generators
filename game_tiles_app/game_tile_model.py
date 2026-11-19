@@ -1680,6 +1680,65 @@ def _mirror(c: Ctx) -> Design:
     return Design("dark_grey", [Layer("steel", None, solids=[plate])])
 
 
+def _bridge(c: Ctx) -> Design:
+    """A humpback stone bridge carrying a dirt road across a river, with a parapet on either
+    side, between grassy banks. The road runs along X from edge to edge (ramps down to the tile
+    edges, so it goes on to the next tile), the river along Y. The arch is pointed, two circular
+    arcs that slope 55 degrees at the sides and 22 at the top: no underside is flatter than 20
+    degrees, so it prints without supports."""
+    k, by = c.k, c.cy
+    rw = 12 * k  # river width
+    ow = rw + 2 * k  # arch opening: the abutments stand on the banks
+    bw = 12 * k  # bridge width (along Y)
+    pt = max(1.2, 1.2 * k)  # parapet thickness
+    ph = max(1.5, 1.5 * k)  # parapet height above the road
+    sink = min(0.6, c.p.thickness - 1.0)
+    hs = 1.0 * k  # the arch's sides rise straight this high above the water, then curve to a point
+    side_deg, top_deg = 55.0, 22.0  # slope of each arc at the side and at the top
+    th_s, th_a = math.radians(90 + side_deg), math.radians(90 + top_deg)  # (angles seen from the arc's centre)
+    radius = ow / 2 / (math.cos(th_a) - math.cos(th_s))
+    rise = radius * (math.sin(th_a) - math.sin(th_s))
+    top = hs + rise + max(1.6, 1.6 * k)  # road surface over the arch
+    a = ow / 2 + 1.5 * k  # level over the arch, ramps beyond
+    edge = 0.4  # road height at the tile edges
+    xw = c.w / 2 + 1  # (cut off at the tile's outline)
+
+    def road(x: float) -> float:
+        return top if abs(x) <= a else edge + (top - edge) * (xw - abs(x)) / (xw - a)
+
+    xs = [-xw, -a, a, xw]
+    outer = [(-xw, -sink), (xw, -sink)] + [(x, road(x)) for x in reversed(xs)]
+    # The right-hand arc, from its side up to the top, mirrored from the left-hand one.
+    left = [(-ow / 2 + radius * (math.cos(th) - math.cos(th_s)), hs + radius * (math.sin(th) - math.sin(th_s)))
+            for th in np.linspace(th_s, th_a, 12)]
+    right = [(-x, z) for x, z in left]
+    opening = [(-ow / 2, -sink - 1), (ow / 2, -sink - 1)] + right + [(-x, z) for x, z in reversed(right[:-1])]
+    body = _fin(outer, bw, 0, 0, by) - _fin(opening, bw + 2, 0, 0, by)
+    rail = [(x, road(x) - 0.5) for x in xs] + [(x, road(x) + ph) for x in reversed(xs)]
+    for sy in (-1, 1):
+        body = body + _fin(rail, pt, 0, 0, by + sy * (bw / 2 - pt / 2))
+    surface = [(x, road(x) - 0.8) for x in xs] + [(x, road(x)) for x in reversed(xs)]
+    dirt = _clip_to_tile(c, _fin(surface, bw - 2 * pt, 0, 0, by), top + ph)
+    stone = _clip_to_tile(c, Part((body - dirt).wrapped), top + ph)
+
+    river = _rect(-rw / 2, -c.h, rw / 2, c.h)
+    ripples = []
+    for x, y in c.grid(rw, 5.5 * k, stagger=True, jitter=0.8 * k):
+        if abs(x) < 0.15 * rw and abs(y - by) > bw / 2 + 2 * k and c.inside(x, y, 2 * k):
+            ripples.append(_wave(x, y, 0.55 * rw, 0.7 * k, c.line(1.2)))
+    clear = lambda x, y, r: abs(x) > rw / 2 + r + 0.8 and abs(y - by) > bw / 2 + r + 0.8  # off the river and bridge
+    tufts = [_blob(x, y, r, c.rng, 8, 0.3) for x, y, r in c.scatter(int(c.area / 90), 0.8 * k, 1.4 * k, 1.0) if clear(x, y, r)]
+    stones = [_blob(x, y, r, c.rng, 7, 0.25) for x, y, r in c.scatter(int(c.area / 60), 0.5 * k, 1.0 * k, 0.6)
+              if clear(x, y, r) and abs(x) < rw / 2 + 3.5 * k]  # pebbles along the water's edge
+    water = -c.hgt(0.4)
+    return Design("green", [Layer("blue", river, height=water),
+                            Layer("light_blue", _union(ripples), height=water + 0.3),
+                            Layer("dark_green", _union(tufts), c.hgt(0.6), taper=25),
+                            Layer("grey", _union(stones), c.hgt(0.6), taper=30),
+                            Layer("grey", None, solids=[stone]),
+                            Layer("brown", None, solids=[dirt])])
+
+
 # --- Connector: a sleeve that joins two tiles of the same shape ---
 
 # Wall thickness and clearance are parameters (TileParams.wall, .clearance): 1.2 and 0.1 mm by
@@ -1848,6 +1907,8 @@ TILE_TYPES = {
     "bulb": TileType("Light bulb", "Objects", _bulb, "light bulb standing on its screw socket, shining yellow rays on the floor"),
     "key": TileType("Key", "Objects", _key, "old gold key lying on a dark red cushion"),
     "weight": TileType("100t weight", "Objects", _weight, "cartoon iron weight marked 100t, landed on cracked earth"),
+    "bridge": TileType("Bridge", "Objects", _bridge,
+                       "humpback stone bridge carrying a dirt road across a river, with parapets, between grassy banks"),
     "laser": TileType("Laser", "Objects", _laser, "a horizontal red laser beam from a steel emitter with a black lens, across the tile"),
     "mirror": TileType("Mirror (diagonal)", "Objects", _mirror,
                        "upright steel mirror standing along the diagonal"),
@@ -1892,6 +1953,7 @@ ROUGHNESS = {
     "thunderstorm": (0.15, 3.0, "surface"),
     "bulb": (0.15, 2.5, "surface"),
     "ship": (0.15, 4.0, "surface"),  # like the water tile
+    "bridge": (0.15, 3.0, "surface"),  # the banks and the river; the bridge stays smooth
 }
 
 # Bodies that stay smooth above the tile's top face on a rough tile (only "surface" mode): a
@@ -1901,6 +1963,7 @@ SMOOTH_ABOVE_TOP = {
     "key": ("gold", "white"),  # the key and the sparkles
     "bulb": ("yellow", "black", "steel"),  # the bulb and its socket (the yellow rays on the floor too)
     "ship": ("wood", "dark_brown", "white"),
+    "bridge": ("grey", "brown"),
     "thunderstorm": ("yellow",),  # the lightning bolt  # the ship and its sails (the white foam too); the waves are rough
 }
 
