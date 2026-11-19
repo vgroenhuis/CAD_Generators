@@ -30,9 +30,11 @@ def _params(
 	a_shape: str = Query(..., max_length=12), a_size: float = Query(...), a_length: float = Query(30.0),
 	a_kind: str = Query(..., max_length=8), a_depth: float = Query(...), a_tolerance: float = Query(...),
 	a_wall: float = Query(...),
+	a_chamfer_width: float = Query(0.0), a_chamfer_depth: float = Query(0.0),
 	b_shape: str = Query(..., max_length=12), b_size: float = Query(...), b_length: float = Query(20.0),
 	b_kind: str = Query(..., max_length=8), b_depth: float = Query(...), b_tolerance: float = Query(...),
 	b_wall: float = Query(...),
+	b_chamfer_width: float = Query(0.0), b_chamfer_depth: float = Query(0.0),
 	distance: float = Query(...),
 ) -> AdapterParams:
 	# A square or round component has no second side: keep the cache key unique.
@@ -40,8 +42,14 @@ def _params(
 		a_length = DEFAULT.a_length
 	if b_shape != "rectangle":
 		b_length = DEFAULT.b_length
-	p = AdapterParams(a_shape, a_size, a_length, a_kind, a_depth, a_tolerance, a_wall,
-	                  b_shape, b_size, b_length, b_kind, b_depth, b_tolerance, b_wall, distance)
+	# A chamfer with a zero width or depth is none: one cache entry for all of those.
+	if a_chamfer_width == 0 or a_chamfer_depth == 0:
+		a_chamfer_width = a_chamfer_depth = 0.0
+	if b_chamfer_width == 0 or b_chamfer_depth == 0:
+		b_chamfer_width = b_chamfer_depth = 0.0
+	p = AdapterParams(a_shape, a_size, a_length, a_kind, a_depth, a_tolerance, a_wall, a_chamfer_width, a_chamfer_depth,
+	                  b_shape, b_size, b_length, b_kind, b_depth, b_tolerance, b_wall, b_chamfer_width, b_chamfer_depth,
+	                  distance)
 	try:
 		validate(p)
 	except ValueError as exc:

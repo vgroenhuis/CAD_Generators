@@ -7,7 +7,7 @@ import { showViewerError } from "./error-banner.js";
 
 const API = "api/transition-adapter";
 const SIDES = ["a", "b"];
-const SIDE_FIELDS = ["size", "length", "depth", "tolerance", "wall"];
+const SIDE_FIELDS = ["size", "length", "depth", "tolerance", "wall", "chamfer_width", "chamfer_depth"];
 const NUMBER_FIELDS = [...SIDES.flatMap((s) => SIDE_FIELDS.map((f) => `${s}_${f}`)), "distance"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
 const generateBtn = document.getElementById("generate-btn");
@@ -107,6 +107,10 @@ function updateSide(s) {
 	document.getElementById(`${s}_hint`).textContent = socket
 		? "The component's outside size: it goes into the socket, which is that size plus the tolerance on every side, with a wall around it."
 		: "The size of the component's opening: the plug, that size less the tolerance on every side, goes into it. The component's end rests on the shoulder.";
+	document.getElementById(`${s}_chamfer_hint`).textContent = (socket
+		? "Widens the socket's mouth, to guide the component in."
+		: "Narrows the plug's tip, to guide it into the opening.") +
+		" Width across, depth along the axis; 0 for none. A width no larger than the depth prints without supports.";
 }
 
 function readParams() {

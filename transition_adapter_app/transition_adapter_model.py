@@ -9,6 +9,9 @@
         tolerance on every side, standing on a shoulder `wall` wide that the component's end
         rests against
       * the depth: how far the component goes into the socket, or the plug into the component
+      * a chamfer that makes mounting easier: at a socket's mouth it widens the opening, at a
+        plug's tip it narrows the plug, `chamfer_width` across and `chamfer_depth` along the axis
+        (0 for none; a width no larger than the depth prints without supports)
 
     The adapter's axis is Z. Component A comes from below, its end face at z = 0; component B
     from above, its end face at z = `distance`. A positive distance leaves a gap between the two
@@ -32,15 +35,14 @@ import argparse
 import math
 from dataclasses import dataclass
 
-import numpy as np
 from build123d import (
-    Align, Box, Circle, Color, Compound, Part, Plane, Polygon, Pos, Rectangle, Sketch, export_step, extrude, loft,
+    Align, Box, Circle, Color, Compound, Face, Line, Part, Plane, Pos, Rectangle, Sketch, ThreePointArc, Vector, Wire,
+    export_step, extrude, loft,
 )
 
 SHAPES = ("round", "square", "rectangle")
 KINDS = ("socket", "plug")
 MIN_PLUG = 1.0  # mm, smallest plug cross-section
-_LOFT_POINTS = 96  # points around a tapered middle part between two different shapes
 COLOUR = Color(0.35, 0.55, 0.82)
 _C, _MIN = Align.CENTER, Align.MIN
 
@@ -54,6 +56,8 @@ class AdapterParams:
     a_depth: float = 15.0
     a_tolerance: float = 0.2  # gap on every side (mm)
     a_wall: float = 2.0  # socket wall, or plug shoulder (mm)
+    a_chamfer_width: float = 1.0  # lead-in at the socket's mouth or the plug's tip (mm; 0: none)
+    a_chamfer_depth: float = 1.0
     b_shape: str = "round"
     b_size: float = 12.0
     b_length: float = 20.0
@@ -61,6 +65,8 @@ class AdapterParams:
     b_depth: float = 12.0
     b_tolerance: float = 0.2
     b_wall: float = 2.0
+    b_chamfer_width: float = 1.0
+    b_chamfer_depth: float = 1.0
     distance: float = 5.0  # between the components' end faces (mm); may be zero or negative
 
 
@@ -73,6 +79,12 @@ class Side:
     depth: float
     tolerance: float
     wall: float
+    chamfer_width: float = 0.0
+    chamfer_depth: float = 0.0
+
+    @property
+    def chamfered(self) -> bool:
+        return self.chamfer_width > 0 and self.chamfer_depth > 0
 
     def dims(self, offset: float) -> tuple[float, float]:
         """Width and length (x, y; the diameter twice for round) of the outline grown by `offset`."""
@@ -97,7 +109,10 @@ class Side:
 
 
 def side(p: AdapterParams, name: str) -> Side:
-    return Side(*(getattr(p, f"{name}_{field}") for field in ("shape", "size", "length", "kind", "depth", "tolerance", "wall")))
+    return Side(*(getattr(p, f"{name}_{field}") for field in SIDE_FIELDS))
+
+
+SIDE_FIELDS = ("shape", "size", "length", "kind", "depth", "tolerance", "wall", "chamfer_width", "chamfer_depth")
 
 
 def validate(p: AdapterParams) -> None:
@@ -119,6 +134,18 @@ def validate(p: AdapterParams) -> None:
         if s.kind == "plug" and min(s.dims(s.fit)) < MIN_PLUG:
             raise ValueError(f"Side {label}: the plug would be thinner than {MIN_PLUG:g} mm; use a larger size or a "
                              "smaller tolerance.")
+        if s.chamfer_width < 0 or s.chamfer_depth < 0:
+            raise ValueError(f"Side {label}: the chamfer's width and depth must be 0 or more.")
+        if s.chamfered:
+            if s.chamfer_depth > s.depth:
+                raise ValueError(f"Side {label}: the chamfer can be at most as deep as the "
+                                 f"{'socket' if s.kind == 'socket' else 'plug'} ({s.depth:g} mm).")
+            if s.kind == "socket" and s.chamfer_width > s.wall - 0.4:
+                raise ValueError(f"Side {label}: the chamfer must leave at least 0.4 mm of the wall: at most "
+                                 f"{s.wall - 0.4:g} mm wide.")
+            if s.kind == "plug" and min(s.dims(s.fit - s.chamfer_width)) < MIN_PLUG / 2:
+                raise ValueError(f"Side {label}: the chamfer is too wide for the plug: its tip would be thinner than "
+                                 f"{MIN_PLUG / 2:g} mm.")
     if not -500 <= p.distance <= 500:
         raise ValueError("The distance must be between -500 and 500 mm.")
 
@@ -127,32 +154,64 @@ def _prism(sketch: Sketch, z0: float, z1: float) -> Part:
     return Pos(0, 0, z0) * extrude(sketch, amount=z1 - z0)
 
 
-def _ring_points(s: Side, offset: float, n: int = _LOFT_POINTS) -> list[tuple[float, float]]:
-    """n points around the outline, at the same angles for every shape (so a loft from one shape to
-    another runs straight up, without twisting)."""
+def _frustum(s: Side, offset0: float, z0: float, offset1: float, z1: float) -> Part:
+    """From the outline grown by offset0 at height z0 to the one grown by offset1 at z1."""
+    return Part(loft([Plane.XY.offset(z0) * s.outline(offset0), Plane.XY.offset(z1) * s.outline(offset1)],
+                     ruled=True).wrapped)
+
+
+def _plug(s: Side, root: float, tip: float) -> Part:
+    """The plug from its root (the shoulder) to its tip, which is chamfered if asked."""
+    if not s.chamfered:
+        return _prism(s.outline(s.fit), min(root, tip), max(root, tip))
+    start = tip - math.copysign(s.chamfer_depth, tip - root)  # where the chamfer begins
+    body = _frustum(s, s.fit, start, s.fit - s.chamfer_width, tip)
+    if abs(start - root) > 1e-6:
+        body = body + _prism(s.outline(s.fit), min(root, start), max(root, start))
+    return body
+
+
+def _mouth(s: Side, mouth: float, inward: float) -> Part:
+    """The socket's chamfer, cut at its mouth (height `mouth`; `inward` +1 or -1 points into the
+    socket), with a sliver beyond the mouth so the cut is clean."""
+    inner = mouth + inward * s.chamfer_depth
+    out = mouth - inward * 0.1
+    return _frustum(s, s.fit + s.chamfer_width, mouth, s.fit, inner) + _prism(
+        s.outline(s.fit + s.chamfer_width), min(mouth, out), max(mouth, out))
+
+
+def _section(s: Side, offset: float, z: float, angles: list[float]) -> Wire:
+    """The outline at height z as four edges that start at the given angles (seen from the axis):
+    a rectangle's sides, or a circle cut into four arcs at its partner rectangle's corner angles,
+    so that a ruled loft joins each arc to one straight side with a single smooth surface."""
     w, h = s.dims(offset)
-    pts = []
-    for a in np.linspace(0, 2 * math.pi, n, endpoint=False):
-        c, si = math.cos(a), math.sin(a)
-        if s.shape == "round":
-            r = w / 2
-        else:  # where the ray at this angle leaves the rectangle
-            r = min(w / 2 / abs(c) if abs(c) > 1e-12 else math.inf, h / 2 / abs(si) if abs(si) > 1e-12 else math.inf)
-        pts.append((r * c, r * si))
-    return pts
+    if s.shape == "round":
+        r = w / 2
+        ends = angles + [angles[0] + 2 * math.pi]
+        point = lambda t: Vector(r * math.cos(t), r * math.sin(t), z)  # noqa: E731
+        edges = [ThreePointArc(point(t0), point((t0 + t1) / 2), point(t1)) for t0, t1 in zip(ends, ends[1:])]
+    else:
+        corners = [Vector(w / 2, h / 2, z), Vector(-w / 2, h / 2, z), Vector(-w / 2, -h / 2, z), Vector(w / 2, -h / 2, z)]
+        edges = [Line(p, q) for p, q in zip(corners, corners[1:] + corners[:1])]
+    return Wire(edges)
 
 
 def _middle(a: Side, b: Side, d: float) -> Part:
     """From side A's outside at z = 0 to side B's at z = d: straight when they are the same,
-    tapered otherwise."""
+    tapered otherwise. Between a round and a rectangular side the taper is like a sheet-metal
+    square-to-round transition: each side of the rectangle joins a quarter (or so) of the circle
+    with one smooth surface, with a crease from each corner of the rectangle down to the circle."""
     if (a.shape, *a.dims(a.outer)) == (b.shape, *b.dims(b.outer)):
         return _prism(a.outline(a.outer), 0, d)
     if a.shape == b.shape == "round":
-        sections = [a.outline(a.outer), Plane.XY.offset(d) * b.outline(b.outer)]
-    else:
-        sections = [Polygon(*_ring_points(a, a.outer), align=None),
-                    Plane.XY.offset(d) * Polygon(*_ring_points(b, b.outer), align=None)]
-    return Part(loft(sections, ruled=True).wrapped)
+        return Part(loft([a.outline(a.outer), Plane.XY.offset(d) * b.outline(b.outer)], ruled=True).wrapped)
+    if a.shape != "round" and b.shape != "round":  # two rectangles: four flat faces
+        return Part(loft([a.outline(a.outer), Plane.XY.offset(d) * b.outline(b.outer)], ruled=True).wrapped)
+    rect = a if a.shape != "round" else b
+    w, h = rect.dims(rect.outer)
+    c = math.atan2(h, w)  # angle of the rectangle's first corner
+    angles = [c, math.pi - c, math.pi + c, 2 * math.pi - c]
+    return Part(loft([Face(_section(a, a.outer, 0, angles)), Face(_section(b, b.outer, d, angles))], ruled=True).wrapped)
 
 
 def build_adapter_raw(p: AdapterParams) -> Part:
@@ -162,8 +221,8 @@ def build_adapter_raw(p: AdapterParams) -> Part:
     big = a.depth + b.depth + abs(d) + 10
     reach = 2 * max(a.size, a.length, b.size, b.length) + 2 * max(a.wall, b.wall) + 20  # wider than everything
     shapes = [
-        _prism(a.outline(a.outer if a.kind == "socket" else a.fit), -a.depth, 0),
-        _prism(b.outline(b.outer if b.kind == "socket" else b.fit), d, d + b.depth),
+        _prism(a.outline(a.outer), -a.depth, 0) if a.kind == "socket" else _plug(a, 0, -a.depth),
+        _prism(b.outline(b.outer), d, d + b.depth) if b.kind == "socket" else _plug(b, d, d + b.depth),
     ]
     if d > 0:
         shapes.append(_middle(a, b, d))
@@ -176,6 +235,10 @@ def build_adapter_raw(p: AdapterParams) -> Part:
             body = body - _prism(s.outline(s.fit), z0, z1)
         else:
             body = body - (Pos(0, 0, z0) * Box(reach, reach, z1 - z0, align=(_C, _C, _MIN)) - _prism(s.outline(s.fit), z0, z1))
+    # Lead-in chamfers at the sockets' mouths (a plug's is part of the plug).
+    for s, mouth, inward in ((a, -a.depth, 1), (b, d + b.depth, -1)):
+        if s.kind == "socket" and s.chamfered:
+            body = body - _mouth(s, mouth, inward)
     return Part(body.wrapped) if body.wrapped is not None else Part()
 
 
@@ -224,11 +287,12 @@ def _side_text(s: Side, label: str) -> str:
         w, h = s.dims(0)
         fw, fh = s.dims(s.fit)
         size, made = (f"{w:g} x {h:g} mm", f"{fw:g} x {fh:g} mm")
+    chamfer = f", chamfer {s.chamfer_width:g} x {s.chamfer_depth:g} mm" if s.chamfered else ""
     if s.kind == "socket":
         return (f"Side {label}: socket for a {s.shape} component of {size}, {s.depth:g} mm deep: cavity {made}, "
-                f"wall {s.wall:g} mm.")
+                f"wall {s.wall:g} mm{chamfer}.")
     return (f"Side {label}: plug into a {s.shape} opening of {size}, {s.depth:g} mm long: plug {made}, "
-            f"shoulder {s.wall:g} mm.")
+            f"shoulder {s.wall:g} mm{chamfer}.")
 
 
 def describe(p: AdapterParams, adapter: Compound | None = None) -> str:
@@ -245,8 +309,8 @@ def main() -> None:
     for name in ("a", "b"):
         ap.add_argument(f"--{name}-shape", choices=SHAPES, default=getattr(defaults, f"{name}_shape"))
         ap.add_argument(f"--{name}-kind", choices=KINDS, default=getattr(defaults, f"{name}_kind"))
-        for field in ("size", "length", "depth", "tolerance", "wall"):
-            ap.add_argument(f"--{name}-{field}", type=float, default=getattr(defaults, f"{name}_{field}"))
+        for field in ("size", "length", "depth", "tolerance", "wall", "chamfer_width", "chamfer_depth"):
+            ap.add_argument(f"--{name}-{field.replace('_', '-')}", type=float, default=getattr(defaults, f"{name}_{field}"))
     ap.add_argument("--distance", type=float, default=defaults.distance)
     ap.add_argument("--out", default="transition_adapter.step")
     args = vars(ap.parse_args())
