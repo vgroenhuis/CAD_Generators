@@ -1739,6 +1739,70 @@ def _bridge(c: Ctx) -> Design:
                             Layer("brown", None, solids=[dirt])])
 
 
+def _bridge_arch(c: Ctx) -> Design:
+    """A tied-arch (bowstring) bridge: a flat road deck across a river that fills 80% of the tile
+    width, with a red steel arch on either side of the deck, its ends tied by the deck, vertical
+    hangers from the arches to the deck and cross-braces between the arches at the top. The road
+    runs along X and ramps down to the tile edges on the shores (10% of the width each), so it
+    goes on to the next tile; a white dashed line along its middle. In print the deck spans the
+    river with nothing under it (a bridge of 80% of the tile width; a slicer handles that), every
+    other underside is a short span between hangers or ribs."""
+    k, by = c.k, c.cy
+    s = 0.4 * c.w  # half the river: the shores are 10% of the width each
+    xw = c.w / 2 + 1  # (cut off at the tile's outline)
+    bw = 10 * k  # deck width (along Y)
+    rib_t = max(1.2, 1.4 * k)  # arch rib and hanger thickness (along Y)
+    rib_d = max(1.6, 2.0 * k)  # arch rib depth (vertical)
+    sink = min(0.6, c.p.thickness - 1.0)
+    deck_top, deck_t, edge = 3.5 * k, max(1.4, 1.6 * k), 0.4
+    rise = 0.6 * s  # of the arch above the deck
+
+    def upper(x: float) -> float:  # top of the arch rib (its ends go 0.6 mm into the deck)
+        return deck_top - 0.6 + (rise + 0.6) * (1 - (x / s) ** 2)
+
+    def lower(x: float) -> float:
+        return max(deck_top - 0.6, upper(x) - rib_d)
+
+    deck_profile = [(-xw, -sink), (-s, -sink), (-s, deck_top - deck_t), (s, deck_top - deck_t), (s, -sink), (xw, -sink),
+                    (xw, edge), (s, deck_top), (-s, deck_top), (-xw, edge)]
+    deck = _fin(deck_profile, bw, 0, 0, by)
+    xs = np.linspace(-s, s, 41)
+    # The arch with its hangers as one outline (x, z), made solid once per side: much faster than
+    # joining every hanger to it.
+    outline = [_poly([(x, upper(x)) for x in xs] + [(x, lower(x)) for x in xs[-2:0:-1]])]
+    hanger_w = max(MIN_LINE, 1.0 * k)
+    step = 4 * k
+    for x in np.arange(-s + step, s - step / 2, step):
+        if abs(x) < s - 2 * k and lower(x) - deck_top > 1:
+            outline.append(_rect(x - hanger_w / 2, deck_top - 0.3, x + hanger_w / 2, lower(x) + 0.3))
+    arch = extrude(Plane.XZ * _union(outline), amount=rib_t / 2, both=True)
+    steel = Pos(0, by - (bw / 2 - rib_t / 2), 0) * arch + Pos(0, by + (bw / 2 - rib_t / 2), 0) * arch
+    brace = max(1.2, 1.2 * k)
+    for x in (-0.3 * s, 0.0, 0.3 * s):
+        steel = steel + Pos(x, by, upper(x) - brace / 2) * Box(brace, bw - rib_t, brace)
+    dashes = Pos(0, 0, deck_top - 0.4) * extrude(_union([_rect(x, by - MIN_LINE / 2, x + 3 * k, by + MIN_LINE / 2)
+                                                          for x in np.arange(-s + 2.5 * k, s - 2 * k, 5 * k)]), amount=0.4)
+    deck = deck - dashes
+    steel = steel - deck
+    top = deck_top + rise + 1
+    deck, steel, dashes = (_clip_to_tile(c, Part(part.wrapped), top) for part in (deck, steel, dashes))
+
+    river = _rect(-s, -c.h, s, c.h)
+    ripples = []
+    for x, y in c.grid(8 * k, 5.5 * k, stagger=True, jitter=0.8 * k):
+        if abs(x) < s - 3.5 * k and abs(y - by) > bw / 2 + 2 * k and c.inside(x, y, 2 * k):
+            ripples.append(_wave(x, y, 5 * k, 0.6 * k, c.line(1.2)))
+    tufts = [_blob(x, y, r, c.rng, 8, 0.3) for x, y, r in c.scatter(int(c.area / 60), 0.6 * k, 1.0 * k, 0.8)
+             if abs(x) > s + r + 0.5 and abs(y - by) > bw / 2 + r + 0.8]
+    water = -c.hgt(0.4)
+    return Design("green", [Layer("blue", river, height=water),
+                            Layer("light_blue", _union(ripples), height=water + 0.3),
+                            Layer("dark_green", _union(tufts), c.hgt(0.6), taper=25),
+                            Layer("dark_grey", None, solids=[deck]),
+                            Layer("white", None, solids=[dashes]),
+                            Layer("red", None, solids=[steel])])
+
+
 # --- Connector: a sleeve that joins two tiles of the same shape ---
 
 # Wall thickness and clearance are parameters (TileParams.wall, .clearance): 1.2 and 0.1 mm by
@@ -1909,6 +1973,9 @@ TILE_TYPES = {
     "weight": TileType("100t weight", "Objects", _weight, "cartoon iron weight marked 100t, landed on cracked earth"),
     "bridge": TileType("Bridge", "Objects", _bridge,
                        "humpback stone bridge carrying a dirt road across a river, with parapets, between grassy banks"),
+    "bridge_arch": TileType("Bridge (tied arch)", "Objects", _bridge_arch,
+                            "steel tied-arch bridge carrying a road across a wide river: red arches on both sides of the deck, "
+                            "hangers and cross-braces; narrow grassy shores"),
     "laser": TileType("Laser", "Objects", _laser, "a horizontal red laser beam from a steel emitter with a black lens, across the tile"),
     "mirror": TileType("Mirror (diagonal)", "Objects", _mirror,
                        "upright steel mirror standing along the diagonal"),
@@ -1954,6 +2021,7 @@ ROUGHNESS = {
     "bulb": (0.15, 2.5, "surface"),
     "ship": (0.15, 4.0, "surface"),  # like the water tile
     "bridge": (0.15, 3.0, "surface"),  # the banks and the river; the bridge stays smooth
+    "bridge_arch": (0.15, 3.0, "surface"),
 }
 
 # Bodies that stay smooth above the tile's top face on a rough tile (only "surface" mode): a
@@ -1964,6 +2032,7 @@ SMOOTH_ABOVE_TOP = {
     "bulb": ("yellow", "black", "steel"),  # the bulb and its socket (the yellow rays on the floor too)
     "ship": ("wood", "dark_brown", "white"),
     "bridge": ("grey", "brown"),
+    "bridge_arch": ("dark_grey", "white", "red"),
     "thunderstorm": ("yellow",),  # the lightning bolt  # the ship and its sails (the white foam too); the waves are rough
 }
 
