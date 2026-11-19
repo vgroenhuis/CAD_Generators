@@ -1777,9 +1777,12 @@ def _bridge_arch(c: Ctx) -> Design:
             outline.append(_rect(x - hanger_w / 2, deck_top - 0.3, x + hanger_w / 2, lower(x) + 0.3))
     arch = extrude(Plane.XZ * _union(outline), amount=rib_t / 2, both=True)
     steel = Pos(0, by - (bw / 2 - rib_t / 2), 0) * arch + Pos(0, by + (bw / 2 - rib_t / 2), 0) * arch
+    # Cross-braces between the arches, curved like them, so their tops are flush with the arches'.
     brace = max(1.2, 1.2 * k)
-    for x in (-0.3 * s, 0.0, 0.3 * s):
-        steel = steel + Pos(x, by, upper(x) - brace / 2) * Box(brace, bw - rib_t, brace)
+    for x0 in (-0.3 * s, 0.0, 0.3 * s):
+        bx = np.linspace(x0 - brace / 2, x0 + brace / 2, 6)
+        shape = _poly([(x, upper(x)) for x in bx] + [(x, upper(x) - brace) for x in bx[::-1]])
+        steel = steel + Pos(0, by, 0) * extrude(Plane.XZ * shape, amount=(bw - rib_t) / 2, both=True)
     dashes = Pos(0, 0, deck_top - 0.4) * extrude(_union([_rect(x, by - MIN_LINE / 2, x + 3 * k, by + MIN_LINE / 2)
                                                           for x in np.arange(-s + 2.5 * k, s - 2 * k, 5 * k)]), amount=0.4)
     deck = deck - dashes
