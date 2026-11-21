@@ -151,6 +151,9 @@
 				<label for="distance">Distance (mm)</label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="distance">
 				<div class="hint">From component A's end to component B's end. Positive: the adapter fills the gap (straight, or tapered between different sizes). Zero: the ends meet. Negative: they reach into each other, e.g. one component sliding into the other's opening.</div>
+				<label for="hole">Through hole diameter (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="hole">
+				<div class="hint">A hole along the axis through the whole adapter: air can escape when a tightly fitting part is pushed in and get in when it is pulled out, and a pin can push a part out. 0 for none.</div>
 			</div>
 
 			<button id="generate-btn">Generate</button>

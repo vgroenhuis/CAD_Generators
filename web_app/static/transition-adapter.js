@@ -8,7 +8,7 @@ import { showViewerError } from "./error-banner.js";
 const API = "api/transition-adapter";
 const SIDES = ["a", "b"];
 const SIDE_FIELDS = ["size", "length", "depth", "tolerance", "wall", "chamfer_width", "chamfer_depth"];
-const NUMBER_FIELDS = [...SIDES.flatMap((s) => SIDE_FIELDS.map((f) => `${s}_${f}`)), "distance"];
+const NUMBER_FIELDS = [...SIDES.flatMap((s) => SIDE_FIELDS.map((f) => `${s}_${f}`)), "distance", "hole"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");

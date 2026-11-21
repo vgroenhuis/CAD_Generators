@@ -35,7 +35,7 @@ def _params(
 	b_kind: str = Query(..., max_length=8), b_depth: float = Query(...), b_tolerance: float = Query(...),
 	b_wall: float = Query(...),
 	b_chamfer_width: float = Query(0.0), b_chamfer_depth: float = Query(0.0),
-	distance: float = Query(...),
+	distance: float = Query(...), hole: float = Query(0.0),
 ) -> AdapterParams:
 	# A square or round component has no second side: keep the cache key unique.
 	if a_shape != "rectangle":
@@ -49,7 +49,7 @@ def _params(
 		b_chamfer_width = b_chamfer_depth = 0.0
 	p = AdapterParams(a_shape, a_size, a_length, a_kind, a_depth, a_tolerance, a_wall, a_chamfer_width, a_chamfer_depth,
 	                  b_shape, b_size, b_length, b_kind, b_depth, b_tolerance, b_wall, b_chamfer_width, b_chamfer_depth,
-	                  distance)
+	                  distance, hole)
 	try:
 		validate(p)
 	except ValueError as exc:

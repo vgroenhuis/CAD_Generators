@@ -23,6 +23,9 @@
     tolerance), so it never cuts into a component. warnings() reports when the two components
     themselves would overlap, or when the adapter would fall apart.
 
+    A through hole along the axis (`hole`, its diameter; 0 for none) lets air in and out when a
+    tightly fitting part is pushed in or pulled out, and gives room for a pin to push it out.
+
     The model lies in print orientation: side A down, its lowest point at z = 0.
 
     Can also be run standalone:
@@ -45,6 +48,7 @@ SHAPES = ("round", "square", "rectangle", "hexagon")
 ADJECTIVES = {"round": "round", "square": "square", "rectangle": "rectangular", "hexagon": "hexagonal"}
 KINDS = ("socket", "plug")
 MIN_PLUG = 1.0  # mm, smallest plug cross-section
+HOLE_WALL = 0.4  # mm, least material between the through hole and a plug's outside
 COLOUR = Color(0.35, 0.55, 0.82)
 _C, _MIN = Align.CENTER, Align.MIN
 
@@ -70,6 +74,7 @@ class AdapterParams:
     b_chamfer_width: float = 1.0
     b_chamfer_depth: float = 1.0
     distance: float = 5.0  # between the components' end faces (mm); may be zero or negative
+    hole: float = 2.0  # through hole along the axis: diameter (mm; 0: none)
 
 
 @dataclass
@@ -166,6 +171,18 @@ def validate(p: AdapterParams) -> None:
                                  f"{MIN_PLUG / 2:g} mm.")
     if not -500 <= p.distance <= 500:
         raise ValueError("The distance must be between -500 and 500 mm.")
+    if not 0 <= p.hole <= 100:
+        raise ValueError("The through hole's diameter must be between 0 and 100 mm.")
+    if p.hole > 0:
+        for name in ("a", "b"):
+            s = side(p, name)
+            if s.kind == "plug":
+                tip = min(s.dims(s.fit - (s.chamfer_width if s.chamfered else 0)))
+                most = math.floor((tip - 2 * HOLE_WALL) * 100) / 100
+                if p.hole > most:
+                    limit = f"at most {most:g} mm, or 0 for none" if most > 0 else "the plug is too thin for one: use 0"
+                    raise ValueError(f"Side {name.upper()}: the through hole must leave at least {HOLE_WALL:g} mm of the "
+                                     f"plug around it ({limit}).")
 
 
 def _prism(sketch: Sketch, z0: float, z1: float) -> Part:
@@ -272,6 +289,8 @@ def build_adapter_raw(p: AdapterParams) -> Part:
     for s, mouth, inward in ((a, -a.depth, 1), (b, d + b.depth, -1)):
         if s.kind == "socket" and s.chamfered:
             body = body - _mouth(s, mouth, inward)
+    if p.hole > 0:
+        body = body - _prism(Circle(p.hole / 2), -big, d + big)
     return Part(body.wrapped) if body.wrapped is not None else Part()
 
 
@@ -332,6 +351,8 @@ def _side_text(s: Side, label: str) -> str:
 
 def describe(p: AdapterParams, adapter: Compound | None = None) -> str:
     text = f"{_side_text(side(p, 'a'), 'A')} {_side_text(side(p, 'b'), 'B')} Distance between the components' ends: {p.distance:g} mm."
+    if p.hole > 0:
+        text += f" Through hole Ø{p.hole:g} mm."
     if adapter is not None:
         box = adapter.bounding_box()
         text += f" Adapter {box.size.X:.1f} x {box.size.Y:.1f} x {box.size.Z:.1f} mm, {adapter.volume / 1000:.1f} cm³."
@@ -347,6 +368,7 @@ def main() -> None:
         for field in ("size", "length", "depth", "tolerance", "wall", "chamfer_width", "chamfer_depth"):
             ap.add_argument(f"--{name}-{field.replace('_', '-')}", type=float, default=getattr(defaults, f"{name}_{field}"))
     ap.add_argument("--distance", type=float, default=defaults.distance)
+    ap.add_argument("--hole", type=float, default=defaults.hole, help="through hole diameter (0: none)")
     ap.add_argument("--out", default="transition_adapter.step")
     args = vars(ap.parse_args())
     out = args.pop("out")
