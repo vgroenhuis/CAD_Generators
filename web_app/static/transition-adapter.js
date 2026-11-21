@@ -92,7 +92,7 @@ function checked(name) {
 	return document.querySelector(`input[name="${name}"]:checked`)?.value;
 }
 
-const SIZE_LABELS = { round: "Diameter (mm)", square: "Side (mm)", rectangle: "Width (mm)" };
+const SIZE_LABELS = { round: "Diameter (mm)", square: "Side (mm)", rectangle: "Width (mm)", hexagon: "Across flats (mm)" };
 
 // Labels and hints follow each side's shape and kind.
 function updateSide(s) {

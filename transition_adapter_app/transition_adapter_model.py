@@ -2,7 +2,8 @@
     Transition adapter: joins two components, which may be different or the same.
 
     Each side (A and B) is set up on its own:
-      * the component's shape: round (diameter), square (side) or rectangle (width x length)
+      * the component's shape: round (diameter), square (side), rectangle (width x length) or
+        hexagon (across flats, e.g. a nut or a hex bar; two flats parallel to the X axis)
       * a socket, which the component goes into: a cavity of the component's outside size
         plus the tolerance on every side, `wall` thick around it
       * or a plug, which goes into the component's opening: the opening's size minus the
@@ -36,11 +37,12 @@ import math
 from dataclasses import dataclass
 
 from build123d import (
-    Align, Box, Circle, Color, Compound, Face, Line, Part, Plane, Pos, Rectangle, Sketch, ThreePointArc, Vector, Wire,
-    export_step, extrude, loft,
+    Align, Box, Circle, Color, Compound, Face, Line, Part, Plane, Polygon, Pos, Rectangle, Shell, Sketch, Solid,
+    ThreePointArc, Vector, Wire, export_step, extrude, loft,
 )
 
-SHAPES = ("round", "square", "rectangle")
+SHAPES = ("round", "square", "rectangle", "hexagon")
+ADJECTIVES = {"round": "round", "square": "square", "rectangle": "rectangular", "hexagon": "hexagonal"}
 KINDS = ("socket", "plug")
 MIN_PLUG = 1.0  # mm, smallest plug cross-section
 COLOUR = Color(0.35, 0.55, 0.82)
@@ -50,7 +52,7 @@ _C, _MIN = Align.CENTER, Align.MIN
 @dataclass
 class AdapterParams:
     a_shape: str = "round"
-    a_size: float = 20.0  # diameter, side or width (mm)
+    a_size: float = 20.0  # diameter, side, width or across flats (mm)
     a_length: float = 30.0  # rectangle only: the other side (mm)
     a_kind: str = "socket"
     a_depth: float = 15.0
@@ -87,15 +89,31 @@ class Side:
         return self.chamfer_width > 0 and self.chamfer_depth > 0
 
     def dims(self, offset: float) -> tuple[float, float]:
-        """Width and length (x, y; the diameter twice for round) of the outline grown by `offset`."""
+        """Width and length (x, y) of the outline grown by `offset`: the diameter twice for round;
+        for a hexagon across corners (x) and across flats (y)."""
         width = self.size + 2 * offset
+        if self.shape == "hexagon":
+            return width * 2 / math.sqrt(3), width
         return width, (self.length + 2 * offset if self.shape == "rectangle" else width)
+
+    def corners(self, offset: float, z: float = 0.0) -> list[Vector]:
+        """A polygon's corners (not round), counter-clockwise, starting with the first one counter-
+        clockwise from the X axis (inclusive)."""
+        w, h = self.dims(offset)
+        if self.shape == "hexagon":
+            r = w / 2
+            return [Vector(r * math.cos(i * math.pi / 3), r * math.sin(i * math.pi / 3), z) for i in range(6)]
+        return [Vector(w / 2, h / 2, z), Vector(-w / 2, h / 2, z), Vector(-w / 2, -h / 2, z), Vector(w / 2, -h / 2, z)]
 
     def outline(self, offset: float) -> Sketch:
         """The component's outline (outside for a socket, opening for a plug), grown by `offset`
         on every side (negative: shrunk)."""
         w, h = self.dims(offset)
-        return Circle(w / 2) if self.shape == "round" else Rectangle(w, h)
+        if self.shape == "round":
+            return Circle(w / 2)
+        if self.shape == "hexagon":
+            return Polygon(*[(v.X, v.Y) for v in self.corners(offset)], align=None)
+        return Rectangle(w, h)
 
     @property
     def fit(self) -> float:
@@ -181,19 +199,34 @@ def _mouth(s: Side, mouth: float, inward: float) -> Part:
 
 
 def _section(s: Side, offset: float, z: float, angles: list[float]) -> Wire:
-    """The outline at height z as four edges that start at the given angles (seen from the axis):
-    a rectangle's sides, or a circle cut into four arcs at its partner rectangle's corner angles,
-    so that a ruled loft joins each arc to one straight side with a single smooth surface."""
-    w, h = s.dims(offset)
+    """The outline at height z as edges that start at the given angles (seen from the axis): a
+    polygon's sides, or a circle cut into arcs at its partner polygon's corner angles, so that a
+    ruled loft joins each arc to one straight side with a single smooth surface."""
     if s.shape == "round":
-        r = w / 2
+        r = s.dims(offset)[0] / 2
         ends = angles + [angles[0] + 2 * math.pi]
         point = lambda t: Vector(r * math.cos(t), r * math.sin(t), z)  # noqa: E731
         edges = [ThreePointArc(point(t0), point((t0 + t1) / 2), point(t1)) for t0, t1 in zip(ends, ends[1:])]
     else:
-        corners = [Vector(w / 2, h / 2, z), Vector(-w / 2, h / 2, z), Vector(-w / 2, -h / 2, z), Vector(w / 2, -h / 2, z)]
+        corners = s.corners(offset, z)
         edges = [Line(p, q) for p, q in zip(corners, corners[1:] + corners[:1])]
     return Wire(edges)
+
+
+def _hull(points: list[Vector]) -> Part:
+    """The convex hull of the points, with flat faces (coplanar triangles merged)."""
+    from scipy.spatial import ConvexHull
+
+    xyz = [(v.X, v.Y, v.Z) for v in points]
+    hull = ConvexHull(xyz)
+    centre = sum(points, Vector()) / len(points)
+    faces = []
+    for tri in hull.simplices:
+        a, b, c = (points[i] for i in tri)
+        if (b - a).cross(c - a).dot(a - centre) < 0:  # outward normals
+            b, c = c, b
+        faces.append(Face(Wire([Line(a, b), Line(b, c), Line(c, a)])))
+    return Part(Solid(Shell(faces)).clean().wrapped)
 
 
 def _middle(a: Side, b: Side, d: float) -> Part:
@@ -205,12 +238,12 @@ def _middle(a: Side, b: Side, d: float) -> Part:
         return _prism(a.outline(a.outer), 0, d)
     if a.shape == b.shape == "round":
         return Part(loft([a.outline(a.outer), Plane.XY.offset(d) * b.outline(b.outer)], ruled=True).wrapped)
-    if a.shape != "round" and b.shape != "round":  # two rectangles: four flat faces
-        return Part(loft([a.outline(a.outer), Plane.XY.offset(d) * b.outline(b.outer)], ruled=True).wrapped)
-    rect = a if a.shape != "round" else b
-    w, h = rect.dims(rect.outer)
-    c = math.atan2(h, w)  # angle of the rectangle's first corner
-    angles = [c, math.pi - c, math.pi + c, 2 * math.pi - c]
+    if a.shape != "round" and b.shape != "round":
+        if (a.shape == "hexagon") == (b.shape == "hexagon"):  # two rectangles or two hexagons: flat faces
+            return Part(loft([a.outline(a.outer), Plane.XY.offset(d) * b.outline(b.outer)], ruled=True).wrapped)
+        return _hull(a.corners(a.outer, 0) + b.corners(b.outer, d))  # hexagon to rectangle: flat faces
+    poly = a if a.shape != "round" else b
+    angles = [math.atan2(v.Y, v.X) % (2 * math.pi) for v in poly.corners(poly.outer)]
     return Part(loft([Face(_section(a, a.outer, 0, angles)), Face(_section(b, b.outer, d, angles))], ruled=True).wrapped)
 
 
@@ -283,15 +316,17 @@ def warnings(p: AdapterParams, adapter: Compound | None = None) -> list[str]:
 def _side_text(s: Side, label: str) -> str:
     if s.shape == "round":
         size, made = f"Ø{s.size:g} mm", f"Ø{s.dims(s.fit)[0]:g} mm"
+    elif s.shape == "hexagon":
+        size, made = f"{s.size:g} mm across flats", f"{s.dims(s.fit)[1]:g} mm across flats"
     else:
         w, h = s.dims(0)
         fw, fh = s.dims(s.fit)
         size, made = (f"{w:g} x {h:g} mm", f"{fw:g} x {fh:g} mm")
     chamfer = f", chamfer {s.chamfer_width:g} x {s.chamfer_depth:g} mm" if s.chamfered else ""
     if s.kind == "socket":
-        return (f"Side {label}: socket for a {s.shape} component of {size}, {s.depth:g} mm deep: cavity {made}, "
+        return (f"Side {label}: socket for a {ADJECTIVES[s.shape]} component of {size}, {s.depth:g} mm deep: cavity {made}, "
                 f"wall {s.wall:g} mm{chamfer}.")
-    return (f"Side {label}: plug into a {s.shape} opening of {size}, {s.depth:g} mm long: plug {made}, "
+    return (f"Side {label}: plug into a {ADJECTIVES[s.shape]} opening of {size}, {s.depth:g} mm long: plug {made}, "
             f"shoulder {s.wall:g} mm{chamfer}.")
 
 

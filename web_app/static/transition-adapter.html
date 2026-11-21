@@ -47,7 +47,7 @@
 	#info { margin-top: 14px; font-size: 12px; color: #c0c4c9; line-height: 1.5; }
 	.view-section { margin-top: 18px; padding-top: 12px; border-top: 1px solid #3a3f45; }
 	.view-section h3 { margin-top: 0 !important; }
-	.controls .radio-row { display: flex; gap: 18px; margin-top: 8px; }
+	.controls .radio-row { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
 	.controls .radio-row label { display: flex; align-items: center; gap: 6px; margin-top: 0; color: #e8e8e8; font-size: 13px; }
 	.controls .radio-row input { width: auto; margin: 0; }
 	@media (max-width: 700px) {
@@ -76,6 +76,7 @@
 					<label for="a_shape_round"><input type="radio" name="a_shape" id="a_shape_round" value="round"> Round</label>
 					<label for="a_shape_square"><input type="radio" name="a_shape" id="a_shape_square" value="square"> Square</label>
 					<label for="a_shape_rectangle"><input type="radio" name="a_shape" id="a_shape_rectangle" value="rectangle"> Rectangle</label>
+					<label for="a_shape_hexagon"><input type="radio" name="a_shape" id="a_shape_hexagon" value="hexagon"> Hexagon</label>
 				</div>
 				<div class="radio-row">
 					<label for="a_kind_socket"><input type="radio" name="a_kind" id="a_kind_socket" value="socket"> Socket</label>
@@ -113,6 +114,7 @@
 					<label for="b_shape_round"><input type="radio" name="b_shape" id="b_shape_round" value="round"> Round</label>
 					<label for="b_shape_square"><input type="radio" name="b_shape" id="b_shape_square" value="square"> Square</label>
 					<label for="b_shape_rectangle"><input type="radio" name="b_shape" id="b_shape_rectangle" value="rectangle"> Rectangle</label>
+					<label for="b_shape_hexagon"><input type="radio" name="b_shape" id="b_shape_hexagon" value="hexagon"> Hexagon</label>
 				</div>
 				<div class="radio-row">
 					<label for="b_kind_socket"><input type="radio" name="b_kind" id="b_kind_socket" value="socket"> Socket</label>
