@@ -8,8 +8,8 @@ comma-separated id per tag face for one cube: the four side faces counterclockwi
 from above (+X, +Y, -X, -Y), then the top, and without bottom_label the bottom. Otherwise it
 holds one or more ids, each giving a cube with that tag on all its tag faces; several cubes
 are laid out in the smallest square grid, 2 mm apart. axes adds red +X / green +Y arrows on
-the floor beside the cube(s). rotate_sides=true (same tag on all faces only) turns the tag
-on each side face a further quarter turn (0, 90, 180, 270 degrees for +X, +Y, -X, -Y), so a
+the floor beside the cube(s). rotate_sides=true (same tag on all faces only; in a grid, on every
+cube) turns the tag on each side face a further quarter turn (0, 90, 180, 270 degrees for +X, +Y, -X, -Y), so a
 camera can tell the sides of an upright cube apart. edge_colours=true adds red (+X) and green
 (+Y) strips along those faces' bottom edges, inlaid within the cube, edge_height mm high and
 edge_depth mm deep (default 1 mm each). edge_dots=true adds a red (+X) and a green (+Y) half disc of
@@ -87,7 +87,9 @@ def _key(
 		raise HTTPException(status_code=400, detail=str(exc))
 	if not bottom_label or (not per_face and len(ids) > 1):
 		label = ""  # not used; keeps the cache key unique
-	rotate_sides = rotate_sides and len(set(ids)) == 1  # different tags are told apart by their ids
+	# Each cube of a grid has one tag on all faces, so its sides can be turned; five different tags on
+	# one cube are told apart by their ids.
+	rotate_sides = rotate_sides and (not per_face or len(set(ids)) == 1)
 	# The axes on the bottom face need room for the label: not with a tag there, nor with the IDs along the edges.
 	ids_along_edges = per_face and len(set(ids)) > 1 and not label.strip()
 	bottom_axes = bottom_axes and bottom_label and not ids_along_edges
