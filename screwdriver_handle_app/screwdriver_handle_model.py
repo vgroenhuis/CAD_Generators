@@ -12,12 +12,12 @@
         `hole_length` long, up to 3 in a honeycomb around the axis), each for a stack of
         spare bits, with a pointed (45 degree) roof, ending `storage_gap` mm below the magnet so
         that it doesn't hold the topmost spare bits
-      * at the bottom a threaded opening with a conical (45 degree) ceiling, closed by a
+      * at the bottom a threaded opening with a shallow conical (20 degree) ceiling, closed by a
         separate screw cap (a plug with a flange) that the bits rest on. No chamfers at the
         bottom of the handle or the cap: their whole bottom faces hold on to the print bed.
       * everything prints without supports (overhangs at most 45 degrees, except the magnet
-        pocket's short flat roof)
-      * a diamond knurl on the grip between smooth collars at both ends
+        pocket's short flat roof and the opening's shallow ceiling, a short span)
+      * a diamond knurl on the grip between smooth collars at both ends, and on the cap's flange
 
     The handle is `min_length` long, or longer when the parts stacked along the axis need it:
     thread, storage holes, the storage gap, the magnet pocket, the gap and the socket. Extra length is
@@ -57,6 +57,7 @@ THREAD_DEPTH = 0.8  # mm, crest to root
 THREAD_PITCH = 2.0  # mm
 THREAD_GAP = 0.4  # mm between the cap's plug and the opening's top
 SOCKET_CHAMFER = 0.6  # mm, lead-in at the socket's mouth
+ENTRY_ANGLE = 20.0  # degrees between the opening's conical ceiling and the horizontal
 COLLAR_BOTTOM = 3.0  # mm of smooth grip above the thread
 COLLAR_TOP = 5.0  # mm of smooth grip below the top
 TOP_ROUND = 3.0  # radius of the rounded top edge
@@ -76,13 +77,13 @@ class HandleParams:
     knurl: bool = True
     knurl_depth: float = 0.7
     knurl_count: int = 24  # diamonds around
-    socket_size: float = 6.4  # across flats, for 6.35 mm (1/4") bits
+    socket_size: float = 6.5  # across flats, for 6.35 mm (1/4") bits
     socket_depth: float = 8.0
     magnet_diameter: float = 8.0
     magnet_height: float = 3.0
     magnet_gap: float = 1.0  # material between the socket's floor and the magnet
     holes: int = 3
-    hole_size: float = 6.5  # across flats
+    hole_size: float = 6.6  # across flats
     hole_length: float = 76.0  # three 25 mm bits
     storage_gap: float = 6.0  # material between the storage holes and the magnet: keeps its pull off the spare bits
     thread_length: float = 6.0  # the cap's plug, into the handle
@@ -223,33 +224,9 @@ def thread(inner: float, outer: float, z0: float, z1: float) -> Part:
     return Part((Pos(0, 0, z0) * solid).wrapped)
 
 
-def _outer_rings(p: HandleParams, start: float, length: float, knurl: tuple[float, float] | None,
-                 top_round: float) -> Part:
-    """The handle's outside from z = start up, as one polyhedron: smooth (many-sided) collars, a
-    rounded top edge and, between knurl[0] and knurl[1], a diamond knurl."""
-    r = p.diameter / 2
-    m = p.knurl_count
-    n = 2 * m * max(1, round(SEGMENTS / (2 * m)))  # a multiple of the knurl's points per ring
-    knurled = knurl is not None and p.knurl and p.knurl_depth > 0
-    rings: list[tuple[float, list[float]]] = []  # (z, radius at each of its equally spaced angles)
-
-    def smooth(z: float, radius: float) -> None:
-        rings.append((z, [radius] * n))
-
-    smooth(start, r)
-    first_knurl = rows = None
-    if knurled:
-        k0, k1 = knurl
-        dz_nominal = 2 * math.pi * r / m / math.tan(math.radians(KNURL_ANGLE))
-        rows = max(2, 2 * round((k1 - k0) / dz_nominal))  # even: apexes at both ends
-        # Points (a, b): angle a * pi / m, height k0 + b * (k1 - k0) / rows; a + b odd: a diamond's
-        # apex (radius r), even: a corner between diamonds (in the grooves).
-        first_knurl = len(rings)
-        for b in range(rows + 1):
-            rings.append((k0 + (k1 - k0) * b / rows,
-                          [r if (a + b) % 2 else r - p.knurl_depth for a in range(2 * m)]))
-    # The side runs from (r, side_start) to (tip, length): a cylinder, or a cone up to the tip.
-    # Its edge with the top face is rounded with an arc tangent to both.
+def _top_edge(p: HandleParams, r: float, length: float, top_round: float, smooth) -> None:
+    """Rings for the handle's top: the taper (if any) and the rounded edge, an arc tangent to the
+    side and the top face."""
     side_start, tip = length - top_round, r
     if p.taper_length > 0:
         side_start, tip, top_round = length - p.taper_length, p.tip_diameter / 2, TIP_ROUND
@@ -262,6 +239,40 @@ def _outer_rings(p: HandleParams, start: float, length: float, knurl: tuple[floa
     for i in range(steps + 1):
         a = start + (math.pi / 2 - start) * i / steps
         smooth(cz + top_round * math.sin(a), cx + top_round * math.cos(a))
+
+
+def _outer_rings(p: HandleParams, start: float, length: float, knurl: tuple[float, float] | None,
+                 top_round: float | None) -> Part:
+    """The handle's outside from z = start up, as one polyhedron: smooth (many-sided) collars, a
+    rounded top edge and, between knurl[0] and knurl[1], a diamond knurl. With top_round None (the
+    cap's flange): a plain disc from start to length, knurled all the way when knurl is given."""
+    r = p.diameter / 2
+    m = p.knurl_count
+    n = 2 * m * max(1, round(SEGMENTS / (2 * m)))  # a multiple of the knurl's points per ring
+    knurled = knurl is not None and p.knurl and p.knurl_depth > 0
+    rings: list[tuple[float, list[float]]] = []  # (z, radius at each of its equally spaced angles)
+
+    def smooth(z: float, radius: float) -> None:
+        rings.append((z, [radius] * n))
+
+    if not (knurled and knurl[0] <= start):
+        smooth(start, r)
+    first_knurl = rows = None
+    if knurled:
+        k0, k1 = knurl
+        dz_nominal = 2 * math.pi * r / m / math.tan(math.radians(KNURL_ANGLE))
+        rows = max(2, 2 * round((k1 - k0) / dz_nominal))  # even: apexes at both ends
+        # Points (a, b): angle a * pi / m, height k0 + b * (k1 - k0) / rows; a + b odd: a diamond's
+        # apex (radius r), even: a corner between diamonds (in the grooves).
+        first_knurl = len(rings)
+        for b in range(rows + 1):
+            rings.append((k0 + (k1 - k0) * b / rows,
+                          [r if (a + b) % 2 else r - p.knurl_depth for a in range(2 * m)]))
+    if top_round is None:
+        if not (knurled and knurl[1] >= length):
+            smooth(length, r)
+    else:
+        _top_edge(p, r, length, top_round, smooth)
 
     def point(ring, i) -> Vector:
         z, radii = ring
@@ -365,10 +376,11 @@ def build_handle(p: HandleParams) -> Part:
         collar = collar.cut(rod)
     tools = []
     if p.holes:
-        # The opening's ceiling: a 45 degree cone, so the walls between the storage holes don't
-        # start in mid-air.
+        # The opening's ceiling: a shallow cone, so the walls between the storage holes don't
+        # start in mid-air, while the holes' mouths stay close to the opening (easy to reach).
         z = lay.holes_bottom
-        tools.append(Part(revolve(Plane.XZ * Polygon((0, z), (outer + 0.3, z), (0, z + outer + 0.3), align=None),
+        rise = (outer + 0.3) * math.tan(math.radians(ENTRY_ANGLE))
+        tools.append(Part(revolve(Plane.XZ * Polygon((0, z), (outer + 0.3, z), (0, z + rise), align=None),
                                   Axis.Z).wrapped))
     # Storage holes, a corner of each pointing outward (a honeycomb around the axis), each with a
     # 45 degree roof so they print without supports.
@@ -397,8 +409,9 @@ def build_cap(p: HandleParams) -> Part:
     """The screw cap: a flange with a threaded plug on it, printed flange down."""
     validate(p)
     r = p.diameter / 2
-    # A plain disc: no chamfers, so it sits flush against the handle's flat bottom.
-    flange = revolve(Plane.XZ * Polygon((0, 0), (r, 0), (r, CAP_FLANGE), (0, CAP_FLANGE), align=None), Axis.Z)
+    # A disc, knurled like the handle for grip: no chamfers, so it sits flush against the handle's
+    # flat bottom.
+    flange = _outer_rings(p, 0.0, CAP_FLANGE, (0.0, CAP_FLANGE), None)
     inner, outer = thread_radii(p)
     c = p.thread_clearance
     top = CAP_FLANGE + p.thread_length - THREAD_GAP
