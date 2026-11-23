@@ -10,10 +10,13 @@
         print is paused just before the pocket's roof: describe() gives that height.
       * from the bottom up, `holes` hexagonal storage holes (`hole_size` across flats,
         `hole_length` long, up to 3 in a honeycomb around the axis), each for a stack of
-        spare bits, ending `storage_gap` mm below the magnet so that it doesn't hold the
-        topmost spare bits
-      * at the bottom a threaded opening, closed by a separate screw cap (a plug with a
-        flange) that the bits rest on
+        spare bits, with a pointed (45 degree) roof, ending `storage_gap` mm below the magnet so
+        that it doesn't hold the topmost spare bits
+      * at the bottom a threaded opening with a conical (45 degree) ceiling, closed by a
+        separate screw cap (a plug with a flange) that the bits rest on. No chamfers at the
+        bottom of the handle or the cap: their whole bottom faces hold on to the print bed.
+      * everything prints without supports (overhangs at most 45 degrees, except the magnet
+        pocket's short flat roof)
       * a diamond knurl on the grip between smooth collars at both ends
 
     The handle is `min_length` long, or longer when the parts stacked along the axis need it:
@@ -56,7 +59,6 @@ THREAD_GAP = 0.4  # mm between the cap's plug and the opening's top
 SOCKET_CHAMFER = 0.6  # mm, lead-in at the socket's mouth
 COLLAR_BOTTOM = 3.0  # mm of smooth grip above the thread
 COLLAR_TOP = 5.0  # mm of smooth grip below the top
-BOTTOM_CHAMFER = 0.8
 TOP_ROUND = 3.0  # radius of the rounded top edge
 TIP_ROUND = 1.2  # radius of the rounded top edge of a tapered handle
 TAPER_COLLAR = 2.0  # mm of smooth grip between the knurl and the taper
@@ -162,8 +164,9 @@ def validate(p: HandleParams) -> None:
         raise ValueError("The number of storage holes must be 0, 1, 2 or 3.")
     if not 2 <= p.hole_size <= 20 or not 5 <= p.hole_length <= 300:
         raise ValueError("The storage holes must be 2 to 20 mm across flats and 5 to 300 mm long.")
-    if not 0.4 <= p.storage_gap <= 50:
-        raise ValueError("The distance between the storage holes and the magnet must be between 0.4 and 50 mm.")
+    if not p.hole_size / 2 + 1 <= p.storage_gap <= 50:
+        raise ValueError(f"The distance between the storage holes and the magnet must be between "
+                         f"{p.hole_size / 2 + 1:g} mm (the holes' pointed roofs and 1 mm) and 50 mm.")
     if not 3 <= p.thread_length <= 20:
         raise ValueError("The cap's thread must be 3 to 20 mm long.")
     if not 0 <= p.thread_clearance <= 1:
@@ -348,23 +351,35 @@ def build_handle(p: HandleParams) -> Part:
     # threaded opening, and above it the knurled polyhedron. (Cutting the thread from the
     # polyhedron takes many times longer: its curved face is tested against many triangles.)
     split = lay.knurl_bottom - 1.5
-    c = BOTTOM_CHAMFER
-    collar = Part(revolve(Plane.XZ * Polygon((0, 0), (r - c, 0), (r, c), (r, split), (0, split), align=None),
-                          Axis.Z).wrapped)
+    # No chamfer at the bottom: the whole bottom face holds on to the print bed.
+    collar = Part(revolve(Plane.XZ * Polygon((0, 0), (r, 0), (r, split), (0, split), align=None), Axis.Z).wrapped)
     upper = _outer_rings(p, split, lay.length, (lay.knurl_bottom, lay.knurl_top), TOP_ROUND)
     inner, outer = thread_radii(p)
-    # The opening for the cap: a threaded rod's shape, a little longer than the plug, with a
-    # lead-in chamfer at the mouth.
+    # The opening for the cap: a threaded rod's shape, a little longer than the plug; the thread
+    # starts right at the bottom.
     if p.holes:  # (without storage holes the bottom is solid, and there is no cap)
-        collar = collar.cut(thread(inner, outer, -1.0, lay.holes_bottom),
-                            Part((Pos(0, 0, -0.1) * extrude(Circle(outer + 0.7), amount=0.8, taper=45)).wrapped))
+        # Longer and cut off with a plane: faces bounded by the twisted extrusion's own end
+        # curve are tessellated wrongly (or not at all).
+        z = lay.holes_bottom
+        rod = thread(inner, outer, -1.0, z + 1.0) - (Pos(0, 0, z) * Box(4 * r, 4 * r, 2, align=(Align.CENTER, Align.CENTER, Align.MIN)))
+        collar = collar.cut(rod)
     tools = []
-    # Storage holes, a corner of each pointing outward (a honeycomb around the axis).
+    if p.holes:
+        # The opening's ceiling: a 45 degree cone, so the walls between the storage holes don't
+        # start in mid-air.
+        z = lay.holes_bottom
+        tools.append(Part(revolve(Plane.XZ * Polygon((0, z), (outer + 0.3, z), (0, z + outer + 0.3), align=None),
+                                  Axis.Z).wrapped))
+    # Storage holes, a corner of each pointing outward (a honeycomb around the axis), each with a
+    # 45 degree roof so they print without supports.
     rc = hole_centre_radius(p)
+    roof = p.hole_size / 2 - 0.05
     for i in range(p.holes):
         a = 90 + 360 * i / p.holes
-        hole = _hex(p.hole_size, lay.holes_bottom - 0.01, lay.holes_top, a)
-        tools.append(Part((Pos(rc * math.cos(math.radians(a)), rc * math.sin(math.radians(a)), 0) * hole).wrapped))
+        at = Pos(rc * math.cos(math.radians(a)), rc * math.sin(math.radians(a)), 0)
+        tools.append(Part((at * _hex(p.hole_size, lay.holes_bottom - 0.01, lay.holes_top, a)).wrapped))
+        tools.append(Part((at * Pos(0, 0, lay.holes_top - 0.01) * extrude(
+            Rot(0, 0, a) * RegularPolygon(p.hole_size / math.sqrt(3), 6), amount=roof, taper=45)).wrapped))
     if p.magnet_diameter > 0 and p.magnet_height > 0:
         tools.append(Part((Pos(0, 0, lay.pocket_bottom) * extrude(
             Circle(p.magnet_diameter / 2 + MAGNET_CLEARANCE), amount=lay.pocket_top - lay.pocket_bottom)).wrapped))
@@ -374,7 +389,7 @@ def build_handle(p: HandleParams) -> Part:
     tools.append(Part((Pos(0, 0, lay.length - SOCKET_CHAMFER) * extrude(
         Circle(p.socket_size / 2), amount=SOCKET_CHAMFER + 0.1, taper=-45)).wrapped))
     # One boolean per part: the knurled outside has thousands of faces.
-    holes = tools[:p.holes]
+    holes = tools[:2 * p.holes + 1] if p.holes else []  # the cone and the holes reach into the collar
     return Part((collar.cut(*holes) + upper.cut(*tools)).wrapped) if holes else Part((collar + upper.cut(*tools)).wrapped)
 
 
@@ -382,7 +397,7 @@ def build_cap(p: HandleParams) -> Part:
     """The screw cap: a flange with a threaded plug on it, printed flange down."""
     validate(p)
     r = p.diameter / 2
-    flange = revolve(Plane.XZ * Polygon((0, 0), (r - 0.6, 0), (r, 0.6), (r, CAP_FLANGE - 0.8), (r - 0.8, CAP_FLANGE),
+    flange = revolve(Plane.XZ * Polygon((0, 0), (r, 0), (r, CAP_FLANGE - 0.8), (r - 0.8, CAP_FLANGE),
                                         (0, CAP_FLANGE), align=None), Axis.Z)
     inner, outer = thread_radii(p)
     c = p.thread_clearance
