@@ -10,13 +10,14 @@
         print is paused just before the pocket's roof: describe() gives that height.
       * from the bottom up, `holes` hexagonal storage holes (`hole_size` across flats,
         `hole_length` long, up to 3 in a honeycomb around the axis), each for a stack of
-        spare bits
+        spare bits, ending `storage_gap` mm below the magnet so that it doesn't hold the
+        topmost spare bits
       * at the bottom a threaded opening, closed by a separate screw cap (a plug with a
         flange) that the bits rest on
       * a diamond knurl on the grip between smooth collars at both ends
 
     The handle is `min_length` long, or longer when the parts stacked along the axis need it:
-    thread, storage holes, a floor, the magnet pocket, the gap and the socket. Extra length is
+    thread, storage holes, the storage gap, the magnet pocket, the gap and the socket. Extra length is
     solid, below the magnet.
 
     The threads have a rounded (sinusoidal) profile; they are made by extruding their cross-
@@ -47,7 +48,6 @@ COLOUR = Color(0.85, 0.35, 0.2)
 CAP_COLOUR = Color(0.3, 0.3, 0.32)
 HOLE_WEB = 1.0  # mm between neighbouring storage holes
 MIN_WALL = 1.2  # mm, least wall anywhere around a cavity
-FLOOR = 1.2  # mm between the storage holes' tops and the magnet pocket
 MAGNET_CLEARANCE = 0.1  # mm on the magnet's radius
 MAGNET_HEADROOM = 0.2  # mm above the magnet in its pocket
 THREAD_DEPTH = 0.8  # mm, crest to root
@@ -58,6 +58,8 @@ COLLAR_BOTTOM = 3.0  # mm of smooth grip above the thread
 COLLAR_TOP = 5.0  # mm of smooth grip below the top
 BOTTOM_CHAMFER = 0.8
 TOP_ROUND = 3.0  # radius of the rounded top edge
+TIP_ROUND = 0.8  # radius of the rounded top edge of a tapered handle
+TAPER_COLLAR = 2.0  # mm of smooth grip between the knurl and the taper
 CAP_FLANGE = 3.0  # mm, the cap's flange height
 KNURL_ANGLE = 30.0  # degrees between the knurl's lines and the axis
 SEGMENTS = 72  # around the smooth parts of the handle (an even number)
@@ -67,6 +69,8 @@ SEGMENTS = 72  # around the smooth parts of the handle (an even number)
 class HandleParams:
     diameter: float = 22.0
     min_length: float = 100.0  # longer when what is stacked inside needs it
+    taper_length: float = 20.0  # the top narrows over this length (0: no taper), for tight spaces
+    tip_diameter: float = 12.0  # at the top, before its rounded edge
     knurl: bool = True
     knurl_depth: float = 0.7
     knurl_count: int = 24  # diamonds around
@@ -74,10 +78,11 @@ class HandleParams:
     socket_depth: float = 8.0
     magnet_diameter: float = 8.0
     magnet_height: float = 3.0
-    magnet_gap: float = 2.0  # material between the socket's floor and the magnet
+    magnet_gap: float = 1.0  # material between the socket's floor and the magnet
     holes: int = 3
     hole_size: float = 6.5  # across flats
-    hole_length: float = 95.0
+    hole_length: float = 76.0  # three 25 mm bits
+    storage_gap: float = 6.0  # material between the storage holes and the magnet: keeps its pull off the spare bits
     thread_length: float = 6.0  # the cap's plug, into the handle
     thread_clearance: float = 0.3  # on the radius
 
@@ -118,14 +123,24 @@ class Layout:
 def layout(p: HandleParams) -> Layout:
     holes_bottom = p.thread_length
     holes_top = holes_bottom + (p.hole_length if p.holes else 0.0)
-    pocket_bottom = holes_top + (FLOOR if p.holes else 0.0)
+    pocket_bottom = holes_top + (p.storage_gap if p.holes else 0.0)
     above = p.magnet_height + MAGNET_HEADROOM + p.magnet_gap + p.socket_depth if p.magnet_height > 0 else p.socket_depth
     pocket_bottom += max(0.0, p.min_length - (pocket_bottom + above))  # solid below the magnet up to min_length
     pocket_top = pocket_bottom + p.magnet_height + MAGNET_HEADROOM
     socket_bottom = pocket_top + p.magnet_gap if p.magnet_height > 0 else pocket_bottom
     length = socket_bottom + p.socket_depth
     return Layout(holes_bottom, holes_top, pocket_bottom, pocket_top, socket_bottom, length,
-                  p.thread_length + COLLAR_BOTTOM, length - COLLAR_TOP)
+                  p.thread_length + COLLAR_BOTTOM,
+                  length - (p.taper_length + TAPER_COLLAR if p.taper_length > 0 else COLLAR_TOP))
+
+
+def radius_at(p: HandleParams, z: float, length: float) -> float:
+    """The handle's outer radius at height z (without the knurl and the rounded top edge)."""
+    r = p.diameter / 2
+    if p.taper_length <= 0 or z <= length - p.taper_length:
+        return r
+    rt = p.tip_diameter / 2
+    return r + (rt - r) * min(1.0, (z - (length - p.taper_length)) / (p.taper_length - TIP_ROUND))
 
 
 def validate(p: HandleParams) -> None:
@@ -147,6 +162,8 @@ def validate(p: HandleParams) -> None:
         raise ValueError("The number of storage holes must be 0, 1, 2 or 3.")
     if not 2 <= p.hole_size <= 20 or not 5 <= p.hole_length <= 300:
         raise ValueError("The storage holes must be 2 to 20 mm across flats and 5 to 300 mm long.")
+    if not 0.4 <= p.storage_gap <= 50:
+        raise ValueError("The distance between the storage holes and the magnet must be between 0.4 and 50 mm.")
     if not 3 <= p.thread_length <= 20:
         raise ValueError("The cap's thread must be 3 to 20 mm long.")
     if not 0 <= p.thread_clearance <= 1:
@@ -164,6 +181,23 @@ def validate(p: HandleParams) -> None:
         raise ValueError(f"The cap's thread doesn't fit in the handle: use a diameter of at least "
                          f"{math.ceil(2 * (thread_radii(p)[1] + MIN_WALL))} mm.")
     lay = layout(p)
+    if p.taper_length > 0:
+        if not 2 * TIP_ROUND + 2 <= p.tip_diameter <= p.diameter:
+            raise ValueError(f"The tip's diameter must be between {2 * TIP_ROUND + 2:g} mm and the handle's diameter.")
+        if not 3 <= p.taper_length <= lay.length - lay.knurl_bottom - TAPER_COLLAR - 5:
+            raise ValueError(f"The taper must be 3 to {lay.length - lay.knurl_bottom - TAPER_COLLAR - 5:g} mm long, "
+                             "or 0 for none.")
+        socket = p.socket_size / math.sqrt(3) + SOCKET_CHAMFER
+        if p.tip_diameter / 2 < socket + MIN_WALL:
+            raise ValueError(f"The tip is too narrow for the bit socket: use a tip diameter of at least "
+                             f"{math.ceil(2 * (socket + MIN_WALL))} mm.")
+        if p.magnet_diameter > 0 and p.magnet_height > 0 and \
+                radius_at(p, lay.pocket_top, lay.length) < p.magnet_diameter / 2 + MAGNET_CLEARANCE + MIN_WALL:
+            raise ValueError("The taper leaves too little wall around the magnet: use a wider tip or a shorter taper.")
+        if p.holes and radius_at(p, lay.holes_top, lay.length) < holes_radius(p) + MIN_WALL:
+            raise ValueError("The taper leaves too little wall around the storage holes: use a wider tip or a shorter taper.")
+    elif p.taper_length < 0:
+        raise ValueError("The taper's length must be 0 or more.")
     if lay.knurl_top - lay.knurl_bottom < 5 and p.knurl:
         raise ValueError("The handle is too short for a knurl: turn it off or use longer storage holes.")
 
@@ -212,6 +246,9 @@ def _outer_rings(p: HandleParams, start: float, length: float, knurl: tuple[floa
             rings.append((k0 + (k1 - k0) * b / rows,
                           [r if (a + b) % 2 else r - p.knurl_depth for a in range(2 * m)]))
     steps = 4
+    if p.taper_length > 0:  # a cone up to the tip, with a small rounded edge
+        smooth(length - p.taper_length, r)
+        top_round, r = TIP_ROUND, p.tip_diameter / 2
     for i in range(steps + 1):
         t = math.pi / 2 * i / steps
         smooth(length - top_round + top_round * math.sin(t), r - top_round + top_round * math.cos(t))
@@ -361,14 +398,16 @@ def build_screwdriver_handle(p: HandleParams) -> Compound:
 
 def describe(p: HandleParams) -> str:
     lay = layout(p)
-    longer = f" (longer than {p.min_length:g} mm, to fit what is inside)" if lay.length > p.min_length + 0.05 else ""
+    longer = f" (longer than {p.min_length:g} mm, to fit what is inside)" if lay.length > p.min_length + 0.5 else ""
     cap = f", plus the cap's {CAP_FLANGE:g} mm flange" if p.holes else ""
     text = (f"Handle Ø{p.diameter:g} x {lay.length:.1f} mm{longer}{cap}; "
-            f"{'diamond knurl' if p.knurl and p.knurl_depth > 0 else 'smooth'}. "
+            f"{'diamond knurl' if p.knurl and p.knurl_depth > 0 else 'smooth'}"
+            f"{f', the top {p.taper_length:g} mm tapered to Ø{p.tip_diameter:g} mm' if p.taper_length > 0 else ''}. "
             f"Bit socket {p.socket_size:g} mm across flats, {p.socket_depth:g} mm deep.")
     if p.holes:
         text += (f" {p.holes} storage hole{'s' if p.holes > 1 else ''} {p.hole_size:g} mm across flats, "
-                 f"{p.hole_length:g} mm long (from the cap's plug), closed by the screw cap.")
+                 f"{p.hole_length:g} mm long (from the cap's plug), closed by the screw cap, "
+                 f"{p.storage_gap:g} mm below the magnet.")
     if p.magnet_diameter > 0 and p.magnet_height > 0:
         text += (f" Magnet Ø{p.magnet_diameter:g} x {p.magnet_height:g} mm, {p.magnet_gap:g} mm below the socket: "
                  f"its pocket runs from Z = {lay.pocket_bottom:.2f} to {lay.pocket_top:.2f} mm. In the slicer, pause "

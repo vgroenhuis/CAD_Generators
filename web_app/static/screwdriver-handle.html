@@ -81,6 +81,13 @@
 					<div><label for="min_length">Length (mm)</label>
 					<input type="text" inputmode="decimal" autocomplete="off" id="min_length"></div>
 				</div>
+				<div class="row">
+					<div><label for="taper_length">Taper length (mm)</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="taper_length"></div>
+					<div><label for="tip_diameter">Tip diameter (mm)</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="tip_diameter"></div>
+				</div>
+				<div class="hint">The top narrows to the tip, to reach screws in tight spaces. Taper length 0 for none.</div>
 				<label class="check" for="knurl"><input type="checkbox" id="knurl"> Diamond knurl</label>
 				<div class="row">
 					<div><label for="knurl_depth">Knurl depth (mm)</label>
@@ -122,7 +129,9 @@
 					<div><label for="hole_length">Length (mm)</label>
 					<input type="text" inputmode="decimal" autocomplete="off" id="hole_length"></div>
 				</div>
-				<div class="hint">Hexagonal holes from the bottom up, each for a stack of bits (three 25 mm bits need 75 mm). The length is measured from the cap's plug.</div>
+				<label for="storage_gap">Below the magnet (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="storage_gap">
+				<div class="hint">Hexagonal holes from the bottom up, each for a stack of bits (three 25 mm bits need 75 mm). The length is measured from the cap's plug. They end this far below the magnet, so it doesn't hold the topmost spare bits.</div>
 			</div>
 			<div class="side">
 				<h3>Screw cap</h3>

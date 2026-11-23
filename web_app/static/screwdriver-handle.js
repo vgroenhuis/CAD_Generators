@@ -6,8 +6,8 @@ import { loadDefaults } from "./defaults.js";
 import { showViewerError } from "./error-banner.js";
 
 const API = "api/screwdriver-handle";
-const NUMBER_FIELDS = ["diameter", "min_length", "knurl_depth", "knurl_count", "socket_size", "socket_depth", "magnet_diameter",
-	"magnet_height", "magnet_gap", "hole_size", "hole_length", "thread_length", "thread_clearance"];
+const NUMBER_FIELDS = ["diameter", "min_length", "taper_length", "tip_diameter", "knurl_depth", "knurl_count", "socket_size", "socket_depth", "magnet_diameter",
+	"magnet_height", "magnet_gap", "hole_size", "hole_length", "storage_gap", "thread_length", "thread_clearance"];
 const INTEGER_FIELDS = ["knurl_count"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
 const generateBtn = document.getElementById("generate-btn");
@@ -94,7 +94,7 @@ function parseNumber(text, negative = false) {
 // Fields that don't matter for the current choices are greyed out.
 function updateFields() {
 	inputs.knurl_depth.disabled = inputs.knurl_count.disabled = !knurlInput.checked;
-	inputs.hole_size.disabled = inputs.hole_length.disabled = holesInput.value === "0";
+	inputs.hole_size.disabled = inputs.hole_length.disabled = inputs.storage_gap.disabled = holesInput.value === "0";
 }
 
 function readParams() {
