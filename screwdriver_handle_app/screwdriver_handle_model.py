@@ -397,8 +397,8 @@ def build_cap(p: HandleParams) -> Part:
     """The screw cap: a flange with a threaded plug on it, printed flange down."""
     validate(p)
     r = p.diameter / 2
-    flange = revolve(Plane.XZ * Polygon((0, 0), (r, 0), (r, CAP_FLANGE - 0.8), (r - 0.8, CAP_FLANGE),
-                                        (0, CAP_FLANGE), align=None), Axis.Z)
+    # A plain disc: no chamfers, so it sits flush against the handle's flat bottom.
+    flange = revolve(Plane.XZ * Polygon((0, 0), (r, 0), (r, CAP_FLANGE), (0, CAP_FLANGE), align=None), Axis.Z)
     inner, outer = thread_radii(p)
     c = p.thread_clearance
     top = CAP_FLANGE + p.thread_length - THREAD_GAP
