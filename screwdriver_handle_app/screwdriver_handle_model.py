@@ -369,8 +369,10 @@ def build_handle(p: HandleParams) -> Part:
         tools.append(Part((Pos(0, 0, lay.pocket_bottom) * extrude(
             Circle(p.magnet_diameter / 2 + MAGNET_CLEARANCE), amount=lay.pocket_top - lay.pocket_bottom)).wrapped))
     tools.append(_hex(p.socket_size, lay.socket_bottom, lay.length + 1))
+    # The lead-in: a 45 degree countersink starting at the socket's flats, so it only bevels the
+    # socket's mouth and the top face stays flat around it.
     tools.append(Part((Pos(0, 0, lay.length - SOCKET_CHAMFER) * extrude(
-        Circle(p.socket_size / math.sqrt(3) + SOCKET_CHAMFER), amount=SOCKET_CHAMFER + 0.1, taper=-45)).wrapped))
+        Circle(p.socket_size / 2), amount=SOCKET_CHAMFER + 0.1, taper=-45)).wrapped))
     # One boolean per part: the knurled outside has thousands of faces.
     holes = tools[:p.holes]
     return Part((collar.cut(*holes) + upper.cut(*tools)).wrapped) if holes else Part((collar + upper.cut(*tools)).wrapped)
