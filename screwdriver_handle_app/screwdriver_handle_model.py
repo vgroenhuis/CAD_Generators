@@ -40,7 +40,7 @@ from OCP.gp import gp_Pnt
 from OCP.ShapeFix import ShapeFix_Solid
 from OCP.TopoDS import TopoDS
 from build123d import (
-    Axis, Plane, Polygon, revolve, Circle, Color, Compound, Face, Part, Pos, RegularPolygon, Rot, Shell, Solid, Spline, Vector, Wire,
+    Align, Box, Axis, Plane, Polygon, revolve, Circle, Color, Compound, Face, Part, Pos, RegularPolygon, Rot, Shell, Solid, Spline, Vector, Wire,
     export_step, extrude,
 )
 
@@ -58,7 +58,7 @@ COLLAR_BOTTOM = 3.0  # mm of smooth grip above the thread
 COLLAR_TOP = 5.0  # mm of smooth grip below the top
 BOTTOM_CHAMFER = 0.8
 TOP_ROUND = 3.0  # radius of the rounded top edge
-TIP_ROUND = 0.8  # radius of the rounded top edge of a tapered handle
+TIP_ROUND = 1.2  # radius of the rounded top edge of a tapered handle
 TAPER_COLLAR = 2.0  # mm of smooth grip between the knurl and the taper
 CAP_FLANGE = 3.0  # mm, the cap's flange height
 KNURL_ANGLE = 30.0  # degrees between the knurl's lines and the axis
@@ -70,7 +70,7 @@ class HandleParams:
     diameter: float = 22.0
     min_length: float = 100.0  # longer when what is stacked inside needs it
     taper_length: float = 20.0  # the top narrows over this length (0: no taper), for tight spaces
-    tip_diameter: float = 12.0  # at the top, before its rounded edge
+    tip_diameter: float = 12.0  # where the cone would meet the top face (its edge is rounded)
     knurl: bool = True
     knurl_depth: float = 0.7
     knurl_count: int = 24  # diamonds around
@@ -140,7 +140,7 @@ def radius_at(p: HandleParams, z: float, length: float) -> float:
     if p.taper_length <= 0 or z <= length - p.taper_length:
         return r
     rt = p.tip_diameter / 2
-    return r + (rt - r) * min(1.0, (z - (length - p.taper_length)) / (p.taper_length - TIP_ROUND))
+    return r + (rt - r) * min(1.0, (z - (length - p.taper_length)) / p.taper_length)
 
 
 def validate(p: HandleParams) -> None:
@@ -245,13 +245,20 @@ def _outer_rings(p: HandleParams, start: float, length: float, knurl: tuple[floa
         for b in range(rows + 1):
             rings.append((k0 + (k1 - k0) * b / rows,
                           [r if (a + b) % 2 else r - p.knurl_depth for a in range(2 * m)]))
-    steps = 4
-    if p.taper_length > 0:  # a cone up to the tip, with a small rounded edge
-        smooth(length - p.taper_length, r)
-        top_round, r = TIP_ROUND, p.tip_diameter / 2
+    # The side runs from (r, side_start) to (tip, length): a cylinder, or a cone up to the tip.
+    # Its edge with the top face is rounded with an arc tangent to both.
+    side_start, tip = length - top_round, r
+    if p.taper_length > 0:
+        side_start, tip, top_round = length - p.taper_length, p.tip_diameter / 2, TIP_ROUND
+        smooth(side_start, r)
+    up = Vector(tip - r, length - side_start).normalized()  # along the side, upward
+    nx, nz = up.Y, -up.X  # the side's outward normal (radius, height)
+    cx, cz = tip - top_round * (1 - nz) / nx, length - top_round  # the arc's centre
+    start = math.atan2(nz, nx)
+    steps = 6
     for i in range(steps + 1):
-        t = math.pi / 2 * i / steps
-        smooth(length - top_round + top_round * math.sin(t), r - top_round + top_round * math.cos(t))
+        a = start + (math.pi / 2 - start) * i / steps
+        smooth(cz + top_round * math.sin(a), cx + top_round * math.cos(a))
 
     def point(ring, i) -> Vector:
         z, radii = ring
@@ -378,10 +385,12 @@ def build_cap(p: HandleParams) -> Part:
     inner, outer = thread_radii(p)
     c = p.thread_clearance
     top = CAP_FLANGE + p.thread_length - THREAD_GAP
-    plug = thread(inner - c, outer - c, CAP_FLANGE - 0.01, top)
-    # A chamfered tip, to find the thread.
-    ring = Pos(0, 0, top - 1.0) * (extrude(Circle(r), amount=1.1) - extrude(Circle(outer - c), amount=1.0, taper=45))
-    return Part((flange + (plug - ring)).wrapped)
+    # The thread made longer and cut off with a plane: the end face of the twisted extrusion
+    # itself is tessellated wrongly (folded triangles, a gap in the 3MF).
+    plug = thread(inner - c, outer - c, CAP_FLANGE - 1.0, top + 1.0)
+    plug = plug - (Pos(0, 0, top) * Box(4 * r, 4 * r, 2, align=(Align.CENTER, Align.CENTER, Align.MIN)))
+    plug = plug - (Pos(0, 0, CAP_FLANGE - 1.0) * Box(4 * r, 4 * r, 0.99, align=(Align.CENTER, Align.CENTER, Align.MIN)))
+    return Part((flange + plug).wrapped)
 
 
 def build_screwdriver_handle(p: HandleParams) -> Compound:
