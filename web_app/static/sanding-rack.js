@@ -217,7 +217,7 @@ async function onGenerate() {
 	}
 }
 
-// format: "3mf" (for slicing) or "step" (for CAD)
+// format: "3mf" or "step"
 async function onDownload(format) {
 	let params;
 	try {
