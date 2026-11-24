@@ -144,7 +144,8 @@ function applyAssembled() {
 		const cc = cb.getCenter(new THREE.Vector3());
 		// glTF: y up, in metres (the cap's height in the scene against its height in mm gives the
 		// scale). Centre the cap on the handle's axis; the flange's top at the handle's bottom.
-		const flange = capFlange * (cb.max.y - cb.min.y) / capHeight;
+		// (0.02 mm lower: the flange's top and the handle's bottom would share a plane and flicker.)
+		const flange = (capFlange + 0.02) * (cb.max.y - cb.min.y) / capHeight;
 		const delta = new THREE.Vector3(hc.x - cc.x, hb.min.y - (cb.min.y + flange), hc.z - cc.z);
 		const target = cap.getWorldPosition(new THREE.Vector3()).add(delta);
 		cap.position.copy(cap.parent.worldToLocal(target));
