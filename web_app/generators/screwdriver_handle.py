@@ -11,7 +11,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from screwdriver_handle_app.screwdriver_handle_model import PRESETS, HandleParams, build_screwdriver_handle, describe, validate
+from screwdriver_handle_app.screwdriver_handle_model import CAP_FLANGE, PRESETS, THREAD_GAP, HandleParams, build_screwdriver_handle, describe, validate
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
 
@@ -81,7 +81,8 @@ def defaults_route() -> dict:
 @router.get("/info")
 def info_route(p: HandleParams = Depends(_params)) -> dict:
 	"""A summary, with the height to pause the print at for the magnet."""
-	return {"summary": describe(p)}
+	# For the page's assembled view: the cap's flange and its whole height (flange and plug), mm.
+	return {"summary": describe(p), "cap_flange": CAP_FLANGE, "cap_height": CAP_FLANGE + p.thread_length - THREAD_GAP}
 
 
 @router.get("/preview.glb")

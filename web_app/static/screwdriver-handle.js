@@ -17,6 +17,7 @@ const infoEl = document.getElementById("info");
 const knurlInput = document.getElementById("knurl");
 const holesInput = document.getElementById("holes");
 const cutInput = document.getElementById("cut_view");
+const assembledInput = document.getElementById("assembled_view");
 const defaultsBtn = document.getElementById("defaults-btn");
 const presetSelect = document.getElementById("preset");
 const statusEl = document.getElementById("status");
@@ -122,6 +123,36 @@ function buildQuery(params) {
 renderer.localClippingEnabled = true;
 const SECTION_COLOUR = 0xf0c8a0;
 
+// Assembled view: the cap moved under the handle, its flange against the handle's bottom and its
+// plug screwed all the way in. The cap's thread starts at the same turn as the handle's (both
+// from 1 mm below their mouth), so moving it straight down makes the threads mesh.
+let capFlange = 3;  // mm, from the summary
+let capHeight = 8.6;  // mm, flange and plug, from the summary
+let capHome = null;  // the cap node's own position in print orientation
+
+function applyAssembled() {
+	const handle = currentModel?.getObjectByName("handle");
+	const cap = currentModel?.getObjectByName("cap");
+	if (!handle || !cap) return;
+	if (!capHome) capHome = cap.position.clone();
+	cap.position.copy(capHome);
+	currentModel.updateMatrixWorld(true);
+	if (assembledInput.checked) {
+		const hb = new THREE.Box3().setFromObject(handle);
+		const cb = new THREE.Box3().setFromObject(cap);
+		const hc = hb.getCenter(new THREE.Vector3());
+		const cc = cb.getCenter(new THREE.Vector3());
+		// glTF: y up, in metres (the cap's height in the scene against its height in mm gives the
+		// scale). Centre the cap on the handle's axis; the flange's top at the handle's bottom.
+		const flange = capFlange * (cb.max.y - cb.min.y) / capHeight;
+		const delta = new THREE.Vector3(hc.x - cc.x, hb.min.y - (cb.min.y + flange), hc.z - cc.z);
+		const target = cap.getWorldPosition(new THREE.Vector3()).add(delta);
+		cap.position.copy(cap.parent.worldToLocal(target));
+		currentModel.updateMatrixWorld(true);
+	}
+	applyCutView();
+}
+
 function applyCutView() {
 	if (!currentModel) return;
 	// The glTF has a node per object ("handle", "cap") with a mesh per face below it: one plane
@@ -194,6 +225,8 @@ async function onGenerate() {
 		}
 		const info = await infoResponse.json();
 		infoEl.textContent = info.summary;
+		capFlange = info.cap_flange ?? capFlange;
+		capHeight = info.cap_height ?? capHeight;
 
 		const response = await fetchWithProgress(`${API}/preview.glb?${query}`, (t) => mine === generation && setStatus(t));
 		if (mine !== generation) return;
@@ -206,6 +239,7 @@ async function onGenerate() {
 		if (mine !== generation) return;
 		if (currentModel) scene.remove(currentModel);
 		currentModel = gltf.scene;
+		capHome = null;
 		currentModel.traverse((child) => {
 			if (child.isMesh) {
 				const color = child.material && child.material.color ? child.material.color : new THREE.Color(0xdddddd);
@@ -213,7 +247,7 @@ async function onGenerate() {
 			}
 		});
 		scene.add(currentModel);
-		applyCutView();
+		applyAssembled();
 		if (!cameraFitted) {
 			fitCameraToObject(currentModel);
 			cameraFitted = true;
@@ -221,7 +255,7 @@ async function onGenerate() {
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
 		downloadStepBtn.disabled = false;
-		setStatus("Generated, in print orientation. Drag to rotate.");
+		setStatus(`Generated${assembledInput.checked ? ", shown assembled (saved in print orientation)" : ", in print orientation"}. Drag to rotate.`);
 	} catch (exc) {
 		if (mine === generation) setStatus(`Failed to load preview: ${exc.message || exc}`, true);
 	} finally {
@@ -250,6 +284,7 @@ generateBtn.addEventListener("click", onGenerate);
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
 cutInput.addEventListener("change", applyCutView);
+assembledInput.addEventListener("change", applyAssembled);
 for (const el of [knurlInput, holesInput]) {
 	el.addEventListener("change", () => {
 		updateFields();
