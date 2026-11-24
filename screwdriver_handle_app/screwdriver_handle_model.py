@@ -43,8 +43,8 @@ from OCP.gp import gp_Pnt
 from OCP.ShapeFix import ShapeFix_Solid
 from OCP.TopoDS import TopoDS
 from build123d import (
-    Align, Box, Axis, Plane, Polygon, revolve, Circle, Color, Compound, Face, Part, Pos, Rectangle, RegularPolygon, Rot, Shell, Solid, Spline, Vector, Wire,
-    export_step, extrude,
+    Align, Box, Axis, Plane, Polygon, revolve, Circle, Color, Compound, Face, Line, Part, Polyline, Pos, RegularPolygon,
+    Rot, Shell, Solid, Spline, ThreePointArc, Transition, Vector, Wire, export_step, extrude, make_face, sweep,
 )
 
 COLOUR = Color(0.85, 0.35, 0.2)
@@ -450,25 +450,63 @@ def build_screwdriver_handle(p: HandleParams) -> Compound:
 BIT_COLOUR = Color(0.72, 0.73, 0.76)
 BIT_SIZE = 6.35  # mm across flats: a 1/4" hex bit
 BIT_LENGTH = 25.0  # mm, a common insert bit (ISO 1173 C6.3)
-BIT_TIP = 7.0  # mm of the bit's length that is the (Phillips-like) tip
+# The PH1 tip, ISO 8764-1 (Figure 1, Table 1): the middle of each tolerance.
+PH1_B = 1.005  # mm between opposite flute bottoms at the tip's end
+PH1_E = 0.515  # mm, width of a flute's bottom
+PH1_G = 1.275  # mm across the wings at the tip's end
+PH1_L = 3.0  # mm, straight part of the flute bottoms (at least 2.78)
+PH1_ALPHA = 138.25  # degrees between a flute's two bottom facets
+PH1_BETA = 6.75  # degrees between a flute's bottom and the axis
+PH1_WALLS = 92.25  # degrees between a flute's walls
+PH1_CONE = 26.25  # degrees between the wings' edges and the axis
+PH1_END = 17.0  # degrees between the tip's end face and the flat (at most 19)
+PH1_BLADE = 4.5  # mm, nominal blade diameter
 
 
 def screw_bit() -> Part:
-    """A 1/4" insert bit for showing on the page (not printed): a hex body with a chamfered
-    back end, and a cross-shaped tip tapering to a point; its back end at z = 0, pointing up."""
-    body_len = BIT_LENGTH - BIT_TIP
+    """A 1/4" PH1 insert bit for showing on the page (not printed), its back end at z = 0,
+    pointing up: a hex body (ISO 1173 C6.3) with chamfered ends, turned down to a round
+    neck of the blade's diameter, and a PH1 tip to ISO 8764-1 (four flutes, each with its
+    walls at 92 degrees and a two-facet bottom inclined at beta to the axis, straight for
+    l and then running out on an arc)."""
     corner = BIT_SIZE / math.sqrt(3)
-    body = extrude(RegularPolygon(corner, 6), amount=body_len)
-    # The back end's chamfer: cut by a cone (45 degrees) around it.
-    body = body & revolve(Plane.XZ * Polygon((0, 0), (corner - 0.5, 0), (corner + body_len, body_len + 0.5),
-                                             (0, body_len + 0.5), align=None), Axis.Z)
-    # The tip: a cone from the body's flats to a small point, made a cross (four wings).
-    cone = revolve(Plane.XZ * Polygon((0, body_len), (BIT_SIZE / 2, body_len), (0.3, BIT_LENGTH), (0, BIT_LENGTH),
-                                      align=None), Axis.Z)
-    wing = 1.4  # mm thick
-    cross = Pos(0, 0, body_len) * extrude(Rectangle(BIT_SIZE, wing) + Rectangle(wing, BIT_SIZE), amount=BIT_TIP)
-    core = Pos(0, 0, body_len) * extrude(Circle(BIT_SIZE / 2), amount=1.0)  # the neck stays round
-    return Part((body + (cone & (cross + core))).wrapped)
+    g2 = PH1_G / 2
+    tan_end = math.tan(math.radians(PH1_END))
+    z_cone = BIT_LENGTH - g2 * tan_end  # the end face meets the wings' cone
+    z_blade = z_cone - (PH1_BLADE / 2 - g2) / math.tan(math.radians(PH1_CONE))
+    z_neck = z_blade - 2.6  # the round neck's bottom
+    z_hex = z_neck - (corner - PH1_BLADE / 2)  # 45 degrees from the hex's corners to the neck
+    blank = revolve(Plane.XZ * Polygon((0, 0), (corner + 1, 0), (corner + 1, z_hex), (PH1_BLADE / 2, z_neck),
+                                       (PH1_BLADE / 2, z_blade), (g2, z_cone), (0, BIT_LENGTH), align=None), Axis.Z)
+    # The back end's chamfer: a cone (45 degrees) around it.
+    blank &= revolve(Plane.XZ * Polygon((0, 0), (corner - 0.5, 0), (corner + BIT_LENGTH, BIT_LENGTH + 0.5),
+                                        (0, BIT_LENGTH + 0.5), align=None), Axis.Z)
+    blank &= extrude(RegularPolygon(corner, 6), amount=BIT_LENGTH)
+    # One flute in the XZ plane (then turned to the four diagonals): its bottom line starts at
+    # the end face, PH1_B / 2 from the axis; the profile is swept along that line and an arc.
+    beta = math.radians(PH1_BETA)
+    down = Vector(math.sin(beta), 0, -math.cos(beta))  # along the flute's bottom, away from the tip
+    out = Vector(math.cos(beta), 0, math.sin(beta))  # across it, outwards
+    across = Vector(0, 1, 0)
+    bottom = Vector(PH1_B / 2, 0, BIT_LENGTH - PH1_B / 2 * tan_end)
+    start = bottom - down * 1.5  # beyond the tip
+    bend = bottom + down * PH1_L
+    radius = 3.0
+    centre = bend + out * radius
+
+    def on_arc(degrees: float) -> Vector:
+        a = beta + math.radians(degrees)
+        return centre - Vector(math.cos(a), 0, math.sin(a)) * radius
+
+    path = Wire([Line(start, bend), ThreePointArc(bend, on_arc(35), on_arc(70))])
+    facet = math.tan(math.radians((180 - PH1_ALPHA) / 2))
+    wall = math.tan(math.radians(PH1_WALLS / 2))
+    u_corner, reach = PH1_E / 2 * facet, 4.0
+    section = [(0, 0), (u_corner, PH1_E / 2), (reach, PH1_E / 2 + (reach - u_corner) * wall),
+               (reach, -PH1_E / 2 - (reach - u_corner) * wall), (u_corner, -PH1_E / 2)]
+    face = make_face(Polyline(*[start + out * u + across * v for u, v in section], close=True))
+    flute = sweep(face, path, transition=Transition.RIGHT)
+    return Part((blank - [Rot(0, 0, 45 + 90 * k) * flute for k in range(4)]).wrapped)
 
 
 def build_bits(p: HandleParams) -> Compound:
