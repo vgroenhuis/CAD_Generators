@@ -10,7 +10,9 @@
       * holes go through the plate (no overhangs, and the printed hole is open at both ends to
         measure); pegs are `height` tall on the plate
       * the labels are engraved `label_depth` deep into the plate's top, below each hole/peg,
-        in a bold font that prints (see cad_common/text.py)
+        in a bold font that prints (see cad_common/text.py), and filled by a second body in
+        another colour, flush with the top: in a multicolour printer the sizes print in a
+        contrasting filament (with one filament they simply fill the engravings)
 
     Prints flat as it is, without supports.
 
@@ -23,13 +25,14 @@ import argparse
 import math
 from dataclasses import dataclass
 
-from build123d import Align, Box, Circle, Color, Part, Pos, Rectangle, RegularPolygon, export_step, extrude
+from build123d import Align, Box, Circle, Color, Compound, Part, Pos, Rectangle, RegularPolygon, export_step, extrude
 
 from cad_common.text import min_font_size, printable_text
 
 SHAPES = ("round", "hexagon", "square")
 KINDS = ("holes", "pegs")
 COLOUR = Color(0.35, 0.6, 0.85)
+LABEL_COLOUR = Color(0.08, 0.08, 0.08)
 LABEL_GAP = 1.5  # mm between a hole/peg and its label
 MAX_COUNT = 40
 
@@ -113,7 +116,8 @@ def _section(p: ToleranceParams, size: float):
     return RegularPolygon(size / math.sqrt(3), 6)  # a corner on X: flats parallel to X
 
 
-def build_tolerance_test(p: ToleranceParams) -> Part:
+def build_tolerance_test(p: ToleranceParams) -> Compound:
+    """Two bodies: 'plate' (with the engravings) and 'labels' (filling them)."""
     validate(p)
     ss = sizes(p)
     texts = [_text(p, s) for s in ss]
@@ -128,7 +132,7 @@ def build_tolerance_test(p: ToleranceParams) -> Part:
     width = cols * col_w + (cols + 1) * p.gap
     depth = rows * row_h + (rows + 1) * p.gap
     plate = Box(width, depth, p.thickness, align=(Align.CENTER, Align.CENTER, Align.MIN))
-    cuts, pegs = [], []
+    cuts, pegs, labels = [], [], []
     for i, (s, t) in enumerate(zip(ss, texts)):
         row, col = divmod(i, cols)
         x = -width / 2 + p.gap + col_w / 2 + col * (col_w + p.gap)
@@ -139,18 +143,17 @@ def build_tolerance_test(p: ToleranceParams) -> Part:
         else:
             pegs.append(Pos(x, y, p.thickness - 0.01) * extrude(_section(p, s), amount=p.height + 0.01))
         ty = top - foot_d - LABEL_GAP - text_h / 2
-        cuts.append(Pos(x, ty, p.thickness - p.label_depth) * extrude(t, amount=p.label_depth + 1))
+        at = Pos(x, ty, p.thickness - p.label_depth)
+        cuts.append(at * extrude(t, amount=p.label_depth + 1))
+        labels.append(at * extrude(t, amount=p.label_depth))
     part = plate
     if pegs:
         part = part.fuse(*pegs)
-    part = part.cut(*cuts)
-    return Part(part.wrapped)
-
-
-def build_tolerance_test_labelled(p: ToleranceParams) -> Part:
-    part = build_tolerance_test(p)
-    part.label, part.color = "tolerance_test", COLOUR
-    return part
+    plate = Part(part.cut(*cuts).wrapped)
+    text = Part(Compound([s for lab in labels for s in lab.solids()]).wrapped)
+    plate.label, plate.color = "plate", COLOUR
+    text.label, text.color = "labels", LABEL_COLOUR
+    return Compound(children=[plate, text], label="tolerance_test")
 
 
 def describe(p: ToleranceParams) -> str:

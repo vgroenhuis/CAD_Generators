@@ -1,5 +1,5 @@
-"""API routes for the Tolerance Test generator (a plate with a series of labelled holes or pegs
-of growing size): defaults, a summary, glTF preview, 3MF and STEP.
+"""API routes for the Tolerance Test generator (a plate with a series of holes or pegs of growing
+size, their sizes inlaid in another colour): defaults, a summary, glTF preview, 3MF and STEP.
 
 Built models and their files are cached (see web_app/model_cache.py); the default test piece is
 made when the server starts.
@@ -9,13 +9,13 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from tolerance_test_app.tolerance_test_model import ToleranceParams, build_tolerance_test_labelled, describe, validate
+from tolerance_test_app.tolerance_test_model import ToleranceParams, build_tolerance_test, describe, validate
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
 
 router = APIRouter()
 
-cache = ModelCache("tolerance_test", build_tolerance_test_labelled, size=8)
+cache = ModelCache("tolerance_test", build_tolerance_test, size=8)
 DEFAULT = ToleranceParams()  # the model's defaults; the page loads them from /defaults
 FILES = {
 	"glb": lambda part: glb_bytes(part, linear_deflection=0.02, angular_deflection=0.1),
