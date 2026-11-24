@@ -516,12 +516,13 @@ def build_bits(p: HandleParams) -> Compound:
     lay = layout(p)
     bit = screw_bit()
     # The handle's hexes have a corner at their angle (see _hex); the bit's hex has one on X.
-    bits = [Pos(0, 0, lay.socket_bottom) * bit]
+    lift = 0.02  # mm above what the bits stand on, so their faces don't z-fight on the page
+    bits = [Pos(0, 0, lay.socket_bottom + lift) * bit]
     if p.holes:
         # The hole nearest -Y: the half the page's cut view keeps (the viewer's side).
         rc = hole_centre_radius(p)
         a = min((90 + 360 * i / p.holes for i in range(p.holes)), key=lambda a: math.sin(math.radians(a)))
-        at = Pos(rc * math.cos(math.radians(a)), rc * math.sin(math.radians(a)), p.thread_length - THREAD_GAP)
+        at = Pos(rc * math.cos(math.radians(a)), rc * math.sin(math.radians(a)), p.thread_length - THREAD_GAP + lift)
         bits.append(at * Rot(0, 0, a) * bit)
     out = Part(Compound([s for b in bits for s in b.solids()]).wrapped)
     out.label, out.color = "bits", BIT_COLOUR
