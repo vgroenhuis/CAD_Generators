@@ -35,17 +35,20 @@ def _params(
 	holes: int = Query(...), hole_size: float = Query(...), hole_length: float = Query(...),
 	storage_gap: float = Query(...),
 	thread_length: float = Query(...), thread_clearance: float = Query(...),
+	cap_oversize: float = Query(1.0),
 ) -> HandleParams:
 	if not knurl:  # its settings don't matter: one cache entry
 		knurl_depth, knurl_count = DEFAULT.knurl_depth, DEFAULT.knurl_count
-	if holes == 0:
+	if holes == 0:  # no cap either
+		cap_oversize = DEFAULT.cap_oversize
 		hole_size, hole_length, storage_gap = DEFAULT.hole_size, DEFAULT.hole_length, DEFAULT.storage_gap
 	if magnet_diameter == 0 or magnet_height == 0:
 		magnet_diameter = magnet_height = 0.0
 	if taper_length == 0:
 		tip_diameter = DEFAULT.tip_diameter
 	p = HandleParams(diameter, min_length, taper_length, tip_diameter, knurl, knurl_depth, knurl_count, socket_size, socket_depth, magnet_diameter,
-	                 magnet_height, magnet_gap, holes, hole_size, hole_length, storage_gap, thread_length, thread_clearance)
+	                 magnet_height, magnet_gap, holes, hole_size, hole_length, storage_gap, thread_length, thread_clearance,
+	                 cap_oversize)
 	try:
 		validate(p)
 	except ValueError as exc:

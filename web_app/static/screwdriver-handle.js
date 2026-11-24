@@ -7,7 +7,8 @@ import { showViewerError } from "./error-banner.js";
 
 const API = "api/screwdriver-handle";
 const NUMBER_FIELDS = ["diameter", "min_length", "taper_length", "tip_diameter", "knurl_depth", "knurl_count", "socket_size", "socket_depth", "magnet_diameter",
-	"magnet_height", "magnet_gap", "hole_size", "hole_length", "storage_gap", "thread_length", "thread_clearance"];
+	"magnet_height", "magnet_gap", "hole_size", "hole_length", "storage_gap", "thread_length", "thread_clearance",
+	"cap_oversize"];
 const INTEGER_FIELDS = ["knurl_count"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
 const generateBtn = document.getElementById("generate-btn");

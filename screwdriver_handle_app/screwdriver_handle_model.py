@@ -64,7 +64,6 @@ TOP_ROUND = 3.0  # radius of the rounded top edge
 TIP_ROUND = 1.2  # radius of the rounded top edge of a tapered handle
 TAPER_COLLAR = 2.0  # mm of smooth grip between the knurl and the taper
 CAP_FLANGE = 3.0  # mm, the cap's flange height
-CAP_OVERSIZE = 1.0  # mm, the cap's flange is this much larger in radius than the handle (easy to grab)
 KNURL_ANGLE = 30.0  # degrees between the knurl's lines and the axis
 SEGMENTS = 72  # around the smooth parts of the handle (an even number)
 
@@ -89,6 +88,7 @@ class HandleParams:
     storage_gap: float = 6.0  # material between the storage holes and the magnet: keeps its pull off the spare bits
     thread_length: float = 6.0  # the cap's plug, into the handle
     thread_clearance: float = 0.3  # on the radius
+    cap_oversize: float = 1.0  # the cap's flange is this much larger in radius than the handle (easy to grab)
 
 
 # Named settings the page offers (each a complete set; the defaults are the page's start).
@@ -180,6 +180,8 @@ def validate(p: HandleParams) -> None:
         raise ValueError("The cap's thread must be 3 to 20 mm long.")
     if not 0 <= p.thread_clearance <= 1:
         raise ValueError("The thread clearance must be between 0 and 1 mm.")
+    if not 0 <= p.cap_oversize <= 10:
+        raise ValueError("The cap oversize must be between 0 and 10 mm.")
     r = p.diameter / 2
     grip = r - (p.knurl_depth if p.knurl else 0)  # the knurl's grooves
     widest = max(p.socket_size / math.sqrt(3), p.magnet_diameter / 2 + MAGNET_CLEARANCE)
@@ -421,7 +423,7 @@ def build_cap(p: HandleParams) -> Part:
     # A disc, knurled like the handle for grip and a little larger than it (even its grooves
     # stand out), so it is easy to grab: no chamfers, so it sits flush against the handle's
     # flat bottom.
-    flange = _outer_rings(p, 0.0, CAP_FLANGE, (0.0, CAP_FLANGE), None, r + CAP_OVERSIZE)
+    flange = _outer_rings(p, 0.0, CAP_FLANGE, (0.0, CAP_FLANGE), None, r + p.cap_oversize)
     inner, outer = thread_radii(p)
     c = p.thread_clearance
     top = CAP_FLANGE + p.thread_length - THREAD_GAP
@@ -439,7 +441,7 @@ def build_screwdriver_handle(p: HandleParams) -> Compound:
     handle.label, handle.color = "handle", COLOUR
     parts = [handle]
     if p.holes:
-        cap = Part((Pos(p.diameter + 8, 0, 0) * build_cap(p)).wrapped)
+        cap = Part((Pos(p.diameter + 2 * p.cap_oversize + 8, 0, 0) * build_cap(p)).wrapped)
         cap.label, cap.color = "cap", CAP_COLOUR
         parts.append(cap)
     return Compound(children=parts, label="screwdriver_handle")
@@ -448,7 +450,7 @@ def build_screwdriver_handle(p: HandleParams) -> Compound:
 def describe(p: HandleParams) -> str:
     lay = layout(p)
     longer = f" (longer than {p.min_length:g} mm, to fit what is inside)" if lay.length > p.min_length + 0.5 else ""
-    cap = f", plus the cap's {CAP_FLANGE:g} mm flange" if p.holes else ""
+    cap = f", plus the cap's {CAP_FLANGE:g} mm flange (Ø{p.diameter + 2 * p.cap_oversize:g} mm)" if p.holes else ""
     text = (f"Handle Ø{p.diameter:g} x {lay.length:.1f} mm{longer}{cap}; "
             f"{'diamond knurl' if p.knurl and p.knurl_depth > 0 else 'smooth'}"
             f"{f', the top {p.taper_length:g} mm tapered to Ø{p.tip_diameter:g} mm' if p.taper_length > 0 else ''}. "
