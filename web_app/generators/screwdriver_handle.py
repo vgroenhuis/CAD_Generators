@@ -28,12 +28,12 @@ FILES = {
 
 
 def _params(
-	diameter: float = Query(...), min_length: float = Query(...), taper_length: float = Query(0.0),
+	diameter: float = Query(...), length: float = Query(...), taper_length: float = Query(0.0),
 	tip_diameter: float = Query(12.0), knurl: bool = Query(True), knurl_depth: float = Query(...),
 	knurl_count: int = Query(...),
 	socket_size: float = Query(...), socket_depth: float = Query(...),
 	magnet_diameter: float = Query(...), magnet_height: float = Query(...), magnet_gap: float = Query(...),
-	holes: int = Query(...), hole_size: float = Query(...), hole_length: float = Query(...),
+	holes: int = Query(...), hole_size: float = Query(...),
 	storage_gap: float = Query(...),
 	thread_length: float = Query(...), thread_clearance: float = Query(...),
 	cap_oversize: float = Query(1.0),
@@ -42,13 +42,13 @@ def _params(
 		knurl_depth, knurl_count = DEFAULT.knurl_depth, DEFAULT.knurl_count
 	if holes == 0:  # no cap either
 		cap_oversize = DEFAULT.cap_oversize
-		hole_size, hole_length, storage_gap = DEFAULT.hole_size, DEFAULT.hole_length, DEFAULT.storage_gap
+		hole_size, storage_gap = DEFAULT.hole_size, DEFAULT.storage_gap
 	if magnet_diameter == 0 or magnet_height == 0:
 		magnet_diameter = magnet_height = 0.0
 	if taper_length == 0:
 		tip_diameter = DEFAULT.tip_diameter
-	p = HandleParams(diameter, min_length, taper_length, tip_diameter, knurl, knurl_depth, knurl_count, socket_size, socket_depth, magnet_diameter,
-	                 magnet_height, magnet_gap, holes, hole_size, hole_length, storage_gap, thread_length, thread_clearance,
+	p = HandleParams(diameter, length, taper_length, tip_diameter, knurl, knurl_depth, knurl_count, socket_size, socket_depth, magnet_diameter,
+	                 magnet_height, magnet_gap, holes, hole_size, storage_gap, thread_length, thread_clearance,
 	                 cap_oversize)
 	try:
 		validate(p)

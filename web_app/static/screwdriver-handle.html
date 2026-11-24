@@ -81,8 +81,8 @@
 				<div class="row">
 					<div><label for="diameter">Diameter (mm)</label>
 					<input type="text" inputmode="decimal" autocomplete="off" id="diameter"></div>
-					<div><label for="min_length">Length (mm)</label>
-					<input type="text" inputmode="decimal" autocomplete="off" id="min_length"></div>
+					<div><label for="length">Length (mm)</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="length"></div>
 				</div>
 				<div class="row">
 					<div><label for="taper_length">Taper length (mm)</label>
@@ -98,7 +98,7 @@
 					<div><label for="knurl_count">Diamonds around</label>
 					<input type="text" inputmode="numeric" autocomplete="off" id="knurl_count"></div>
 				</div>
-				<div class="hint">The handle gets longer when the storage holes, magnet and socket need it (see the summary).</div>
+				<div class="hint">The whole length, without the cap's flange. The storage holes take up what the socket and magnet leave (see the summary).</div>
 			</div>
 			<div class="side">
 				<h3>Bit socket</h3>
@@ -126,15 +126,11 @@
 				<h3>Spare bits</h3>
 				<label for="holes">Storage holes</label>
 				<select id="holes"><option value="0">None</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
-				<div class="row">
-					<div><label for="hole_size">Across flats (mm)</label>
-					<input type="text" inputmode="decimal" autocomplete="off" id="hole_size"></div>
-					<div><label for="hole_length">Length (mm)</label>
-					<input type="text" inputmode="decimal" autocomplete="off" id="hole_length"></div>
-				</div>
+				<label for="hole_size">Across flats (mm)</label>
+				<input type="text" inputmode="decimal" autocomplete="off" id="hole_size">
 				<label for="storage_gap">Below the magnet (mm)</label>
 				<input type="text" inputmode="decimal" autocomplete="off" id="storage_gap">
-				<div class="hint">Hexagonal holes from the bottom up, each for a stack of bits (three 25 mm bits need 75 mm). The length is measured from the cap's plug. They end this far below the magnet, so it doesn't hold the topmost spare bits.</div>
+				<div class="hint">Hexagonal holes from the bottom up, each for a stack of bits. They are as long as the handle allows, ending this far below the magnet, so it doesn't hold the topmost spare bits; the summary gives their length and how many 25 mm bits fit (a 100 mm handle: three each).</div>
 			</div>
 			<div class="side">
 				<h3>Screw cap</h3>

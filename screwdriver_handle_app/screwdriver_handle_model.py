@@ -9,9 +9,9 @@
         (`magnet_diameter` x `magnet_height`, plus clearance). The magnet goes in while the
         print is paused just before the pocket's roof: describe() gives that height.
       * from the bottom up, `holes` hexagonal storage holes (`hole_size` across flats,
-        `hole_length` long, up to 3 in a honeycomb around the axis), each for a stack of
-        spare bits, with a pointed (45 degree) roof, ending `storage_gap` mm below the magnet so
-        that it doesn't hold the topmost spare bits
+        up to 3 in a honeycomb around the axis), each for a stack of spare bits, with a pointed
+        (45 degree) roof, ending `storage_gap` mm below the magnet so that it doesn't hold the
+        topmost spare bits. Their length follows from the rest: as long as fits (see layout())
       * at the bottom a threaded opening with a shallow conical (20 degree) ceiling, closed by a
         separate screw cap (a plug with a flange) that the bits rest on. No chamfers at the
         bottom of the handle or the cap: their whole bottom faces hold on to the print bed.
@@ -19,9 +19,9 @@
         pocket's short flat roof and the opening's shallow ceiling, a short span)
       * a diamond knurl on the grip between smooth collars at both ends, and on the cap's flange
 
-    The handle is `min_length` long, or longer when the parts stacked along the axis need it:
-    thread, storage holes, the storage gap, the magnet pocket, the gap and the socket. Extra length is
-    solid, below the magnet.
+    The handle is `length` long. From the top down: the socket, the gap, the magnet pocket and
+    the storage gap; the storage holes fill what is left down to the cap's plug (less where a
+    taper would leave too thin a wall around them). Without storage holes, what is left is solid.
 
     The threads have a rounded (sinusoidal) profile; they are made by extruding their cross-
     section while turning it (one turn per pitch), which is exact and fast. The knurl is built
@@ -71,7 +71,7 @@ SEGMENTS = 72  # around the smooth parts of the handle (an even number)
 @dataclass
 class HandleParams:
     diameter: float = 22.0
-    min_length: float = 100.0  # longer when what is stacked inside needs it
+    length: float = 100.0
     taper_length: float = 20.0  # the top narrows over this length (0: no taper), for tight spaces
     tip_diameter: float = 12.0  # where the cone would meet the top face (its edge is rounded)
     knurl: bool = True
@@ -84,7 +84,6 @@ class HandleParams:
     magnet_gap: float = 1.0  # material between the socket's floor and the magnet
     holes: int = 3
     hole_size: float = 6.7  # across flats
-    hole_length: float = 76.0  # three 25 mm bits
     storage_gap: float = 6.0  # material between the storage holes and the magnet: keeps its pull off the spare bits
     thread_length: float = 6.0  # the cap's plug, into the handle
     thread_clearance: float = 0.3  # on the radius
@@ -132,17 +131,30 @@ class Layout:
 
 
 def layout(p: HandleParams) -> Layout:
+    """From the top down; the storage holes get what is left (hole_length() gives it)."""
+    length = p.length
+    socket_bottom = length - p.socket_depth
+    magnet = p.magnet_diameter > 0 and p.magnet_height > 0
+    pocket_top = socket_bottom - p.magnet_gap if magnet else socket_bottom
+    pocket_bottom = pocket_top - (p.magnet_height + MAGNET_HEADROOM) if magnet else pocket_top
     holes_bottom = p.thread_length
-    holes_top = holes_bottom + (p.hole_length if p.holes else 0.0)
-    pocket_bottom = holes_top + (p.storage_gap if p.holes else 0.0)
-    above = p.magnet_height + MAGNET_HEADROOM + p.magnet_gap + p.socket_depth if p.magnet_height > 0 else p.socket_depth
-    pocket_bottom += max(0.0, p.min_length - (pocket_bottom + above))  # solid below the magnet up to min_length
-    pocket_top = pocket_bottom + p.magnet_height + MAGNET_HEADROOM
-    socket_bottom = pocket_top + p.magnet_gap if p.magnet_height > 0 else pocket_bottom
-    length = socket_bottom + p.socket_depth
+    holes_top = holes_bottom
+    if p.holes:
+        holes_top = pocket_bottom - p.storage_gap
+        if p.taper_length > 0 and p.tip_diameter / 2 < holes_radius(p) + MIN_WALL:
+            # Where the taper still leaves MIN_WALL around the holes.
+            r, rt, need = p.diameter / 2, p.tip_diameter / 2, holes_radius(p) + MIN_WALL
+            if r > rt:
+                holes_top = min(holes_top, length - p.taper_length + p.taper_length * max(0.0, r - need) / (r - rt))
     return Layout(holes_bottom, holes_top, pocket_bottom, pocket_top, socket_bottom, length,
                   p.thread_length + COLLAR_BOTTOM,
                   length - (p.taper_length + TAPER_COLLAR if p.taper_length > 0 else COLLAR_TOP))
+
+
+def hole_length(p: HandleParams) -> float:
+    """The storage holes' length (from the cap's plug; without their pointed roofs)."""
+    lay = layout(p)
+    return lay.holes_top - lay.holes_bottom if p.holes else 0.0
 
 
 def radius_at(p: HandleParams, z: float, length: float) -> float:
@@ -157,7 +169,7 @@ def radius_at(p: HandleParams, z: float, length: float) -> float:
 def validate(p: HandleParams) -> None:
     if not 12 <= p.diameter <= 60:
         raise ValueError("The diameter must be between 12 and 60 mm.")
-    if not 20 <= p.min_length <= 400:
+    if not 20 <= p.length <= 400:
         raise ValueError("The length must be between 20 and 400 mm.")
     if not 0 <= p.knurl_depth <= 2:
         raise ValueError("The knurl depth must be between 0 and 2 mm.")
@@ -171,8 +183,8 @@ def validate(p: HandleParams) -> None:
         raise ValueError("The gap between the socket and the magnet must be between 0.4 and 10 mm.")
     if p.holes not in (0, 1, 2, 3):
         raise ValueError("The number of storage holes must be 0, 1, 2 or 3.")
-    if not 2 <= p.hole_size <= 20 or not 5 <= p.hole_length <= 300:
-        raise ValueError("The storage holes must be 2 to 20 mm across flats and 5 to 300 mm long.")
+    if not 2 <= p.hole_size <= 20:
+        raise ValueError("The storage holes must be 2 to 20 mm across flats.")
     if not p.hole_size / 2 + 1 <= p.storage_gap <= 50:
         raise ValueError(f"The distance between the storage holes and the magnet must be between "
                          f"{p.hole_size / 2 + 1:g} mm (the holes' pointed roofs and 1 mm) and 50 mm.")
@@ -208,12 +220,16 @@ def validate(p: HandleParams) -> None:
         if p.magnet_diameter > 0 and p.magnet_height > 0 and \
                 radius_at(p, lay.pocket_top, lay.length) < p.magnet_diameter / 2 + MAGNET_CLEARANCE + MIN_WALL:
             raise ValueError("The taper leaves too little wall around the magnet: use a wider tip or a shorter taper.")
-        if p.holes and radius_at(p, lay.holes_top, lay.length) < holes_radius(p) + MIN_WALL:
-            raise ValueError("The taper leaves too little wall around the storage holes: use a wider tip or a shorter taper.")
     elif p.taper_length < 0:
         raise ValueError("The taper's length must be 0 or more.")
+    if p.holes and hole_length(p) < 5:
+        raise ValueError(f"The handle is too short for storage holes (they would be {hole_length(p):.1f} mm long, "
+                         "at least 5 mm): make it longer, or the taper shorter or its tip wider.")
+    if lay.pocket_bottom < (p.thread_length if p.holes else 2.0):
+        raise ValueError(f"The handle is too short for the socket and the magnet: make it at least "
+                         f"{math.ceil(p.length - lay.pocket_bottom + 2)} mm long.")
     if lay.knurl_top - lay.knurl_bottom < 5 and p.knurl:
-        raise ValueError("The handle is too short for a knurl: turn it off or use longer storage holes.")
+        raise ValueError("The handle is too short for a knurl: turn it off or make the handle longer.")
 
 
 def _cam_face(radius, n: int) -> Face:
@@ -531,15 +547,16 @@ def build_bits(p: HandleParams) -> Compound:
 
 def describe(p: HandleParams) -> str:
     lay = layout(p)
-    longer = f" (longer than {p.min_length:g} mm, to fit what is inside)" if lay.length > p.min_length + 0.5 else ""
     cap = f", plus the cap's {CAP_FLANGE:g} mm flange (Ø{p.diameter + 2 * p.cap_oversize:g} mm)" if p.holes else ""
-    text = (f"Handle Ø{p.diameter:g} x {lay.length:.1f} mm{longer}{cap}; "
+    text = (f"Handle Ø{p.diameter:g} x {lay.length:g} mm{cap}; "
             f"{'diamond knurl' if p.knurl and p.knurl_depth > 0 else 'smooth'}"
             f"{f', the top {p.taper_length:g} mm tapered to Ø{p.tip_diameter:g} mm' if p.taper_length > 0 else ''}. "
             f"Bit socket {p.socket_size:g} mm across flats, {p.socket_depth:g} mm deep.")
     if p.holes:
+        room = hole_length(p) + THREAD_GAP  # the bits stand on the cap's plug
         text += (f" {p.holes} storage hole{'s' if p.holes > 1 else ''} {p.hole_size:g} mm across flats, "
-                 f"{p.hole_length:g} mm long (from the cap's plug), closed by the screw cap, "
+                 f"{room:.1f} mm long from the cap's plug (room for {math.floor(room / BIT_LENGTH)} "
+                 f"{BIT_LENGTH:g} mm bit{'s' if math.floor(room / BIT_LENGTH) != 1 else ''} each), closed by the screw cap, "
                  f"{p.storage_gap:g} mm below the magnet.")
     if p.magnet_diameter > 0 and p.magnet_height > 0:
         text += (f" Magnet Ø{p.magnet_diameter:g} x {p.magnet_height:g} mm, {p.magnet_gap:g} mm below the socket: "
