@@ -474,7 +474,7 @@ def screw_bit() -> Part:
     tan_end = math.tan(math.radians(PH1_END))
     z_cone = BIT_LENGTH - g2 * tan_end  # the end face meets the wings' cone
     z_blade = z_cone - (PH1_BLADE / 2 - g2) / math.tan(math.radians(PH1_CONE))
-    z_neck = z_blade - 2.6  # the round neck's bottom
+    z_neck = z_blade - 5.0  # the round neck's bottom: the hex is about 15 mm long
     z_hex = z_neck - (corner - PH1_BLADE / 2)  # 45 degrees from the hex's corners to the neck
     blank = revolve(Plane.XZ * Polygon((0, 0), (corner + 1, 0), (corner + 1, z_hex), (PH1_BLADE / 2, z_neck),
                                        (PH1_BLADE / 2, z_blade), (g2, z_cone), (0, BIT_LENGTH), align=None), Axis.Z)
@@ -491,7 +491,7 @@ def screw_bit() -> Part:
     bottom = Vector(PH1_B / 2, 0, BIT_LENGTH - PH1_B / 2 * tan_end)
     start = bottom - down * 1.5  # beyond the tip
     bend = bottom + down * PH1_L
-    radius = 3.0
+    radius = 5.0  # the flutes run out about 6 mm from the tip
     centre = bend + out * radius
 
     def on_arc(degrees: float) -> Vector:
