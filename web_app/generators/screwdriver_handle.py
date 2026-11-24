@@ -3,8 +3,8 @@ magnet pocket, storage holes for spare bits and a screw cap): defaults, a summar
 3MF and STEP.
 
 The files and the preview hold the handle and its cap side by side, each in print orientation.
-Built models and their files are cached (see web_app/model_cache.py); the default handle is made
-when the server starts.
+Built models and their files are cached (see web_app/model_cache.py); the default handle and the
+presets are made when the server starts.
 """
 
 from dataclasses import asdict
@@ -72,7 +72,9 @@ def _filename(p: HandleParams, ext: str) -> str:
 
 
 def warm() -> None:
-	warm_entry(cache, _key(DEFAULT), DEFAULT, FILES)
+	"""The default handle and the presets', so the page shows them at once."""
+	for p in (DEFAULT, *PRESETS.values()):
+		warm_entry(cache, _key(p), p, FILES)
 
 
 @router.get("/defaults")
