@@ -83,7 +83,7 @@ class HandleParams:
     magnet_height: float = 3.0
     magnet_gap: float = 1.0  # material between the socket's floor and the magnet
     holes: int = 3
-    hole_size: float = 6.6  # across flats
+    hole_size: float = 6.7  # across flats
     hole_length: float = 76.0  # three 25 mm bits
     storage_gap: float = 6.0  # material between the storage holes and the magnet: keeps its pull off the spare bits
     thread_length: float = 6.0  # the cap's plug, into the handle
