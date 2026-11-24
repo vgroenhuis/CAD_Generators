@@ -43,7 +43,7 @@ from OCP.gp import gp_Pnt
 from OCP.ShapeFix import ShapeFix_Solid
 from OCP.TopoDS import TopoDS
 from build123d import (
-    Align, Box, Axis, Plane, Polygon, revolve, Circle, Color, Compound, Face, Part, Pos, RegularPolygon, Rot, Shell, Solid, Spline, Vector, Wire,
+    Align, Box, Axis, Plane, Polygon, revolve, Circle, Color, Compound, Face, Part, Pos, Rectangle, RegularPolygon, Rot, Shell, Solid, Spline, Vector, Wire,
     export_step, extrude,
 )
 
@@ -445,6 +445,49 @@ def build_screwdriver_handle(p: HandleParams) -> Compound:
         cap.label, cap.color = "cap", CAP_COLOUR
         parts.append(cap)
     return Compound(children=parts, label="screwdriver_handle")
+
+
+BIT_COLOUR = Color(0.72, 0.73, 0.76)
+BIT_SIZE = 6.35  # mm across flats: a 1/4" hex bit
+BIT_LENGTH = 25.0  # mm, a common insert bit (ISO 1173 C6.3)
+BIT_TIP = 7.0  # mm of the bit's length that is the (Phillips-like) tip
+
+
+def screw_bit() -> Part:
+    """A 1/4" insert bit for showing on the page (not printed): a hex body with a chamfered
+    back end, and a cross-shaped tip tapering to a point; its back end at z = 0, pointing up."""
+    body_len = BIT_LENGTH - BIT_TIP
+    corner = BIT_SIZE / math.sqrt(3)
+    body = extrude(RegularPolygon(corner, 6), amount=body_len)
+    # The back end's chamfer: cut by a cone (45 degrees) around it.
+    body = body & revolve(Plane.XZ * Polygon((0, 0), (corner - 0.5, 0), (corner + body_len, body_len + 0.5),
+                                             (0, body_len + 0.5), align=None), Axis.Z)
+    # The tip: a cone from the body's flats to a small point, made a cross (four wings).
+    cone = revolve(Plane.XZ * Polygon((0, body_len), (BIT_SIZE / 2, body_len), (0.3, BIT_LENGTH), (0, BIT_LENGTH),
+                                      align=None), Axis.Z)
+    wing = 1.4  # mm thick
+    cross = Pos(0, 0, body_len) * extrude(Rectangle(BIT_SIZE, wing) + Rectangle(wing, BIT_SIZE), amount=BIT_TIP)
+    core = Pos(0, 0, body_len) * extrude(Circle(BIT_SIZE / 2), amount=1.0)  # the neck stays round
+    return Part((body + (cone & (cross + core))).wrapped)
+
+
+def build_bits(p: HandleParams) -> Compound:
+    """Bits where they go, for the page's preview (not in the files): one in the socket, its back
+    end on the socket's floor, and, with storage holes, one at the bottom of a hole, on the
+    cap's plug (where it rests with the cap screwed on). Both in the handle's print orientation."""
+    lay = layout(p)
+    bit = screw_bit()
+    # The handle's hexes have a corner at their angle (see _hex); the bit's hex has one on X.
+    bits = [Pos(0, 0, lay.socket_bottom) * bit]
+    if p.holes:
+        # The hole nearest -Y: the half the page's cut view keeps (the viewer's side).
+        rc = hole_centre_radius(p)
+        a = min((90 + 360 * i / p.holes for i in range(p.holes)), key=lambda a: math.sin(math.radians(a)))
+        at = Pos(rc * math.cos(math.radians(a)), rc * math.sin(math.radians(a)), p.thread_length - THREAD_GAP)
+        bits.append(at * Rot(0, 0, a) * bit)
+    out = Part(Compound([s for b in bits for s in b.solids()]).wrapped)
+    out.label, out.color = "bits", BIT_COLOUR
+    return Compound(children=[out], label="bits")
 
 
 def describe(p: HandleParams) -> str:

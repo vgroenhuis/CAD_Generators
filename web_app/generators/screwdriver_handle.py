@@ -11,13 +11,14 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from screwdriver_handle_app.screwdriver_handle_model import CAP_FLANGE, PRESETS, THREAD_GAP, HandleParams, build_screwdriver_handle, describe, validate
+from screwdriver_handle_app.screwdriver_handle_model import CAP_FLANGE, PRESETS, THREAD_GAP, HandleParams, build_bits, build_screwdriver_handle, describe, validate
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
 
 router = APIRouter()
 
 cache = ModelCache("screwdriver_handle", build_screwdriver_handle, size=6)
+bits_cache = ModelCache("screwdriver_handle_bits", build_bits, size=6)  # for the preview only
 DEFAULT = HandleParams()  # the model's defaults; the page loads them from /defaults
 FILES = {
 	"glb": lambda part: glb_bytes(part, linear_deflection=0.05, angular_deflection=0.2),
@@ -93,6 +94,12 @@ def info_route(p: HandleParams = Depends(_params)) -> dict:
 @router.get("/preview.glb")
 def preview_glb(p: HandleParams = Depends(_params)):
 	return glb_response(_file(p, "glb"))
+
+
+@router.get("/bits.glb")
+def bits_glb(p: HandleParams = Depends(_params)):
+	"""1/4" bits in the socket and a storage hole, to show on the page (not in the files)."""
+	return glb_response(bits_cache.file(_key(p), p, "glb", FILES["glb"]))
 
 
 @router.get("/export.3mf")

@@ -19,6 +19,7 @@ const knurlInput = document.getElementById("knurl");
 const holesInput = document.getElementById("holes");
 const cutInput = document.getElementById("cut_view");
 const assembledInput = document.getElementById("assembled_view");
+const bitsInput = document.getElementById("show_bits");
 const defaultsBtn = document.getElementById("defaults-btn");
 const presetSelect = document.getElementById("preset");
 const statusEl = document.getElementById("status");
@@ -129,7 +130,8 @@ const SECTION_COLOUR = 0xf0c8a0;
 // from 1 mm below their mouth), so moving it straight down makes the threads mesh.
 let capFlange = 3;  // mm, from the summary
 let capHeight = 8.6;  // mm, flange and plug, from the summary
-let capHome = null;  // the cap node's own position in print orientation
+let capHome = null;
+let lastQuery = null;  // the query of the model shown  // the cap node's own position in print orientation
 
 function applyAssembled() {
 	const handle = currentModel?.getObjectByName("handle");
@@ -153,6 +155,36 @@ function applyAssembled() {
 		currentModel.updateMatrixWorld(true);
 	}
 	applyCutView();
+}
+
+// Bits (for a look, not in the files): a separate glTF in the same coordinates as the model's,
+// loaded when asked for. The storage hole's bit shows through the cut view.
+let bitsModel = null;
+let bitsQuery = null;  // the query the shown bits belong to
+
+async function updateBits(query) {
+	if (!bitsInput.checked || !query) {
+		if (bitsModel) scene.remove(bitsModel);
+		bitsModel = null;
+		bitsQuery = null;
+		return;
+	}
+	if (bitsModel && bitsQuery === query) return;
+	try {
+		const response = await fetch(`${API}/bits.glb?${query}`);
+		if (!response.ok || !bitsInput.checked) return;
+		const gltf = await new Promise(async (resolve, reject) => gltfLoader.parse(await response.arrayBuffer(), "", resolve, reject));
+		if (!bitsInput.checked || query !== lastQuery) return;  // changed meanwhile
+		if (bitsModel) scene.remove(bitsModel);
+		bitsModel = gltf.scene;
+		bitsModel.traverse((child) => {
+			if (child.isMesh) child.material = new THREE.MeshStandardMaterial({ color: 0xbabcc2, metalness: 0.6, roughness: 0.35 });
+		});
+		bitsQuery = query;
+		scene.add(bitsModel);
+	} catch (exc) {
+		setStatus(`Failed to load the bits: ${exc.message || exc}`, true);
+	}
 }
 
 function applyCutView() {
@@ -250,6 +282,8 @@ async function onGenerate() {
 		});
 		scene.add(currentModel);
 		applyAssembled();
+		lastQuery = String(query);
+		updateBits(lastQuery);
 		if (!cameraFitted) {
 			fitCameraToObject(currentModel);
 			cameraFitted = true;
@@ -287,6 +321,7 @@ downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
 cutInput.addEventListener("change", applyCutView);
 assembledInput.addEventListener("change", applyAssembled);
+bitsInput.addEventListener("change", () => updateBits(lastQuery));
 for (const el of [knurlInput, holesInput]) {
 	el.addEventListener("change", () => {
 		updateFields();
