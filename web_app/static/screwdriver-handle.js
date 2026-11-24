@@ -18,6 +18,7 @@ const knurlInput = document.getElementById("knurl");
 const holesInput = document.getElementById("holes");
 const cutInput = document.getElementById("cut_view");
 const defaultsBtn = document.getElementById("defaults-btn");
+const presetSelect = document.getElementById("preset");
 const statusEl = document.getElementById("status");
 const placeholderEl = document.getElementById("viewer-placeholder");
 const canvas = document.getElementById("viewer-canvas");
@@ -265,9 +266,54 @@ Object.values(inputs).forEach((el) => {
 	});
 });
 
+// Presets: picking one fills the fields; editing a field selects the matching preset, or "Custom".
+const CUSTOM = "custom";
+let presets = {};
+
+function fieldValue(id) {
+	const el = document.getElementById(id);
+	return el.type === "checkbox" ? el.checked : el.value;
+}
+
+function sameValue(id, value) {
+	const current = fieldValue(id);
+	if (typeof value === "boolean") return current === value;
+	return typeof value === "number" ? parseNumber(String(current)) === value : String(current) === String(value);
+}
+
+function matchingPreset() {
+	for (const [name, values] of Object.entries(presets)) {
+		if (Object.entries(values).every(([id, value]) => !document.getElementById(id) || sameValue(id, value))) return name;
+	}
+	return CUSTOM;
+}
+
+function setupPresets(serverPresets) {
+	presets = serverPresets || {};
+	presetSelect.replaceChildren(...Object.keys(presets).map((name) => new Option(name, name)), new Option("Custom", CUSTOM));
+	presetSelect.value = matchingPreset();
+}
+
+presetSelect.addEventListener("change", () => {
+	if (presetSelect.value === CUSTOM) return;
+	for (const [id, value] of Object.entries(presets[presetSelect.value])) {
+		const el = document.getElementById(id);
+		if (!el) continue;
+		if (el.type === "checkbox") el.checked = Boolean(value);
+		else el.value = String(value);
+	}
+	updateFields();
+	onGenerate();
+});
+[...Object.values(inputs), knurlInput, holesInput].forEach((el) =>
+	el.addEventListener(el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input", () => {
+		presetSelect.value = matchingPreset();
+	}));
+
 function start() {
 	return loadDefaults(API)
-		.then(() => {
+		.then((defaults) => {
+			setupPresets(defaults.presets);
 			updateFields();
 			onGenerate();
 		})

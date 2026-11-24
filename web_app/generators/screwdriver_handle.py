@@ -11,7 +11,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from screwdriver_handle_app.screwdriver_handle_model import HandleParams, build_screwdriver_handle, describe, validate
+from screwdriver_handle_app.screwdriver_handle_model import PRESETS, HandleParams, build_screwdriver_handle, describe, validate
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
 
@@ -74,8 +74,8 @@ def warm() -> None:
 
 @router.get("/defaults")
 def defaults_route() -> dict:
-	"""The page's starting values (by input id), so they are defined only in the model."""
-	return asdict(DEFAULT)
+	"""The page's starting values (by input id) and the presets, so they are defined only in the model."""
+	return {**asdict(DEFAULT), "presets": {name: asdict(p) for name, p in PRESETS.items()}}
 
 
 @router.get("/info")

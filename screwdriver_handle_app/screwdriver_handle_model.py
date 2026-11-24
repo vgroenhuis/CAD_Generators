@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import argparse
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakePolygon, BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing,
@@ -64,6 +64,7 @@ TOP_ROUND = 3.0  # radius of the rounded top edge
 TIP_ROUND = 1.2  # radius of the rounded top edge of a tapered handle
 TAPER_COLLAR = 2.0  # mm of smooth grip between the knurl and the taper
 CAP_FLANGE = 3.0  # mm, the cap's flange height
+CAP_OVERSIZE = 1.0  # mm, the cap's flange is this much larger in radius than the handle (easy to grab)
 KNURL_ANGLE = 30.0  # degrees between the knurl's lines and the axis
 SEGMENTS = 72  # around the smooth parts of the handle (an even number)
 
@@ -88,6 +89,13 @@ class HandleParams:
     storage_gap: float = 6.0  # material between the storage holes and the magnet: keeps its pull off the spare bits
     thread_length: float = 6.0  # the cap's plug, into the handle
     thread_clearance: float = 0.3  # on the radius
+
+
+# Named settings the page offers (each a complete set; the defaults are the page's start).
+PRESETS = {
+    "Screwdriver handle with embedded 8x3 mm magnet and space for nine bits":
+        replace(HandleParams(), socket_size=6.6, hole_size=6.8),
+}
 
 
 def hole_centre_radius(p: HandleParams) -> float:
@@ -242,11 +250,12 @@ def _top_edge(p: HandleParams, r: float, length: float, top_round: float, smooth
 
 
 def _outer_rings(p: HandleParams, start: float, length: float, knurl: tuple[float, float] | None,
-                 top_round: float | None) -> Part:
+                 top_round: float | None, radius: float | None = None) -> Part:
     """The handle's outside from z = start up, as one polyhedron: smooth (many-sided) collars, a
     rounded top edge and, between knurl[0] and knurl[1], a diamond knurl. With top_round None (the
-    cap's flange): a plain disc from start to length, knurled all the way when knurl is given."""
-    r = p.diameter / 2
+    cap's flange): a plain disc from start to length, knurled all the way when knurl is given.
+    radius: the outermost radius (default: the handle's)."""
+    r = radius or p.diameter / 2
     m = p.knurl_count
     n = 2 * m * max(1, round(SEGMENTS / (2 * m)))  # a multiple of the knurl's points per ring
     knurled = knurl is not None and p.knurl and p.knurl_depth > 0
@@ -409,9 +418,10 @@ def build_cap(p: HandleParams) -> Part:
     """The screw cap: a flange with a threaded plug on it, printed flange down."""
     validate(p)
     r = p.diameter / 2
-    # A disc, knurled like the handle for grip: no chamfers, so it sits flush against the handle's
+    # A disc, knurled like the handle for grip and a little larger than it (even its grooves
+    # stand out), so it is easy to grab: no chamfers, so it sits flush against the handle's
     # flat bottom.
-    flange = _outer_rings(p, 0.0, CAP_FLANGE, (0.0, CAP_FLANGE), None)
+    flange = _outer_rings(p, 0.0, CAP_FLANGE, (0.0, CAP_FLANGE), None, r + CAP_OVERSIZE)
     inner, outer = thread_radii(p)
     c = p.thread_clearance
     top = CAP_FLANGE + p.thread_length - THREAD_GAP
