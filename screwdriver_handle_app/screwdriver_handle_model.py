@@ -94,6 +94,8 @@ class HandleParams:
 PRESETS = {
     "Screwdriver handle with embedded 8x3 mm magnet and space for nine bits":
         replace(HandleParams(), socket_size=6.6, hole_size=6.8),
+    "Slim 14 mm handle with one storage hole":
+        replace(HandleParams(), diameter=14.0, holes=1, taper_length=10.0),
 }
 
 
