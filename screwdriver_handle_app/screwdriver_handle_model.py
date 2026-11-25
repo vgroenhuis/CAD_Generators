@@ -558,7 +558,7 @@ def describe(p: HandleParams) -> str:
         room = hole_length(p) + THREAD_GAP  # the bits stand on the cap's plug
         text += (f" {p.holes} storage hole{'s' if p.holes > 1 else ''} {p.hole_size:g} mm across flats, "
                  f"{room:.1f} mm long from the cap's plug (room for {math.floor(room / BIT_LENGTH)} "
-                 f"{BIT_LENGTH:g} mm bit{'s' if math.floor(room / BIT_LENGTH) != 1 else ''} each), closed by the screw cap, "
+                 f"{BIT_LENGTH:g} mm bit{'s' if math.floor(room / BIT_LENGTH) != 1 else ''}{' each' if p.holes > 1 else ''}), closed by the screw cap, "
                  f"{p.storage_gap:g} mm below the magnet.")
     if p.magnet_diameter > 0 and p.magnet_height > 0:
         text += (f" Magnet Ø{p.magnet_diameter:g} x {p.magnet_height:g} mm, {p.magnet_gap:g} mm below the socket: "
