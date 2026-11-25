@@ -36,7 +36,7 @@ def _params(
 	holes: int = Query(...), hole_size: float = Query(...),
 	storage_gap: float = Query(...),
 	thread_length: float = Query(...), thread_clearance: float = Query(...),
-	cap_oversize: float = Query(1.0),
+	cap_oversize: float = Query(0.0),
 ) -> HandleParams:
 	if not knurl:  # its settings don't matter: one cache entry
 		knurl_depth, knurl_count = DEFAULT.knurl_depth, DEFAULT.knurl_count

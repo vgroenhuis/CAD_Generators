@@ -83,11 +83,11 @@ class HandleParams:
     magnet_height: float = 3.0
     magnet_gap: float = 1.0  # material between the socket's floor and the magnet
     holes: int = 3
-    hole_size: float = 6.7  # across flats
+    hole_size: float = 6.8  # across flats
     storage_gap: float = 6.0  # material between the storage holes and the magnet: keeps its pull off the spare bits
     thread_length: float = 6.0  # the cap's plug, into the handle
     thread_clearance: float = 0.3  # on the radius
-    cap_oversize: float = 1.0  # the cap's flange is this much larger in radius than the handle (easy to grab)
+    cap_oversize: float = 0.0  # the cap's flange is this much larger in radius than the handle (easier to grab)
 
 
 # Named settings the page offers (each a complete set; the defaults are the page's start).
