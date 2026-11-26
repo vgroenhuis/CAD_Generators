@@ -4,9 +4,11 @@
 
     The handle stands on its bottom end (z = 0) and is printed that way:
       * at the top a hex socket for the bit (`socket_size` across flats, `socket_depth` deep),
-        with a small lead-in chamfer
-      * `magnet_gap` mm below the socket's floor a closed pocket for a round magnet
-        (`magnet_diameter` x `magnet_height`, plus clearance). The magnet goes in while the
+        with a small lead-in chamfer and a round relief (0.6 mm) at each corner, as printed
+        corners come out rounded and a bit's are sharp
+      * `magnet_gap` mm below the socket's floor a closed hexagonal pocket for a round magnet
+        (`magnet_diameter` across flats plus `magnet_clearance` on each flat, `magnet_height`
+        high): flat sides print more accurately than a round hole. The magnet goes in while the
         print is paused just before the pocket's roof: describe() gives that height.
       * from the bottom up, `holes` hexagonal storage holes (`hole_size` across flats,
         up to 3 in a honeycomb around the axis), each for a stack of spare bits, with a pointed
@@ -51,7 +53,7 @@ COLOUR = Color(0.85, 0.35, 0.2)
 CAP_COLOUR = Color(0.3, 0.3, 0.32)
 HOLE_WEB = 1.0  # mm between neighbouring storage holes
 MIN_WALL = 1.2  # mm, least wall anywhere around a cavity
-MAGNET_CLEARANCE = 0.08  # mm on the magnet's radius: tight, so the magnet stays put when the nozzle passes over it
+SOCKET_CORNER_RELIEF = 0.6  # mm, diameter of the round reliefs at the socket's corners (bits have sharp corners)
 MAGNET_HEADROOM = 0.2  # mm above the magnet in its pocket
 THREAD_DEPTH = 0.8  # mm, crest to root
 THREAD_PITCH = 2.0  # mm
@@ -88,6 +90,7 @@ class HandleParams:
     thread_length: float = 6.0  # the cap's plug, into the handle
     thread_clearance: float = 0.3  # on the radius
     cap_oversize: float = 0.0  # the cap's flange is this much larger in radius than the handle (easier to grab)
+    magnet_clearance: float = 0.0  # between the magnet and each flat of its hexagonal pocket
 
 
 # Named settings the page offers (each a complete set; the defaults are the page's start).
@@ -97,6 +100,22 @@ PRESETS = {
     "Slim 14 mm handle with one storage hole":
         replace(HandleParams(), diameter=14.0, holes=1, taper_length=10.0),
 }
+
+
+def magnet_pocket_size(p: HandleParams) -> float:
+    """The magnet's pocket, across flats: a hexagon, whose flat sides print more accurately
+    and consistently than a round hole (the magnet touches the six flats)."""
+    return p.magnet_diameter + 2 * p.magnet_clearance
+
+
+def magnet_pocket_radius(p: HandleParams) -> float:
+    """To the magnet pocket's corners (0 without a magnet)."""
+    return magnet_pocket_size(p) / math.sqrt(3) if p.magnet_diameter > 0 and p.magnet_height > 0 else 0.0
+
+
+def socket_radius(p: HandleParams) -> float:
+    """To the outside of the bit socket's corner reliefs."""
+    return p.socket_size / math.sqrt(3) + SOCKET_CORNER_RELIEF / 2
 
 
 def hole_centre_radius(p: HandleParams) -> float:
@@ -196,9 +215,11 @@ def validate(p: HandleParams) -> None:
         raise ValueError("The thread clearance must be between 0 and 1 mm.")
     if not 0 <= p.cap_oversize <= 10:
         raise ValueError("The cap oversize must be between 0 and 10 mm.")
+    if not 0 <= p.magnet_clearance <= 1:
+        raise ValueError("The magnet clearance must be between 0 and 1 mm.")
     r = p.diameter / 2
     grip = r - (p.knurl_depth if p.knurl else 0)  # the knurl's grooves
-    widest = max(p.socket_size / math.sqrt(3), p.magnet_diameter / 2 + MAGNET_CLEARANCE)
+    widest = max(socket_radius(p), magnet_pocket_radius(p))
     if widest > grip - MIN_WALL:
         raise ValueError(f"The socket or the magnet is too wide for the handle: use a diameter of at least "
                          f"{math.ceil(2 * (widest + MIN_WALL + r - grip))} mm.")
@@ -215,12 +236,12 @@ def validate(p: HandleParams) -> None:
         if not 3 <= p.taper_length <= lay.length - lay.knurl_bottom - TAPER_COLLAR - 5:
             raise ValueError(f"The taper must be 3 to {lay.length - lay.knurl_bottom - TAPER_COLLAR - 5:g} mm long, "
                              "or 0 for none.")
-        socket = p.socket_size / math.sqrt(3) + SOCKET_CHAMFER
+        socket = max(p.socket_size / 2 + SOCKET_CHAMFER + 0.1, socket_radius(p))  # the lead-in's top edge
         if p.tip_diameter / 2 < socket + MIN_WALL:
             raise ValueError(f"The tip is too narrow for the bit socket: use a tip diameter of at least "
                              f"{math.ceil(2 * (socket + MIN_WALL))} mm.")
         if p.magnet_diameter > 0 and p.magnet_height > 0 and \
-                radius_at(p, lay.pocket_top, lay.length) < p.magnet_diameter / 2 + MAGNET_CLEARANCE + MIN_WALL:
+                radius_at(p, lay.pocket_top, lay.length) < magnet_pocket_radius(p) + MIN_WALL:
             raise ValueError("The taper leaves too little wall around the magnet: use a wider tip or a shorter taper.")
     elif p.taper_length < 0:
         raise ValueError("The taper's length must be 0 or more.")
@@ -422,9 +443,15 @@ def build_handle(p: HandleParams) -> Part:
         tools.append(Part((at * Pos(0, 0, lay.holes_top - 0.01) * extrude(
             Rot(0, 0, a) * RegularPolygon(p.hole_size / math.sqrt(3), 6), amount=roof, taper=45)).wrapped))
     if p.magnet_diameter > 0 and p.magnet_height > 0:
-        tools.append(Part((Pos(0, 0, lay.pocket_bottom) * extrude(
-            Circle(p.magnet_diameter / 2 + MAGNET_CLEARANCE), amount=lay.pocket_top - lay.pocket_bottom)).wrapped))
+        tools.append(_hex(magnet_pocket_size(p), lay.pocket_bottom, lay.pocket_top, 30))
     tools.append(_hex(p.socket_size, lay.socket_bottom, lay.length + 1))
+    # Round reliefs centred on the socket's corners: a printed hexagon's corners come out
+    # rounded, and a bit's are sharp, so without them the bit wouldn't go in (or only forced).
+    corner = p.socket_size / math.sqrt(3)
+    for k in range(6):
+        a = math.radians(60 * k)
+        tools.append(Part((Pos(corner * math.cos(a), corner * math.sin(a), lay.socket_bottom) * extrude(
+            Circle(SOCKET_CORNER_RELIEF / 2), amount=lay.length + 1 - lay.socket_bottom)).wrapped))
     # The lead-in: a 45 degree countersink starting at the socket's flats, so it only bevels the
     # socket's mouth and the top face stays flat around it.
     tools.append(Part((Pos(0, 0, lay.length - SOCKET_CHAMFER) * extrude(
