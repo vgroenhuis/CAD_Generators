@@ -4,7 +4,7 @@
 
     The handle stands on its bottom end (z = 0) and is printed that way:
       * at the top a hex socket for the bit (`socket_size` across flats, `socket_depth` deep),
-        with a small lead-in chamfer and a round relief (0.6 mm) at each corner, as printed
+        with a small lead-in chamfer and a round relief (`socket_relief` across) at each corner, as printed
         corners come out rounded and a bit's are sharp
       * `magnet_gap` mm below the socket's floor a closed hexagonal pocket for a round magnet
         (`magnet_diameter` across flats plus `magnet_clearance` on each flat, `magnet_height`
@@ -53,7 +53,6 @@ COLOUR = Color(0.85, 0.35, 0.2)
 CAP_COLOUR = Color(0.3, 0.3, 0.32)
 HOLE_WEB = 1.0  # mm between neighbouring storage holes
 MIN_WALL = 1.2  # mm, least wall anywhere around a cavity
-SOCKET_CORNER_RELIEF = 0.6  # mm, diameter of the round reliefs at the socket's corners (bits have sharp corners)
 MAGNET_HEADROOM = 0.2  # mm above the magnet in its pocket
 THREAD_DEPTH = 0.8  # mm, crest to root
 THREAD_PITCH = 2.0  # mm
@@ -79,7 +78,7 @@ class HandleParams:
     knurl: bool = True
     knurl_depth: float = 0.7
     knurl_count: int = 24  # diamonds around
-    socket_size: float = 6.5  # across flats, for 6.35 mm (1/4") bits
+    socket_size: float = 6.45  # across flats, for 6.35 mm (1/4") bits
     socket_depth: float = 8.0
     magnet_diameter: float = 8.0
     magnet_height: float = 3.0
@@ -91,6 +90,7 @@ class HandleParams:
     thread_clearance: float = 0.3  # on the radius
     cap_oversize: float = 0.0  # the cap's flange is this much larger in radius than the handle (easier to grab)
     magnet_clearance: float = 0.0  # between the magnet and each flat of its hexagonal pocket
+    socket_relief: float = 0.4  # diameter of the round reliefs at the socket's corners (0: none)
 
 
 # Named settings the page offers (each a complete set; the defaults are the page's start).
@@ -115,7 +115,7 @@ def magnet_pocket_radius(p: HandleParams) -> float:
 
 def socket_radius(p: HandleParams) -> float:
     """To the outside of the bit socket's corner reliefs."""
-    return p.socket_size / math.sqrt(3) + SOCKET_CORNER_RELIEF / 2
+    return p.socket_size / math.sqrt(3) + p.socket_relief / 2
 
 
 def hole_centre_radius(p: HandleParams) -> float:
@@ -215,6 +215,8 @@ def validate(p: HandleParams) -> None:
         raise ValueError("The thread clearance must be between 0 and 1 mm.")
     if not 0 <= p.cap_oversize <= 10:
         raise ValueError("The cap oversize must be between 0 and 10 mm.")
+    if not 0 <= p.socket_relief <= 2:
+        raise ValueError("The socket's corner reliefs must be between 0 (none) and 2 mm across.")
     if not 0 <= p.magnet_clearance <= 1:
         raise ValueError("The magnet clearance must be between 0 and 1 mm.")
     r = p.diameter / 2
@@ -448,10 +450,10 @@ def build_handle(p: HandleParams) -> Part:
     # Round reliefs centred on the socket's corners: a printed hexagon's corners come out
     # rounded, and a bit's are sharp, so without them the bit wouldn't go in (or only forced).
     corner = p.socket_size / math.sqrt(3)
-    for k in range(6):
+    for k in range(6 if p.socket_relief > 0 else 0):
         a = math.radians(60 * k)
         tools.append(Part((Pos(corner * math.cos(a), corner * math.sin(a), lay.socket_bottom) * extrude(
-            Circle(SOCKET_CORNER_RELIEF / 2), amount=lay.length + 1 - lay.socket_bottom)).wrapped))
+            Circle(p.socket_relief / 2), amount=lay.length + 1 - lay.socket_bottom)).wrapped))
     # The lead-in: a 45 degree countersink starting at the socket's flats, so it only bevels the
     # socket's mouth and the top face stays flat around it.
     tools.append(Part((Pos(0, 0, lay.length - SOCKET_CHAMFER) * extrude(
