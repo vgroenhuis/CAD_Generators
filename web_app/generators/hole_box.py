@@ -34,7 +34,8 @@ def _params(
 	height: float = Query(...), wall: float = Query(...), corner_radius: float = Query(...),
 	closure: str = Query(..., max_length=8), joint_length: float = Query(...), clearance: float = Query(...),
 	holes: int = Query(...), hole_shape: str = Query(..., max_length=8), hole_size: float = Query(...),
-	hole_circle: float = Query(...), hole_layout: str = Query(DEFAULT.hole_layout, max_length=8),
+	hole_circle: float = Query(...), snap_preload: float = Query(DEFAULT.snap_preload),
+	hole_layout: str = Query(DEFAULT.hole_layout, max_length=8),
 	hole_spacing: float = Query(DEFAULT.hole_spacing), hole_rows: int = Query(DEFAULT.hole_rows),
 	hole_row_spacing: float = Query(DEFAULT.hole_row_spacing), text: str = Query("", max_length=40),
 	text_size: float = Query(DEFAULT.text_size), text_depth: float = Query(DEFAULT.text_depth),
@@ -46,6 +47,8 @@ def _params(
 		corner_radius = DEFAULT.corner_radius
 	if closure == "screws":
 		joint_length, clearance = DEFAULT.joint_length, DEFAULT.clearance
+	if closure != "snap":
+		snap_preload = DEFAULT.snap_preload
 	if holes == 0:
 		hole_shape, hole_size, hole_layout = DEFAULT.hole_shape, DEFAULT.hole_size, DEFAULT.hole_layout
 	if hole_layout != "circle":
@@ -58,7 +61,8 @@ def _params(
 	if not text:
 		text_size, text_depth = DEFAULT.text_size, DEFAULT.text_depth
 	p = BoxParams(shape=shape, width=width, depth=depth, height=height, wall=wall, corner_radius=corner_radius,
-	              closure=closure, joint_length=joint_length, clearance=clearance, holes=holes, hole_shape=hole_shape,
+	              closure=closure, joint_length=joint_length, clearance=clearance, snap_preload=snap_preload,
+	              holes=holes, hole_shape=hole_shape,
 	              hole_size=hole_size, hole_circle=hole_circle, hole_layout=hole_layout, hole_spacing=hole_spacing,
 	              hole_rows=hole_rows, hole_row_spacing=hole_row_spacing, text=text, text_size=text_size,
 	              text_depth=text_depth)

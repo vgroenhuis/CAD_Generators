@@ -18,8 +18,10 @@
             X, `hole_spacing` apart)
       * the closure:
           - snap: a ring (plug) under the lid fits inside the base's opening; a bead around it
-            (45 degree flanks) clicks into a groove in the base's inner wall. A notch in the
-            base's rim (at -Y) takes a fingernail or a screwdriver to lever the lid off
+            (45 degree flanks) clicks into a groove in the base's inner wall. The groove sits
+            lower than the bead: with the lid on the rim, its upper flank presses `snap_preload`
+            into the bead's, pulling the lid down onto the rim and centring it (no rattle). A
+            notch in the base's rim (at -Y) takes a fingernail or a screwdriver to lever the lid off
           - screws: the lid is screwed onto posts in the base's corners (M3 self-tapping
             screws, countersunk heads); 3 posts in a round or hexagonal box, 4 in a square or
             rectangular one
@@ -93,6 +95,7 @@ class BoxParams:
     closure: str = "thread"
     joint_length: float = 8.0  # the snap plug's depth or the thread's length
     clearance: float = 0.25  # on each side, between the parts that slide or screw together
+    snap_preload: float = 0.1  # snap: how far the groove's upper flank presses into the bead
     holes: int = 3
     hole_shape: str = "round"
     hole_size: float = 8.0  # diameter, side or across flats
@@ -305,6 +308,8 @@ def validate(p: BoxParams) -> None:
             raise ValueError(f"The corner radius must be between 0 and {least / 2 - 1:g} mm.")
     if not 0 <= p.clearance <= 1:
         raise ValueError("The clearance must be between 0 and 1 mm.")
+    if p.closure == "snap" and not 0 <= p.snap_preload <= SNAP_BEAD - 0.1:
+        raise ValueError(f"The snap preload must be between 0 and {SNAP_BEAD - 0.1:g} mm.")
     if p.closure != "screws" and not 3 <= p.joint_length <= 50:
         raise ValueError(f"The {'thread' if p.closure == 'thread' else 'plug'} length must be between 3 and 50 mm.")
     if p.hole_layout not in HOLE_LAYOUTS:
@@ -408,7 +413,10 @@ def build_base(p: BoxParams) -> Part:
         base = base - cavity
     elif p.closure == "snap":
         base = base - _prism(outline(p, -w), w, hb + 1)
-        zc = hb - p.joint_length / 2
+        # At the same height, the bead's upper flank (on the lid) would lie clearance + 0.1 (the
+        # groove is deeper) inside the groove's: lowering the groove by that much makes them
+        # touch, by snap_preload more makes the groove press the lid down onto the rim.
+        zc = hb - p.joint_length / 2 - (p.clearance + 0.1) - p.snap_preload
         base = base - _diamond(p, -w, SNAP_BEAD + 0.1, zc)
         y = outer_size(p)[1] / 2
         base = base - Pos(0, -y, hb) * Box(NOTCH_WIDTH, 2 * w + 2, 2 * NOTCH_DEPTH)
@@ -539,7 +547,7 @@ def describe(p: BoxParams) -> str:
         inside = p.height - 2 * p.wall
     elif p.closure == "snap":
         text += (f" Snap-in lid: a {p.joint_length:g} mm deep plug with a bead that clicks into a groove; "
-                 f"lever it off at the notch in the rim.")
+                 f"it presses the lid onto the rim ({p.snap_preload:g} mm preload); lever it off at the notch in the rim.")
         inside = p.height - 2 * p.wall
     else:
         n = len(screw_positions(p))
@@ -576,7 +584,7 @@ def main() -> None:
     ap.add_argument("--hole-shape", choices=HOLE_SHAPES, default=d.hole_shape)
     ap.add_argument("--hole-layout", choices=HOLE_LAYOUTS, default=d.hole_layout)
     ap.add_argument("--hole-rows", type=int, default=d.hole_rows)
-    for name in ("width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "hole_size", "hole_circle",
+    for name in ("width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "snap_preload", "hole_size", "hole_circle",
                  "hole_spacing", "hole_row_spacing"):
         ap.add_argument(f"--{name.replace('_', '-')}", type=float, default=getattr(d, name))
     ap.add_argument("--holes", type=int, default=d.holes)

@@ -6,7 +6,7 @@ import { loadDefaults } from "./defaults.js";
 import { showViewerError } from "./error-banner.js";
 
 const API = "api/hole-box";
-const NUMBER_FIELDS = ["width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "holes", "hole_size", "hole_circle", "hole_spacing", "hole_rows", "hole_row_spacing", "text_size", "text_depth"];
+const NUMBER_FIELDS = ["width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "snap_preload", "holes", "hole_size", "hole_circle", "hole_spacing", "hole_rows", "hole_row_spacing", "text_size", "text_depth"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
 const shapeInput = document.getElementById("shape");
 const closureInput = document.getElementById("closure");
@@ -97,7 +97,7 @@ function parseNumber(text, negative = false) {
 const WIDTH_LABELS = { round: "Diameter (mm)", square: "Side (mm)", rectangle: "Width (mm)", hexagon: "Across flats (mm)" };
 const HOLE_LABELS = { round: "Diameter (mm)", square: "Side (mm)", hexagon: "Across flats (mm)" };
 const CLOSURE_HINTS = {
-	snap: "A ring under the lid fits into the base; a bead around it clicks into a groove in the base's wall. Lever the lid off at the notch in the rim. The length is the ring's depth; the clearance the gap on each side.",
+	snap: "A ring under the lid fits into the base; a bead around it clicks into a groove in the base's wall. Lever the lid off at the notch in the rim. The length is the ring's depth; the clearance the gap on each side. The groove sits a little low, so it pulls the lid onto the rim: the preload is how far it presses into the bead (more: tighter, harder to close; 0: just touching).",
 	screws: "M3 countersunk self-tapping screws through the lid into posts in the base's corners (3 in a round or hexagonal box, 4 otherwise); the summary gives their longest length.",
 	thread: "The base has a threaded neck, the lid an internal thread (rounded, pitch 3 mm): it screws on. The clearance is the gap on each side between the threads.",
 };
@@ -121,6 +121,8 @@ function updateForm() {
 	const closure = closureInput.value;
 	document.getElementById("joint_label").textContent = closure === "thread" ? "Thread length (mm)" : "Plug depth (mm)";
 	inputs.joint_length.disabled = inputs.clearance.disabled = closure === "screws";
+	inputs.snap_preload.disabled = closure !== "snap";
+	document.getElementById("preload_field").style.display = closure === "snap" ? "" : "none";
 	document.getElementById("closure_hint").textContent = CLOSURE_HINTS[closure];
 	const holes = parseNumber(inputs.holes.value);
 	const layout = layoutInput.value;
