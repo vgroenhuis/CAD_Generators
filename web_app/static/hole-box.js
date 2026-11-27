@@ -6,12 +6,13 @@ import { loadDefaults } from "./defaults.js";
 import { showViewerError } from "./error-banner.js";
 
 const API = "api/hole-box";
-const NUMBER_FIELDS = ["width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "holes", "hole_size", "hole_circle", "text_size", "text_depth"];
+const NUMBER_FIELDS = ["width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "holes", "hole_size", "hole_circle", "hole_spacing", "hole_rows", "hole_row_spacing", "text_size", "text_depth"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
 const shapeInput = document.getElementById("shape");
 const closureInput = document.getElementById("closure");
 const holeShapeInput = document.getElementById("hole_shape");
 const textInput = document.getElementById("text");
+const layoutInput = document.getElementById("hole_layout");
 const presetSelect = document.getElementById("preset");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
@@ -99,6 +100,12 @@ const CLOSURE_HINTS = {
 	thread: "The base has a threaded neck, the lid an internal thread (rounded, pitch 3 mm): it screws on. The clearance is the gap on each side between the threads.",
 };
 
+const LAYOUT_HINTS = {
+	circle: "Identical holes with their centres on a circle around the middle, the first at the back; one hole with radius 0 sits in the middle. A hexagon's size is across its flats.",
+	line: "Identical holes in a row along the width, centred, the spacing from centre to centre. A hexagon's size is across its flats.",
+	grid: "Rows of identical holes, centred: the spacing is from centre to centre along the width, the row spacing front to back. A hexagon's size is across its flats.",
+};
+
 // Labels, hints and which fields apply follow the shapes and the closure.
 function updateForm() {
 	const shape = shapeInput.value;
@@ -114,12 +121,24 @@ function updateForm() {
 	inputs.joint_length.disabled = inputs.clearance.disabled = closure === "screws";
 	document.getElementById("closure_hint").textContent = CLOSURE_HINTS[closure];
 	const holes = parseNumber(inputs.holes.value);
-	holeShapeInput.disabled = inputs.hole_size.disabled = inputs.hole_circle.disabled = holes === 0;
+	const layout = layoutInput.value;
+	document.getElementById("holes_label").textContent = layout === "grid" ? "Per row" : "Number";
+	document.getElementById("circle_row").style.display = layout === "circle" ? "" : "none";
+	document.getElementById("spacing_row").style.display = layout === "circle" ? "none" : "";
+	document.getElementById("grid_row").style.display = layout === "grid" ? "" : "none";
+	document.getElementById("layout_hint").textContent = LAYOUT_HINTS[layout];
+	// Hidden fields don't apply: the server takes their defaults.
+	inputs.hole_circle.disabled = layout !== "circle";
+	inputs.hole_spacing.disabled = layout === "circle";
+	inputs.hole_rows.disabled = inputs.hole_row_spacing.disabled = layout !== "grid";
+	if (holes === 0) {
+		for (const el of [holeShapeInput, inputs.hole_size, inputs.hole_circle, inputs.hole_spacing, inputs.hole_rows, inputs.hole_row_spacing]) el.disabled = true;
+	}
 	inputs.text_size.disabled = inputs.text_depth.disabled = !textInput.value.trim();
 }
 
 function readParams() {
-	const params = { shape: shapeInput.value, closure: closureInput.value, hole_shape: holeShapeInput.value, text: textInput.value.trim() };
+	const params = { shape: shapeInput.value, closure: closureInput.value, hole_shape: holeShapeInput.value, hole_layout: layoutInput.value, text: textInput.value.trim() };
 	for (const id of NUMBER_FIELDS) {
 		const value = parseNumber(inputs[id].value);
 		if (!Number.isFinite(value)) {
@@ -279,7 +298,7 @@ assembledInput.addEventListener("change", () => {
 });
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
-[shapeInput, closureInput, holeShapeInput].forEach((el) => el.addEventListener("change", () => {
+[shapeInput, closureInput, holeShapeInput, layoutInput].forEach((el) => el.addEventListener("change", () => {
 	updateForm();
 	presetSelect.value = matchingPreset();
 	onGenerate();

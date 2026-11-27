@@ -10,7 +10,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from hole_box_app.hole_box_model import BoxParams, PRESETS, build_hole_box, describe, outer_size, validate
+from hole_box_app.hole_box_model import BoxParams, PRESETS, build_hole_box, describe, hole_count, outer_size, validate
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
 
@@ -30,7 +30,9 @@ def _params(
 	height: float = Query(...), wall: float = Query(...), corner_radius: float = Query(...),
 	closure: str = Query(..., max_length=8), joint_length: float = Query(...), clearance: float = Query(...),
 	holes: int = Query(...), hole_shape: str = Query(..., max_length=8), hole_size: float = Query(...),
-	hole_circle: float = Query(...), text: str = Query("", max_length=40),
+	hole_circle: float = Query(...), hole_layout: str = Query(DEFAULT.hole_layout, max_length=8),
+	hole_spacing: float = Query(DEFAULT.hole_spacing), hole_rows: int = Query(DEFAULT.hole_rows),
+	hole_row_spacing: float = Query(DEFAULT.hole_row_spacing), text: str = Query("", max_length=40),
 	text_size: float = Query(DEFAULT.text_size), text_depth: float = Query(DEFAULT.text_depth),
 ) -> BoxParams:
 	# Settings that don't matter for this box take their defaults: one cache entry.
@@ -41,12 +43,21 @@ def _params(
 	if closure == "screws":
 		joint_length, clearance = DEFAULT.joint_length, DEFAULT.clearance
 	if holes == 0:
-		hole_shape, hole_size, hole_circle = DEFAULT.hole_shape, DEFAULT.hole_size, DEFAULT.hole_circle
+		hole_shape, hole_size, hole_layout = DEFAULT.hole_shape, DEFAULT.hole_size, DEFAULT.hole_layout
+	if hole_layout != "circle":
+		hole_circle = DEFAULT.hole_circle
+	if hole_layout not in ("line", "grid"):
+		hole_spacing = DEFAULT.hole_spacing
+	if hole_layout != "grid":
+		hole_rows, hole_row_spacing = DEFAULT.hole_rows, DEFAULT.hole_row_spacing
 	text = text.strip()
 	if not text:
 		text_size, text_depth = DEFAULT.text_size, DEFAULT.text_depth
-	p = BoxParams(shape, width, depth, height, wall, corner_radius, closure, joint_length, clearance,
-	              holes, hole_shape, hole_size, hole_circle, text, text_size, text_depth)
+	p = BoxParams(shape=shape, width=width, depth=depth, height=height, wall=wall, corner_radius=corner_radius,
+	              closure=closure, joint_length=joint_length, clearance=clearance, holes=holes, hole_shape=hole_shape,
+	              hole_size=hole_size, hole_circle=hole_circle, hole_layout=hole_layout, hole_spacing=hole_spacing,
+	              hole_rows=hole_rows, hole_row_spacing=hole_row_spacing, text=text, text_size=text_size,
+	              text_depth=text_depth)
 	try:
 		validate(p)
 	except ValueError as exc:
@@ -67,7 +78,7 @@ def _file(p: BoxParams, kind: str) -> bytes:
 
 def _filename(p: BoxParams, ext: str) -> str:
 	size = f"{p.width:g}x{p.depth:g}" if p.shape == "rectangle" else f"{p.width:g}"
-	return f"box_{p.shape}_{size}x{p.height:g}mm_{p.closure}_{p.holes}holes.{ext}"
+	return f"box_{p.shape}_{size}x{p.height:g}mm_{p.closure}_{hole_count(p)}holes.{ext}"
 
 
 def warm() -> None:

@@ -8,10 +8,14 @@
         `height` is the closed box's outside height; `wall` is the thickness of the walls, the
         floor and the lid's top. Square, rectangular and hexagonal boxes have their vertical
         edges rounded (`corner_radius`)
-      * the holes: `holes` of them, round (`hole_size` the diameter), square (the side) or
-        hexagonal (across flats), their centres on a circle of radius `hole_circle` (one hole
-        with radius 0: in the middle), the first at +Y (the back), turned with their place
-        on the circle so the pattern is symmetric
+      * the holes: round (`hole_size` the diameter), square (the side) or hexagonal (across
+        flats), arranged (`hole_layout`, always centred on the lid):
+          - circle: `holes` of them, their centres on a circle of radius `hole_circle` (one
+            hole with radius 0: in the middle), the first at +Y (the back), turned with their
+            place on the circle so the pattern is symmetric
+          - line: `holes` of them in a row along X, `hole_spacing` apart (centre to centre)
+          - grid: `hole_rows` rows (along Y, `hole_row_spacing` apart) of `holes` each (along
+            X, `hole_spacing` apart)
       * the closure:
           - snap: a ring (plug) under the lid fits inside the base's opening; a bead around it
             (45 degree flanks) clicks into a groove in the base's inner wall. A notch in the
@@ -49,6 +53,7 @@ from cad_common.text import min_font_size, printable_text
 
 SHAPES = ("round", "square", "rectangle", "hexagon")
 HOLE_SHAPES = ("round", "square", "hexagon")
+HOLE_LAYOUTS = ("circle", "line", "grid")
 CLOSURES = ("snap", "screws", "thread")
 BASE_COLOUR = Color(0.3, 0.55, 0.8)
 LID_COLOUR = Color(0.88, 0.88, 0.85)
@@ -85,6 +90,10 @@ class BoxParams:
     hole_shape: str = "round"
     hole_size: float = 8.0  # diameter, side or across flats
     hole_circle: float = 12.0  # radius of the circle the holes' centres are on
+    hole_layout: str = "circle"  # or "line" (along X), "grid"
+    hole_spacing: float = 12.0  # line and grid: centre to centre along X
+    hole_rows: int = 2  # grid: rows of `holes` each
+    hole_row_spacing: float = 12.0  # grid: centre to centre along Y
     text: str = ""  # on the bottom, in a second colour; empty: none
     text_size: float = 8.0  # mm, the font size
     text_depth: float = 0.6  # mm, into the bottom
@@ -206,8 +215,17 @@ def screw_positions(p: BoxParams) -> list[tuple[float, float]]:
     return [(sx * cx, sy * cy) for sx, sy in ((1, 1), (-1, 1), (-1, -1), (1, -1))]
 
 
+def hole_count(p: BoxParams) -> int:
+    return p.holes * p.hole_rows if p.hole_layout == "grid" else p.holes
+
+
 def hole_positions(p: BoxParams) -> list[tuple[float, float, float]]:
-    """(x, y, angle) of each hole: on the circle from +Y, counter-clockwise."""
+    """(x, y, angle) of each hole: on the circle from +Y, counter-clockwise; in a line or a grid
+    left to right (and from the back), not turned (angle 90)."""
+    if p.hole_layout != "circle":
+        rows = p.hole_rows if p.hole_layout == "grid" else 1
+        return [((i - (p.holes - 1) / 2) * p.hole_spacing, ((rows - 1) / 2 - j) * p.hole_row_spacing, 90.0)
+                for j in range(rows) for i in range(p.holes)]
     out = []
     for i in range(p.holes):
         a = 90 + 360 * i / p.holes
@@ -279,15 +297,32 @@ def validate(p: BoxParams) -> None:
         raise ValueError("The clearance must be between 0 and 1 mm.")
     if p.closure != "screws" and not 3 <= p.joint_length <= 50:
         raise ValueError(f"The {'thread' if p.closure == 'thread' else 'plug'} length must be between 3 and 50 mm.")
+    if p.hole_layout not in HOLE_LAYOUTS:
+        raise ValueError(f"The holes' arrangement must be one of {', '.join(HOLE_LAYOUTS)}.")
     if not 0 <= p.holes <= 36:
-        raise ValueError("The number of holes must be between 0 and 36.")
+        raise ValueError(f"The number of holes{' per row' if p.hole_layout == 'grid' else ''} must be between 0 and 36.")
     if p.holes:
         if not 1 <= p.hole_size <= 200:
             raise ValueError("The hole size must be between 1 and 200 mm.")
-        if not 0 <= p.hole_circle <= 150:
-            raise ValueError("The holes' circle radius must be between 0 and 150 mm.")
-        if p.holes > 1 and p.hole_circle == 0:
-            raise ValueError("Several holes need a circle radius above 0 (they would all be in the middle).")
+        if p.hole_layout == "circle":
+            if not 0 <= p.hole_circle <= 150:
+                raise ValueError("The holes' circle radius must be between 0 and 150 mm.")
+            if p.holes > 1 and p.hole_circle == 0:
+                raise ValueError("Several holes need a circle radius above 0 (they would all be in the middle).")
+        else:
+            if not 0 <= p.hole_spacing <= 300:
+                raise ValueError("The holes' spacing must be between 0 and 300 mm.")
+            if p.holes > 1 and p.hole_spacing == 0:
+                raise ValueError("Several holes in a row need a spacing above 0 (they would all be in one place).")
+        if p.hole_layout == "grid":
+            if not 1 <= p.hole_rows <= 36:
+                raise ValueError("The number of rows must be between 1 and 36.")
+            if hole_count(p) > 144:
+                raise ValueError("A grid can have at most 144 holes.")
+            if not 0 <= p.hole_row_spacing <= 300:
+                raise ValueError("The row spacing must be between 0 and 300 mm.")
+            if p.hole_rows > 1 and p.hole_row_spacing == 0:
+                raise ValueError("Several rows need a row spacing above 0 (they would all be in one place).")
     inner = min(outer_size(p)) - 2 * p.wall if p.shape != "hexagon" else p.width - 2 * p.wall
     hb = base_height(p)
     if p.closure == "snap":
@@ -317,12 +352,14 @@ def validate(p: BoxParams) -> None:
         union = faces[0]
         for f in faces[1:]:
             union = union + f
-        if p.holes > 1 and union.area < sum(f.area for f in faces) - 1e-3:
-            raise ValueError("The holes overlap: make the circle larger, the holes smaller or fewer.")
+        if len(faces) > 1 and union.area < sum(f.area for f in faces) - 1e-3:
+            what = "the circle larger" if p.hole_layout == "circle" else "the spacing larger"
+            raise ValueError(f"The holes overlap: make {what}, the holes smaller or fewer.")
         if (union - allowed_area(p)).area > 1e-3:
             where = {"thread": "the lid's thread", "snap": "the lid's plug",
                      "screws": "the walls or the screws"}[p.closure]
-            raise ValueError(f"The holes reach {where}: make the circle smaller, the holes smaller or the box larger.")
+            what = {"circle": "the circle smaller", "line": "the spacing smaller", "grid": "the spacings smaller"}[p.hole_layout]
+            raise ValueError(f"The holes reach {where}: make {what}, the holes smaller or fewer, or the box larger.")
     if p.text.strip():
         if len(p.text) > MAX_TEXT:
             raise ValueError(f"The bottom text can be at most {MAX_TEXT} characters.")
@@ -451,8 +488,17 @@ def describe(p: BoxParams) -> str:
     if p.holes:
         what = {"round": f"Ø{p.hole_size:g} mm", "square": f"{p.hole_size:g} mm square",
                 "hexagon": f"{p.hole_size:g} mm hexagonal (across flats)"}[p.hole_shape]
-        where = " in the middle" if p.holes == 1 and p.hole_circle == 0 else f" on a circle of radius {p.hole_circle:g} mm"
-        text += f" {p.holes} {what} hole{'s' if p.holes > 1 else ''} in the lid{where}."
+        n = hole_count(p)
+        if p.hole_layout == "grid" and n > 1:
+            where = (f" in a grid, {p.hole_rows} row{'s' if p.hole_rows > 1 else ''} of {p.holes}, {p.hole_spacing:g} mm apart"
+                     + (f" and the rows {p.hole_row_spacing:g} mm apart" if p.hole_rows > 1 else ""))
+        elif p.hole_layout != "circle" and n > 1:
+            where = f" in a line, {p.hole_spacing:g} mm apart"
+        elif n == 1 and (p.hole_layout != "circle" or p.hole_circle == 0):
+            where = " in the middle"
+        else:
+            where = f" on a circle of radius {p.hole_circle:g} mm"
+        text += f" {n} {what} hole{'s' if n > 1 else ''} in the lid{where}."
     return text
 
 
@@ -462,7 +508,10 @@ def main() -> None:
     ap.add_argument("--shape", choices=SHAPES, default=d.shape)
     ap.add_argument("--closure", choices=CLOSURES, default=d.closure)
     ap.add_argument("--hole-shape", choices=HOLE_SHAPES, default=d.hole_shape)
-    for name in ("width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "hole_size", "hole_circle"):
+    ap.add_argument("--hole-layout", choices=HOLE_LAYOUTS, default=d.hole_layout)
+    ap.add_argument("--hole-rows", type=int, default=d.hole_rows)
+    for name in ("width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "hole_size", "hole_circle",
+                 "hole_spacing", "hole_row_spacing"):
         ap.add_argument(f"--{name.replace('_', '-')}", type=float, default=getattr(d, name))
     ap.add_argument("--holes", type=int, default=d.holes)
     ap.add_argument("--text", default=d.text)

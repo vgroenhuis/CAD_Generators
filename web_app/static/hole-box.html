@@ -108,18 +108,34 @@
 			<div class="side">
 				<h3>Holes in the lid</h3>
 				<div class="row">
-					<div><label for="holes">Number</label>
+					<div><label for="hole_layout">Arrangement</label>
+					<select id="hole_layout"><option value="circle">On a circle</option><option value="line">In a line</option><option value="grid">In a grid</option></select></div>
+					<div><label for="holes" id="holes_label">Number</label>
 					<input type="text" inputmode="numeric" autocomplete="off" id="holes"></div>
-					<div><label for="hole_shape">Shape</label>
-					<select id="hole_shape"><option value="round">Round</option><option value="square">Square</option><option value="hexagon">Hexagon</option></select></div>
 				</div>
 				<div class="row">
+					<div><label for="hole_shape">Shape</label>
+					<select id="hole_shape"><option value="round">Round</option><option value="square">Square</option><option value="hexagon">Hexagon</option></select></div>
 					<div><label for="hole_size" id="hole_size_label">Diameter (mm)</label>
 					<input type="text" inputmode="decimal" autocomplete="off" id="hole_size"></div>
+				</div>
+				<div class="row" id="circle_row">
 					<div><label for="hole_circle">Circle radius (mm)</label>
 					<input type="text" inputmode="decimal" autocomplete="off" id="hole_circle"></div>
+					<div></div>
 				</div>
-				<div class="hint">Identical holes with their centres on a circle around the middle, the first at the back; one hole with radius 0 sits in the middle. A hexagon's size is across its flats.</div>
+				<div class="row" id="spacing_row">
+					<div><label for="hole_spacing">Spacing (mm)</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="hole_spacing"></div>
+					<div></div>
+				</div>
+				<div class="row" id="grid_row">
+					<div><label for="hole_rows">Rows</label>
+					<input type="text" inputmode="numeric" autocomplete="off" id="hole_rows"></div>
+					<div><label for="hole_row_spacing">Row spacing (mm)</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="hole_row_spacing"></div>
+				</div>
+				<div class="hint" id="layout_hint"></div>
 			</div>
 			<div class="side">
 				<h3>Text on the bottom</h3>
