@@ -102,6 +102,9 @@ class BoxParams:
 # Named settings the page offers (each a complete set).
 PRESETS = {
     "Round box with three panel-mount banana sockets": BoxParams(),
+    "Rectangular box 60 x 30 mm with three holes in a line": BoxParams(
+        shape="rectangle", width=60.0, depth=30.0, height=20.0, closure="snap",
+        hole_layout="line", holes=3, hole_size=8.0, hole_spacing=16.0),
 }
 
 
