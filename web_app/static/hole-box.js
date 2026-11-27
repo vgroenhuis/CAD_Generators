@@ -19,6 +19,7 @@ const downloadBtn = document.getElementById("download-btn");
 const downloadStepBtn = document.getElementById("download-step-btn");
 const assembledInput = document.getElementById("assembled_view");
 const socketsInput = document.getElementById("show_sockets");
+const cutInput = document.getElementById("cut_view");
 const infoEl = document.getElementById("info");
 const statusEl = document.getElementById("status");
 const placeholderEl = document.getElementById("viewer-placeholder");
@@ -202,6 +203,7 @@ function applyAssembled() {
 		local.decompose(lid.position, lid.quaternion, lid.scale);
 		currentModel.updateMatrixWorld(true);
 	}
+	applyCutView();
 }
 
 // Banana sockets (for a look, not in the files): a separate glTF of the closed box's sockets, in
@@ -241,8 +243,43 @@ async function updateSockets() {
 		});
 		socketsQuery = query;
 		scene.add(socketsModel);
+		applyCutView();
 	} catch (exc) {
 		setStatus(`Failed to load the banana sockets: ${exc.message || exc}`, true);
+	}
+}
+
+// Cut view: the half of each object nearest the viewer's start position is hidden, through the
+// middle of the box (front to back). The inside faces that then show through the cut (back
+// faces) are drawn in a flat colour, so the cut material looks like a solid section.
+renderer.localClippingEnabled = true;
+const SECTION_COLOUR = 0xf0c8a0;
+
+function applyCutView() {
+	if (!currentModel) return;
+	// The glTF has a node per object ("base", "lid", "bottom text"), with a mesh per face below
+	// it (glTF: y up, z = -(CAD y)). One plane per object through its own middle, facing +z; the
+	// sockets are cut through the base's middle (they sit on the closed box).
+	const base = currentModel.getObjectByName("base");
+	const targets = ["base", "lid", "bottom text"].map((n) => [currentModel.getObjectByName(n), null]).filter(([o]) => o);
+	if (socketsModel && base) targets.push([socketsModel, base]);
+	for (const [object, through] of targets) {
+		const center = new THREE.Box3().setFromObject(through || object).getCenter(new THREE.Vector3());
+		const plane = new THREE.Plane(new THREE.Vector3(0, 0, -1), center.z);  // keeps z < center
+		const meshes = [];
+		object.traverse((child) => child.isMesh && !child.userData.section && meshes.push(child));
+		for (const mesh of meshes) {
+			mesh.children.filter((c) => c.userData.section).forEach((c) => mesh.remove(c));
+			mesh.material.clippingPlanes = cutInput.checked ? [plane] : [];
+			mesh.material.side = THREE.FrontSide;
+			mesh.material.needsUpdate = true;
+			if (!cutInput.checked) continue;
+			const inside = new THREE.Mesh(mesh.geometry, new THREE.MeshBasicMaterial({
+				color: SECTION_COLOUR, side: THREE.BackSide, clippingPlanes: [plane],
+			}));
+			inside.userData.section = true;
+			mesh.add(inside);
+		}
 	}
 }
 
@@ -343,6 +380,7 @@ async function onDownload(format) {
 }
 
 generateBtn.addEventListener("click", onGenerate);
+cutInput.addEventListener("change", applyCutView);
 socketsInput.addEventListener("change", () => {
 	updateSockets();
 	if (currentModel && !generateBtn.disabled) generatedStatus();
@@ -408,6 +446,8 @@ loadDefaults(API)
 		defaults = loaded;
 		presets = loaded.presets || {};
 		presetSelect.replaceChildren(...Object.keys(presets).map((name) => new Option(name, name)), new Option("Custom", CUSTOM));
+		const first = Object.keys(presets)[0];
+		if (first) applyValues(presets[first]);  // the page starts with the first preset
 		updateForm();
 		presetSelect.value = matchingPreset();
 		onGenerate();
