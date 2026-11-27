@@ -15,6 +15,7 @@ const presetSelect = document.getElementById("preset");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
 const downloadStepBtn = document.getElementById("download-step-btn");
+const assembledInput = document.getElementById("assembled_view");
 const infoEl = document.getElementById("info");
 const statusEl = document.getElementById("status");
 const placeholderEl = document.getElementById("viewer-placeholder");
@@ -152,6 +153,39 @@ function fitCameraToObject(object) {
 
 const gltfLoader = new GLTFLoader();
 
+// Assembled view: the lid turned back over (180 degrees about X, around half the box's height)
+// and moved onto the base, as it was modelled in its closed place before being laid out to print.
+let boxSize = { outer_x: 50, height: 40 };  // mm, from the summary
+let lidHome = null;  // the lid node's own matrix in print orientation
+
+function applyAssembled() {
+	const base = currentModel?.getObjectByName("base");
+	const lid = currentModel?.getObjectByName("lid");
+	if (!base || !lid) return;
+	if (!lidHome) lidHome = lid.matrix.clone();
+	lidHome.decompose(lid.position, lid.quaternion, lid.scale);
+	currentModel.updateMatrixWorld(true);
+	if (assembledInput.checked) {
+		// glTF: y up, z = -(CAD y); the scale from the base's width in the scene against its width in mm.
+		const bb = new THREE.Box3().setFromObject(base);
+		const lb = new THREE.Box3().setFromObject(lid);
+		const s = (bb.max.x - bb.min.x) / boxSize.outer_x;
+		const pivot = new THREE.Vector3(0, bb.min.y + boxSize.height * s / 2, (bb.min.z + bb.max.z) / 2);
+		const dx = (bb.min.x + bb.max.x) / 2 - (lb.min.x + lb.max.x) / 2;
+		const move = new THREE.Matrix4().makeTranslation(dx + pivot.x, pivot.y, pivot.z)
+			.multiply(new THREE.Matrix4().makeRotationX(Math.PI))
+			.multiply(new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z));
+		const world = move.multiply(lid.matrixWorld);
+		const local = lid.parent.matrixWorld.clone().invert().multiply(world);
+		local.decompose(lid.position, lid.quaternion, lid.scale);
+		currentModel.updateMatrixWorld(true);
+	}
+}
+
+function generatedStatus() {
+	setStatus(`Generated${assembledInput.checked ? ", shown assembled (saved in print orientation)" : ", in print orientation"}. Drag to rotate.`);
+}
+
 canvas.title = "Drag to rotate, scroll to zoom, double-click to fit the model in view.";
 canvas.addEventListener("dblclick", () => currentModel && fitCameraToObject(currentModel));
 
@@ -182,6 +216,7 @@ async function onGenerate() {
 		}
 		const info = await infoResponse.json();
 		infoEl.textContent = info.summary;
+		boxSize = { outer_x: info.outer_x, height: info.height };
 
 		const response = await fetchWithProgress(`${API}/preview.glb?${query}`, (t) => mine === generation && setStatus(t));
 		if (mine !== generation) return;
@@ -194,6 +229,7 @@ async function onGenerate() {
 		if (mine !== generation) return;
 		if (currentModel) scene.remove(currentModel);
 		currentModel = gltf.scene;
+		lidHome = null;
 		currentModel.traverse((child) => {
 			if (child.isMesh) {
 				const color = child.material && child.material.color ? child.material.color : new THREE.Color(0xdddddd);
@@ -201,6 +237,7 @@ async function onGenerate() {
 			}
 		});
 		scene.add(currentModel);
+		applyAssembled();
 		if (!cameraFitted) {
 			fitCameraToObject(currentModel);
 			cameraFitted = true;
@@ -208,7 +245,7 @@ async function onGenerate() {
 		placeholderEl.style.display = "none";
 		downloadBtn.disabled = false;
 		downloadStepBtn.disabled = false;
-		setStatus("Generated, in print orientation. Drag to rotate.");
+		generatedStatus();
 	} catch (exc) {
 		if (mine === generation) setStatus(`Failed to load preview: ${exc.message || exc}`, true);
 	} finally {
@@ -234,6 +271,10 @@ async function onDownload(format) {
 }
 
 generateBtn.addEventListener("click", onGenerate);
+assembledInput.addEventListener("change", () => {
+	applyAssembled();
+	if (currentModel && !generateBtn.disabled) generatedStatus();
+});
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
 downloadStepBtn.addEventListener("click", () => onDownload("step"));
 [shapeInput, closureInput, holeShapeInput].forEach((el) => el.addEventListener("change", () => {

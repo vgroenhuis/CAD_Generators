@@ -10,7 +10,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from hole_box_app.hole_box_model import BoxParams, PRESETS, build_hole_box, describe, validate
+from hole_box_app.hole_box_model import BoxParams, PRESETS, build_hole_box, describe, outer_size, validate
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
 
@@ -80,7 +80,8 @@ def defaults_route() -> dict:
 
 @router.get("/info")
 def info_route(p: BoxParams = Depends(_params)) -> dict:
-	return {"summary": describe(p)}
+	# For the page's assembled view: the box's outside width along X and its closed height, mm.
+	return {"summary": describe(p), "outer_x": outer_size(p)[0], "height": p.height}
 
 
 @router.get("/preview.glb")

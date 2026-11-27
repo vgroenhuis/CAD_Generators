@@ -125,11 +125,12 @@
 			<button id="generate-btn">Generate</button>
 			<button id="download-step-btn" disabled>Download STEP (recommended)</button>
 			<button id="download-btn" disabled>Download 3MF</button>
+			<label class="check" for="assembled_view"><input type="checkbox" id="assembled_view"> Assembled view (lid closed)</label>
 
 			<div id="status">Enter dimensions and click Generate.</div>
 			<div id="info"></div>
 
-			<div class="fixed-info">Shown and saved in print orientation, without supports: the base upright, the lid beside it upside down (its top on the bed). Base and lid are separate objects in the 3MF.</div>
+			<div class="fixed-info">Shown (unless assembled) and saved in print orientation, without supports: the base upright, the lid beside it upside down (its top on the bed). Base and lid are separate objects in the 3MF.</div>
 		</div>
 		<div class="viewer">
 			<div class="viewer-placeholder" id="viewer-placeholder">No model generated yet.</div>
