@@ -73,6 +73,13 @@ SCREW_HEAD = 6.0  # mm, the countersunk head (90 degrees)
 POST_DIAMETER = 7.0  # mm, the screw posts
 SCREW_LENGTHS = (6, 8, 10, 12, 16, 20, 25, 30)
 HOLE_MARGIN = 0.5  # mm, least distance from a hole to a wall, plug, post or screw head
+# A typical 4 mm panel-mount banana socket for an 8 mm hole, for the page's assembled view only
+# (not in the files): shown in round holes of SOCKET_HOLES mm.
+SOCKET_HOLES = (7.5, 8.5)
+SOCKET_DEPTH = 17.0  # mm it reaches below the lid's top (shank, nut, stud and solder lug)
+SOCKET_COLOURS = (Color(0.8, 0.1, 0.1), Color(0.08, 0.08, 0.08))  # red, black, red, ...
+BRASS_COLOUR = Color(0.82, 0.68, 0.32)
+NICKEL_COLOUR = Color(0.75, 0.76, 0.78)
 
 
 @dataclass
@@ -461,6 +468,62 @@ def build_hole_box(p: BoxParams) -> Compound:
         filling.label, filling.color = "bottom text", TEXT_COLOUR
         children.append(filling)
     return Compound(children=children, label="hole_box")
+
+
+def shows_sockets(p: BoxParams) -> bool:
+    """Whether the holes take the banana sockets of the page's assembled view."""
+    return bool(p.holes) and p.hole_shape == "round" and SOCKET_HOLES[0] <= p.hole_size <= SOCKET_HOLES[1]
+
+
+def socket_room(p: BoxParams) -> float:
+    """Room (mm) left between the sockets' lowest point and the base's floor (negative: they hit it)."""
+    return p.height - p.wall - SOCKET_DEPTH
+
+
+def _revolved(points) -> Part:
+    """A solid of revolution about Z from (radius, z) points."""
+    return Part(revolve(Plane.XZ * Polygon(*points, align=None), Axis.Z).wrapped)
+
+
+def banana_socket() -> tuple[Part, Part, Part]:
+    """One socket, its collar's base on the panel at z = 0, the panel below it (the nut's top at
+    -wall is placed by the caller: here the nut is returned separately at z 0..-3).
+    Returns (plastic: collar and threaded shank, brass: contact sleeve, stud, lug and its nut,
+    nickel: the panel nut)."""
+    plastic = _revolved([(0, -11), (3.8, -11), (3.8, 0), (6, 0), (6, 8.2), (5.2, 9), (3, 9), (3, 1), (0, 1)])
+    sleeve = _revolved([(2, 0.5), (3, 0.5), (3, 8.7), (2, 8.7)])
+    stud = Pos(0, 0, -17) * Solid.make_cylinder(2, 6.02)
+    lug = Pos(0, 0, -12.5) * Solid.make_cylinder(4, 0.5) + Pos(4.5, 0, -12.5) * Box(7, 5, 0.5, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    lug = lug - Pos(5.5, 0, -13) * Solid.make_cylinder(1, 2)
+    small_nut = Pos(0, 0, -15.7) * extrude(RegularPolygon(7 / math.sqrt(3), 6), amount=3.2)
+    brass = Part((sleeve + stud + lug + small_nut).wrapped)
+    nut = Pos(0, 0, -3) * extrude(RegularPolygon(11 / math.sqrt(3), 6) - Circle(3.8), amount=3)
+    return plastic, brass, Part(nut.wrapped)
+
+
+def build_sockets(p: BoxParams) -> Compound:
+    """Banana sockets in the lid's holes, the box closed, for the page's assembled view (not in
+    the files); red and black by turns, the solder lugs pointing along the circle (or to the
+    back, in a line or grid), away from the walls. Empty when the holes don't take them."""
+    if not shows_sockets(p):
+        return Compound(children=[], label="sockets")
+    plastic, brass, nut = banana_socket()
+    lift = 0.02  # mm off the faces they rest on, so they don't z-fight on the page
+    groups = {"red": [], "black": [], "brass": [], "nickel": []}
+    for i, (x, y, a) in enumerate(hole_positions(p)):
+        a = a + 90 if p.hole_layout == "circle" else a
+        top = Pos(x, y, p.height + lift) * Rot(0, 0, a)
+        groups["red" if i % 2 == 0 else "black"].append(top * plastic)
+        groups["brass"].append(top * brass)
+        groups["nickel"].append(Pos(x, y, p.height - p.wall - 2 * lift) * Rot(0, 0, a) * nut)
+    colours = {"red": SOCKET_COLOURS[0], "black": SOCKET_COLOURS[1], "brass": BRASS_COLOUR, "nickel": NICKEL_COLOUR}
+    children = []
+    for name, parts in groups.items():
+        if parts:
+            part = Part(Compound([s for q in parts for s in q.solids()]).wrapped)
+            part.label, part.color = f"sockets {name}", colours[name]
+            children.append(part)
+    return Compound(children=children, label="sockets")
 
 
 def describe(p: BoxParams) -> str:

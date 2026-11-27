@@ -10,13 +10,17 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from hole_box_app.hole_box_model import BoxParams, PRESETS, build_hole_box, describe, hole_count, outer_size, validate
+from hole_box_app.hole_box_model import (
+	BoxParams, PRESETS, build_hole_box, build_sockets, describe, hole_count, outer_size,
+	shows_sockets, socket_room, validate,
+)
 from web_app.exports import download_response, glb_bytes, glb_response, step_bytes, threemf_bytes
 from web_app.model_cache import ModelCache, warm as warm_entry
 
 router = APIRouter()
 
 cache = ModelCache("hole_box", build_hole_box, size=8)
+sockets_cache = ModelCache("hole_box_sockets", build_sockets, size=4)  # for the preview only
 DEFAULT = BoxParams()  # the model's defaults; the page loads them from /defaults
 FILES = {
 	"glb": lambda part: glb_bytes(part, linear_deflection=0.02, angular_deflection=0.1),
@@ -96,12 +100,22 @@ def defaults_route() -> dict:
 @router.get("/info")
 def info_route(p: BoxParams = Depends(_params)) -> dict:
 	# For the page's assembled view: the box's outside width along X and its closed height, mm.
-	return {"summary": describe(p), "outer_x": outer_size(p)[0], "height": p.height}
+	# And whether the holes take the banana sockets it can show, and the room they leave above the floor.
+	return {"summary": describe(p), "outer_x": outer_size(p)[0], "height": p.height,
+	        "sockets": shows_sockets(p), "socket_room": socket_room(p)}
 
 
 @router.get("/preview.glb")
 def preview_glb(p: BoxParams = Depends(_params)):
 	return glb_response(_file(p, "glb"))
+
+
+@router.get("/sockets.glb")
+def sockets_glb(p: BoxParams = Depends(_params)):
+	"""Banana sockets in the lid's holes, the box closed, to show on the page (not in the files)."""
+	if not shows_sockets(p):
+		raise HTTPException(status_code=400, detail="The banana sockets fit round holes of about 8 mm only.")
+	return glb_response(sockets_cache.file(_key(p), p, "glb", FILES["glb"]))
 
 
 @router.get("/export.3mf")

@@ -18,6 +18,7 @@ const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
 const downloadStepBtn = document.getElementById("download-step-btn");
 const assembledInput = document.getElementById("assembled_view");
+const socketsInput = document.getElementById("show_sockets");
 const infoEl = document.getElementById("info");
 const statusEl = document.getElementById("status");
 const placeholderEl = document.getElementById("viewer-placeholder");
@@ -203,8 +204,55 @@ function applyAssembled() {
 	}
 }
 
+// Banana sockets (for a look, not in the files): a separate glTF of the closed box's sockets, in
+// the base's coordinates (the base doesn't move in the assembled view), loaded when asked for.
+let socketsModel = null;
+let socketsQuery = null;  // the query the shown sockets belong to
+let lastQuery = null;  // the query of the model shown
+let socketInfo = { sockets: false, socket_room: 0 };
+
+function socketsWanted() {
+	return assembledInput.checked && socketsInput.checked && socketInfo.sockets;
+}
+
+async function updateSockets() {
+	const query = lastQuery;
+	if (!socketsWanted() || !query) {
+		if (socketsModel) scene.remove(socketsModel);
+		socketsModel = null;
+		socketsQuery = null;
+		return;
+	}
+	if (socketsModel && socketsQuery === query) return;
+	try {
+		const response = await fetch(`${API}/sockets.glb?${query}`);
+		if (!response.ok) return;
+		const gltf = await new Promise(async (resolve, reject) => gltfLoader.parse(await response.arrayBuffer(), "", resolve, reject));
+		if (!socketsWanted() || query !== lastQuery) return;  // changed meanwhile
+		if (socketsModel) scene.remove(socketsModel);
+		socketsModel = gltf.scene;
+		socketsModel.traverse((child) => {
+			if (!child.isMesh) return;
+			let node = child;
+			while (node && !/^sockets /.test(node.name)) node = node.parent;
+			const metal = node && /brass|nickel/.test(node.name);
+			const color = child.material && child.material.color ? child.material.color : new THREE.Color(0xdddddd);
+			child.material = new THREE.MeshStandardMaterial({ color, metalness: metal ? 0.7 : 0.0, roughness: metal ? 0.35 : 0.5 });
+		});
+		socketsQuery = query;
+		scene.add(socketsModel);
+	} catch (exc) {
+		setStatus(`Failed to load the banana sockets: ${exc.message || exc}`, true);
+	}
+}
+
 function generatedStatus() {
-	setStatus(`Generated${assembledInput.checked ? ", shown assembled (saved in print orientation)" : ", in print orientation"}. Drag to rotate.`);
+	let text = `Generated${assembledInput.checked ? ", shown assembled (saved in print orientation)" : ", in print orientation"}. Drag to rotate.`;
+	if (socketsWanted() && socketInfo.socket_room < 0) {
+		text += ` The banana sockets reach ${(-socketInfo.socket_room).toFixed(1)} mm into the floor: make the box higher.`;
+	}
+	setStatus(text);
+	socketsInput.disabled = !socketInfo.sockets;
 }
 
 canvas.title = "Drag to rotate, scroll to zoom, double-click to fit the model in view.";
@@ -238,6 +286,7 @@ async function onGenerate() {
 		const info = await infoResponse.json();
 		infoEl.textContent = info.summary;
 		boxSize = { outer_x: info.outer_x, height: info.height };
+		socketInfo = { sockets: info.sockets, socket_room: info.socket_room };
 
 		const response = await fetchWithProgress(`${API}/preview.glb?${query}`, (t) => mine === generation && setStatus(t));
 		if (mine !== generation) return;
@@ -259,6 +308,8 @@ async function onGenerate() {
 		});
 		scene.add(currentModel);
 		applyAssembled();
+		lastQuery = String(query);
+		updateSockets();
 		if (!cameraFitted) {
 			fitCameraToObject(currentModel);
 			cameraFitted = true;
@@ -292,8 +343,13 @@ async function onDownload(format) {
 }
 
 generateBtn.addEventListener("click", onGenerate);
+socketsInput.addEventListener("change", () => {
+	updateSockets();
+	if (currentModel && !generateBtn.disabled) generatedStatus();
+});
 assembledInput.addEventListener("change", () => {
 	applyAssembled();
+	updateSockets();
 	if (currentModel && !generateBtn.disabled) generatedStatus();
 });
 downloadBtn.addEventListener("click", () => onDownload("3mf"));
