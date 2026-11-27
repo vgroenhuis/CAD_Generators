@@ -30,7 +30,8 @@ def _params(
 	height: float = Query(...), wall: float = Query(...), corner_radius: float = Query(...),
 	closure: str = Query(..., max_length=8), joint_length: float = Query(...), clearance: float = Query(...),
 	holes: int = Query(...), hole_shape: str = Query(..., max_length=8), hole_size: float = Query(...),
-	hole_circle: float = Query(...),
+	hole_circle: float = Query(...), text: str = Query("", max_length=40),
+	text_size: float = Query(DEFAULT.text_size), text_depth: float = Query(DEFAULT.text_depth),
 ) -> BoxParams:
 	# Settings that don't matter for this box take their defaults: one cache entry.
 	if shape != "rectangle":
@@ -41,8 +42,11 @@ def _params(
 		joint_length, clearance = DEFAULT.joint_length, DEFAULT.clearance
 	if holes == 0:
 		hole_shape, hole_size, hole_circle = DEFAULT.hole_shape, DEFAULT.hole_size, DEFAULT.hole_circle
+	text = text.strip()
+	if not text:
+		text_size, text_depth = DEFAULT.text_size, DEFAULT.text_depth
 	p = BoxParams(shape, width, depth, height, wall, corner_radius, closure, joint_length, clearance,
-	              holes, hole_shape, hole_size, hole_circle)
+	              holes, hole_shape, hole_size, hole_circle, text, text_size, text_depth)
 	try:
 		validate(p)
 	except ValueError as exc:

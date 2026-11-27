@@ -121,6 +121,18 @@
 				</div>
 				<div class="hint">Identical holes with their centres on a circle around the middle, the first at the back; one hole with radius 0 sits in the middle. A hexagon's size is across its flats.</div>
 			</div>
+			<div class="side">
+				<h3>Text on the bottom</h3>
+				<label for="text">Text (empty: none)</label>
+				<input type="text" autocomplete="off" maxlength="40" id="text">
+				<div class="row">
+					<div><label for="text_size">Size (mm)</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="text_size"></div>
+					<div><label for="text_depth">Depth (mm)</label>
+					<input type="text" inputmode="decimal" autocomplete="off" id="text_depth"></div>
+				</div>
+				<div class="hint">Set into the base's underside and filled with a separate body, flush with the bottom: on a multicolour printer it prints in another filament. Mirrored, so it reads the right way round when you turn the box over. The size is the font size.</div>
+			</div>
 
 			<button id="generate-btn">Generate</button>
 			<button id="download-step-btn" disabled>Download STEP (recommended)</button>
@@ -130,7 +142,7 @@
 			<div id="status">Enter dimensions and click Generate.</div>
 			<div id="info"></div>
 
-			<div class="fixed-info">Shown (unless assembled) and saved in print orientation, without supports: the base upright, the lid beside it upside down (its top on the bed). Base and lid are separate objects in the 3MF.</div>
+			<div class="fixed-info">Shown (unless assembled) and saved in print orientation, without supports: the base upright, the lid beside it upside down (its top on the bed). Base, lid and bottom text are separate objects in the 3MF.</div>
 		</div>
 		<div class="viewer">
 			<div class="viewer-placeholder" id="viewer-placeholder">No model generated yet.</div>

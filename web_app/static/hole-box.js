@@ -6,11 +6,12 @@ import { loadDefaults } from "./defaults.js";
 import { showViewerError } from "./error-banner.js";
 
 const API = "api/hole-box";
-const NUMBER_FIELDS = ["width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "holes", "hole_size", "hole_circle"];
+const NUMBER_FIELDS = ["width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "holes", "hole_size", "hole_circle", "text_size", "text_depth"];
 const inputs = Object.fromEntries(NUMBER_FIELDS.map((id) => [id, document.getElementById(id)]));
 const shapeInput = document.getElementById("shape");
 const closureInput = document.getElementById("closure");
 const holeShapeInput = document.getElementById("hole_shape");
+const textInput = document.getElementById("text");
 const presetSelect = document.getElementById("preset");
 const generateBtn = document.getElementById("generate-btn");
 const downloadBtn = document.getElementById("download-btn");
@@ -114,10 +115,11 @@ function updateForm() {
 	document.getElementById("closure_hint").textContent = CLOSURE_HINTS[closure];
 	const holes = parseNumber(inputs.holes.value);
 	holeShapeInput.disabled = inputs.hole_size.disabled = inputs.hole_circle.disabled = holes === 0;
+	inputs.text_size.disabled = inputs.text_depth.disabled = !textInput.value.trim();
 }
 
 function readParams() {
-	const params = { shape: shapeInput.value, closure: closureInput.value, hole_shape: holeShapeInput.value };
+	const params = { shape: shapeInput.value, closure: closureInput.value, hole_shape: holeShapeInput.value, text: textInput.value.trim() };
 	for (const id of NUMBER_FIELDS) {
 		const value = parseNumber(inputs[id].value);
 		if (!Number.isFinite(value)) {
@@ -282,11 +284,11 @@ downloadStepBtn.addEventListener("click", () => onDownload("step"));
 	presetSelect.value = matchingPreset();
 	onGenerate();
 }));
-Object.values(inputs).forEach((el) => {
+[...Object.values(inputs), textInput].forEach((el) => {
 	el.addEventListener("input", () => {
 		downloadBtn.disabled = true;
 		downloadStepBtn.disabled = true;
-		if (el === inputs.holes) updateForm();
+		if (el === inputs.holes || el === textInput) updateForm();
 		presetSelect.value = matchingPreset();
 	});
 	el.addEventListener("keydown", (e) => {

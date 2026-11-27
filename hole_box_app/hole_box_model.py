@@ -23,6 +23,10 @@
             thread in its skirt (a rounded profile that prints without supports)
         `joint_length` is the plug's depth (snap) or the thread's length; `clearance` is the
         gap on each side between the parts that slide or screw together
+      * text on the bottom (optional): `text`, `text_size` high (the font size), engraved
+        `text_depth` deep into the base's underside and filled by a second body in another
+        colour, flush with the bottom: printed first, on the bed, in a contrasting filament on
+        a multicolour printer. Mirrored, so it reads the right way round on the box's underside
 
     Both parts print without supports: the base upright, the lid upside down (its top on the
     bed); the files have them side by side in that orientation.
@@ -38,14 +42,19 @@ from dataclasses import dataclass, replace
 
 from build123d import (
     Align, Axis, Box, Circle, Color, Compound, Face, Kind, Part, Plane, Polygon, Pos, Rectangle, RegularPolygon,
-    Rot, Solid, Spline, Vector, Wire, export_step, extrude, offset, revolve,
+    Rot, Solid, Spline, Vector, Wire, export_step, extrude, mirror, offset, revolve,
 )
+
+from cad_common.text import min_font_size, printable_text
 
 SHAPES = ("round", "square", "rectangle", "hexagon")
 HOLE_SHAPES = ("round", "square", "hexagon")
 CLOSURES = ("snap", "screws", "thread")
 BASE_COLOUR = Color(0.3, 0.55, 0.8)
 LID_COLOUR = Color(0.88, 0.88, 0.85)
+TEXT_COLOUR = Color(0.08, 0.08, 0.08)
+TEXT_MARGIN = 2.0  # mm, least distance from the bottom text to the box's outside edge
+MAX_TEXT = 40  # characters
 SNAP_BEAD = 0.4  # mm the bead stands out from the plug (the groove is 0.1 mm deeper)
 PLUG_WALL = 1.6  # mm, the snap plug's wall
 NOTCH_WIDTH = 10.0  # mm, the lever notch in the base's rim (snap)
@@ -76,6 +85,9 @@ class BoxParams:
     hole_shape: str = "round"
     hole_size: float = 8.0  # diameter, side or across flats
     hole_circle: float = 12.0  # radius of the circle the holes' centres are on
+    text: str = ""  # on the bottom, in a second colour; empty: none
+    text_size: float = 8.0  # mm, the font size
+    text_depth: float = 0.6  # mm, into the bottom
 
 
 # Named settings the page offers (each a complete set).
@@ -235,6 +247,13 @@ def screw_length(p: BoxParams) -> int:
 
 # ---- checks ---------------------------------------------------------------------------------
 
+def bottom_text(p: BoxParams):
+    """The bottom text's 2D outline, centred and mirrored (it reads right seen from below), or None."""
+    if not p.text.strip():
+        return None
+    return mirror(printable_text(p.text.strip(), p.text_size, align=(Align.CENTER, Align.CENTER)), Plane.YZ)
+
+
 def validate(p: BoxParams) -> None:
     if p.shape not in SHAPES:
         raise ValueError(f"The shape must be one of {', '.join(SHAPES)}.")
@@ -304,6 +323,22 @@ def validate(p: BoxParams) -> None:
             where = {"thread": "the lid's thread", "snap": "the lid's plug",
                      "screws": "the walls or the screws"}[p.closure]
             raise ValueError(f"The holes reach {where}: make the circle smaller, the holes smaller or the box larger.")
+    if p.text.strip():
+        if len(p.text) > MAX_TEXT:
+            raise ValueError(f"The bottom text can be at most {MAX_TEXT} characters.")
+        least = math.ceil(min_font_size() * 10) / 10
+        if not least <= p.text_size <= 100:
+            raise ValueError(f"The text size must be between {least:g} mm (thinner strokes don't print) and 100 mm.")
+        if not 0.2 <= p.text_depth <= p.wall - 0.6:
+            raise ValueError(f"The text depth must be between 0.2 mm and {p.wall - 0.6:g} mm "
+                             "(the wall thickness less 0.6 mm).")
+        text = bottom_text(p)
+        if text is None or not text.faces():
+            raise ValueError("The bottom text has no characters the font can draw.")
+        size = text.bounding_box().size
+        if (Rectangle(size.X, size.Y) - outline(p, -TEXT_MARGIN)).area > 1e-3:
+            raise ValueError(f"The bottom text is too large for the box: it must stay {TEXT_MARGIN:g} mm from the edge. "
+                             "Make the text smaller or shorter.")
 
 
 # ---- parts ----------------------------------------------------------------------------------
@@ -323,17 +358,21 @@ def build_base(p: BoxParams) -> Part:
         chamfer = r - bore
         cavity = revolve(Plane.XZ * Polygon((0, w), (r, w), (r, hb - chamfer), (bore, hb), (bore, top + 1),
                                             (0, top + 1), align=None), Axis.Z)
-        return Part((base - cavity).wrapped)
-    base = base - _prism(outline(p, -w), w, hb + 1)
-    if p.closure == "snap":
+        base = base - cavity
+    elif p.closure == "snap":
+        base = base - _prism(outline(p, -w), w, hb + 1)
         zc = hb - p.joint_length / 2
         base = base - _diamond(p, -w, SNAP_BEAD + 0.1, zc)
         y = outer_size(p)[1] / 2
         base = base - Pos(0, -y, hb) * Box(NOTCH_WIDTH, 2 * w + 2, 2 * NOTCH_DEPTH)
     else:
+        base = base - _prism(outline(p, -w), w, hb + 1)
         posts = [_prism(Pos(x, y) * Circle(POST_DIAMETER / 2), w - 0.01, hb) for x, y in screw_positions(p)]
         base = base + posts
         base = base - [_prism(Pos(x, y) * Circle(SCREW_PILOT / 2), w + 1, hb + 1) for x, y in screw_positions(p)]
+    text = bottom_text(p)
+    if text is not None:
+        base = base - _prism(text, -1, p.text_depth)
     return Part(base.wrapped)
 
 
@@ -374,7 +413,14 @@ def build_hole_box(p: BoxParams) -> Compound:
     lid = Part((Pos(x + 10, 0, p.height) * Rot(180, 0, 0) * lid).wrapped)
     base.label, base.color = "base", BASE_COLOUR
     lid.label, lid.color = "lid", LID_COLOUR
-    return Compound(children=[base, lid], label="hole_box")
+    children = [base, lid]
+    text = bottom_text(p)
+    if text is not None:
+        filling = _prism(text, 0, p.text_depth)
+        filling = Part(Compound([s for s in filling.solids()]).wrapped)
+        filling.label, filling.color = "bottom text", TEXT_COLOUR
+        children.append(filling)
+    return Compound(children=children, label="hole_box")
 
 
 def describe(p: BoxParams) -> str:
@@ -399,6 +445,9 @@ def describe(p: BoxParams) -> str:
                  f"{f', up to {length} mm long' if length else ''}.")
         inside = p.height - 2 * p.wall
     text += f" Inside height {inside:g} mm."
+    if p.text.strip():
+        text_ = f" \"{p.text.strip()}\" on the bottom, {p.text_size:g} mm high and {p.text_depth:g} mm deep, in a second colour."
+        text += text_
     if p.holes:
         what = {"round": f"Ø{p.hole_size:g} mm", "square": f"{p.hole_size:g} mm square",
                 "hexagon": f"{p.hole_size:g} mm hexagonal (across flats)"}[p.hole_shape]
@@ -416,6 +465,9 @@ def main() -> None:
     for name in ("width", "depth", "height", "wall", "corner_radius", "joint_length", "clearance", "hole_size", "hole_circle"):
         ap.add_argument(f"--{name.replace('_', '-')}", type=float, default=getattr(d, name))
     ap.add_argument("--holes", type=int, default=d.holes)
+    ap.add_argument("--text", default=d.text)
+    for name in ("text_size", "text_depth"):
+        ap.add_argument(f"--{name.replace('_', '-')}", type=float, default=getattr(d, name))
     ap.add_argument("--out", default="hole_box.step")
     args = vars(ap.parse_args())
     out = args.pop("out")
