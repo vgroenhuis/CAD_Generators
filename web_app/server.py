@@ -23,8 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from web_app import pregenerate, progress
 from web_app.model_cache import disk
 from web_app.generators import (
-	apriltag_cube, cable_clip, calibration_plate, game_tiles, orifice, pneumatic, powerbank_holder, ring, sanding_rack,
-	screwdriver_handle, tolerance_test, transition_adapter,
+	apriltag_cube, cable_clip, calibration_plate, game_tiles, hole_box, orifice, pneumatic, powerbank_holder, ring,
+	sanding_rack, screwdriver_handle, tolerance_test, transition_adapter,
 )
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -40,7 +40,7 @@ if not log.handlers:
 def warm_defaults() -> None:
 	"""Build the default model of every generator (with its files), one after another."""
 	for module in (ring, powerbank_holder, apriltag_cube, orifice, cable_clip, pneumatic, game_tiles, calibration_plate, sanding_rack,
-	               transition_adapter, screwdriver_handle, tolerance_test):
+	               transition_adapter, screwdriver_handle, tolerance_test, hole_box):
 		try:
 			module.warm()
 		except Exception:
@@ -82,6 +82,7 @@ app.include_router(game_tiles.router, prefix="/api/game-tiles")
 app.include_router(transition_adapter.router, prefix="/api/transition-adapter")
 app.include_router(screwdriver_handle.router, prefix="/api/screwdriver-handle")
 app.include_router(tolerance_test.router, prefix="/api/tolerance-test")
+app.include_router(hole_box.router, prefix="/api/hole-box")
 
 
 _SAFE_URL = re.compile(r"(/|https?://)[^\s\"'<>]*")
