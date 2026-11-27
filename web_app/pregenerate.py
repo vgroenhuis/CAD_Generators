@@ -17,6 +17,9 @@ How it works:
   process makes the missing tiles one at a time, each only when the server is idle, and exits
   when all are there. A visitor arriving during a tile gets the CPU first (nice 19); the tile
   is finished, the next one waits until the server is idle again.
+* It stays light on a shared server: one CPU core only (also for the libraries' threads),
+  idle-class disk priority, each tile (and the warming) in its own short-lived process so
+  its memory is returned when it is done, and a pause of PAUSE_SECONDS between tiles.
 
 CAD_PREGENERATE=0 turns it off (by default it is on when CAD_WARM_CACHE is); it also needs the
 disk cache. Run `python -m web_app.pregenerate --list` to see what is missing.
@@ -25,6 +28,7 @@ disk cache. Run `python -m web_app.pregenerate --list` to see what is missing.
 from __future__ import annotations
 
 import fcntl
+import shutil
 import logging
 import os
 import subprocess
@@ -36,6 +40,7 @@ from pathlib import Path
 log = logging.getLogger("cad_generators.pregenerate")
 
 IDLE_SECONDS = 60  # no request for this long: idle
+PAUSE_SECONDS = 30  # between two tiles
 RECHECK_SECONDS = 3600  # look for missing tiles again (e.g. pruned from the disk cache)
 MAX_SHARE = 0.6  # stop when the tiles of the current code would take more of the disk cache than this
 
@@ -103,6 +108,36 @@ def enabled() -> bool:
 	return os.environ.get("CAD_PREGENERATE", default) != "0" and disk.enabled
 
 
+_THREAD_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS")
+
+
+def _light() -> None:
+	"""(In the pre-generating process, before it starts.) Lowest CPU priority, one core."""
+	os.nice(19)
+	try:
+		cores = sorted(os.sched_getaffinity(0))
+		os.sched_setaffinity(0, {cores[-1]})
+	except (AttributeError, OSError):
+		pass
+
+
+def _light_command(args: list[str]) -> list[str]:
+	"""A python -m web_app.pregenerate command, with idle-class disk priority where possible."""
+	command = [sys.executable, "-m", "web_app.pregenerate", *args]
+	ionice = shutil.which("ionice")
+	return [ionice, "-c3", *command] if ionice else command
+
+
+def _light_env() -> dict:
+	return {**os.environ, **{name: "1" for name in _THREAD_VARS}}
+
+
+def _run_child(args: list[str]) -> int:
+	"""Run a step in its own process (it inherits the priority and core), so its memory is
+	returned when it ends."""
+	return subprocess.run(_light_command(args), cwd=Path(__file__).resolve().parent.parent, env=_light_env()).returncode
+
+
 def start(warm: bool = False) -> None:
 	"""In one server worker: run the pre-generating process now and every RECHECK_SECONDS; with
 	warm=True it first builds the default model of every generator (server.warm_defaults), also
@@ -125,8 +160,8 @@ def start(warm: bool = False) -> None:
 			args = (["--warm"] if first and warm else []) + ([] if tiles else ["--no-tiles"])
 			first = False
 			try:
-				result = subprocess.run([sys.executable, "-m", "web_app.pregenerate", *args], cwd=Path(__file__).resolve().parent.parent,
-										preexec_fn=lambda: os.nice(19))
+				result = subprocess.run(_light_command(args), cwd=Path(__file__).resolve().parent.parent,
+										env=_light_env(), preexec_fn=_light)
 				if result.returncode:
 					log.warning("pre-generating stopped with code %d", result.returncode)
 			except Exception:
@@ -172,10 +207,23 @@ def main() -> int:
 	log.setLevel(logging.INFO)
 	log.propagate = False  # (its own handler)
 	logging.getLogger("cad_generators.cache").setLevel(logging.WARNING)  # one line per tile is enough
-	if "--warm" in sys.argv:  # the default model of every generator first
+	if "--only-warm" in sys.argv:  # (a child process, see _run_child)
 		from web_app.server import warm_defaults  # (its import sets up the "cad_generators" log)
 
 		warm_defaults()
+		return 0
+	if "--tile" in sys.argv:  # (a child process): make one tile's files
+		from game_tiles_app.game_tile_model import TileParams
+		from web_app.generators import game_tiles as g
+
+		i = sys.argv.index("--tile")
+		p = TileParams(tile_type=sys.argv[i + 1], shape=sys.argv[i + 2])
+		for kind, make in g._makers(p).items():
+			g.cache.file(g._key(p), p, kind, make)
+		return 0
+	if "--warm" in sys.argv:  # the default model of every generator first
+		if _run_child(["--only-warm"]):
+			log.warning("warming the default models failed")
 	if "--no-tiles" in sys.argv:
 		return 0
 	from web_app.generators import game_tiles as g
@@ -203,14 +251,12 @@ def main() -> int:
 			log.warning("the disk cache is too small for all pre-generated tiles (CAD_DISK_CACHE_MB): stopped")
 			return 1
 		start = time.monotonic()
-		try:
-			for kind, make in g._makers(p).items():
-				g.cache.file(g._key(p), p, kind, make)
-		except Exception:
-			log.exception("could not pre-generate %s %s", p.tile_type, p.shape)
-			continue
-		log.info("pre-generated %s %s in %.0f s", p.tile_type, p.shape, time.monotonic() - start)
-		g.discard_superseded()  # its older versions
+		if _run_child(["--tile", p.tile_type, p.shape]):
+			log.warning("could not pre-generate %s %s", p.tile_type, p.shape)
+		else:
+			log.info("pre-generated %s %s in %.0f s", p.tile_type, p.shape, time.monotonic() - start)
+			g.discard_superseded()  # its older versions
+		time.sleep(PAUSE_SECONDS)
 	return 0
 
 

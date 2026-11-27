@@ -70,6 +70,7 @@ def _colours(p: TileParams) -> list[str]:
 
 
 cache = ModelCache("game_tiles", build_tiles, size=8, meta=_meta)
+disk.register("game_tiles_colours", disk.scope(cache.name) or ())  # the same code
 DEFAULT = TileParams()
 FILES = {
 	"glb": lambda part: glb_bytes(part, linear_deflection=0.02, angular_deflection=0.2),
@@ -287,7 +288,7 @@ def discard_superseded() -> int:
 	for e in disk.entries(cache.name, all_versions=True):
 		if "params" not in e["meta"]:
 			continue
-		e["rank"] = (e["version"] == disk.version, e["created"] or 0)
+		e["rank"] = (e["version"] == disk.version_of(cache.name), e["created"] or 0)
 		key = _identity(e["meta"]["params"])
 		other = newest.get(key)
 		if other is None:
@@ -311,6 +312,7 @@ def stored(older: bool = Query(True)) -> dict:
 	the whole store, and its limit. Files of older code are fetched with /stored/{id}/{kind}."""
 	discard_superseded()
 	commits = code_versions.commits() if older else {}
+	current = disk.version_of(cache.name)
 	tiles = []
 	for e in disk.entries(cache.name, all_versions=older):
 		meta = e["meta"]
@@ -318,12 +320,12 @@ def stored(older: bool = Query(True)) -> dict:
 			continue
 		c = commits.get(e["version"], {})
 		tiles.append({**meta, "id": e["id"], "files": e["files"], "created": e["created"], "used": e["used"],
-					  "version": e["version"], "current": e["version"] == disk.version,
+					  "version": e["version"], "current": e["version"] == current,
 					  "commit": c.get("commit"), "commit_date": c.get("date")})
 	tiles.sort(key=lambda t: t["created"] or 0, reverse=True)
 	listed = sum(sum(t["files"].values()) for t in tiles if t["current"])
 	return {
-		"enabled": disk.enabled, "tiles": tiles, "version": disk.version,
+		"enabled": disk.enabled, "tiles": tiles, "version": current,
 		"bytes": {"listed": listed, "game_tiles": disk.usage(cache.name), "store": disk.usage(), "limit": disk.limit},
 	}
 
