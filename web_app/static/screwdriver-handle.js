@@ -366,14 +366,19 @@ function setupPresets(serverPresets) {
 	presetSelect.value = matchingPreset();
 }
 
-presetSelect.addEventListener("change", () => {
-	if (presetSelect.value === CUSTOM) return;
-	for (const [id, value] of Object.entries(presets[presetSelect.value])) {
+function applyPreset(name) {
+	for (const [id, value] of Object.entries(presets[name])) {
 		const el = document.getElementById(id);
 		if (!el) continue;
 		if (el.type === "checkbox") el.checked = Boolean(value);
 		else el.value = String(value);
 	}
+	presetSelect.value = name;
+}
+
+presetSelect.addEventListener("change", () => {
+	if (presetSelect.value === CUSTOM) return;
+	applyPreset(presetSelect.value);
 	updateFields();
 	onGenerate();
 });
@@ -386,6 +391,10 @@ function start() {
 	return loadDefaults(API)
 		.then((defaults) => {
 			setupPresets(defaults.presets);
+			// The page starts with the first preset (the standard handle), which the server prepares
+			// at startup like the defaults; fields without a preset value keep the defaults.
+			const first = Object.keys(presets)[0];
+			if (first) applyPreset(first);
 			updateFields();
 			onGenerate();
 		})
@@ -393,5 +402,5 @@ function start() {
 }
 defaultsBtn.addEventListener("click", start);
 
-// Start from the server's defaults (the model's), then show the default handle.
+// Start from the server's defaults (the model's) and the first preset, then show that handle.
 start();
